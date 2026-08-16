@@ -217,6 +217,12 @@ export function AdminContributionSettings() {
       value: String(option.value),
     })
   )
+  const groupOptions = (settingsQuery.data?.available_groups ?? []).map(
+    (group) => ({
+      label: group,
+      value: group,
+    })
+  )
 
   if (settingsQuery.isLoading) {
     return (
@@ -309,15 +315,10 @@ export function AdminContributionSettings() {
                     <FormLabel>{t('Allowed groups')}</FormLabel>
                     <FormControl>
                       <MultiSelect
-                        options={field.value.map((group) => ({
-                          label: group,
-                          value: group,
-                        }))}
+                        options={groupOptions}
                         selected={field.value}
                         onChange={field.onChange}
-                        allowCreate
-                        placeholder={t('Add an allowed group')}
-                        createLabel={t('Add "{{value}}"')}
+                        placeholder={t('Select allowed groups')}
                       />
                     </FormControl>
                     <FormMessage />

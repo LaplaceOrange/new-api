@@ -219,6 +219,7 @@ export type ChannelContributionAdminSettings = {
   agreement_version: string
   agreement_content: string
   supported_channel_types?: Array<{ value: number; label: string }>
+  available_groups?: string[]
 }
 
 export type ChannelContributionPayload = {

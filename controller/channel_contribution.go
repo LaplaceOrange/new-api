@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -72,6 +73,7 @@ type channelContributionChannelTypeOption struct {
 type channelContributionSettingsResponse struct {
 	operation_setting.ChannelContributionSetting
 	SupportedChannelTypes []channelContributionChannelTypeOption `json:"supported_channel_types"`
+	AvailableGroups       []string                               `json:"available_groups"`
 }
 
 type channelContributionRevisionResponse struct {
@@ -187,9 +189,16 @@ func channelContributionTypeOptions(channelTypes []int) []channelContributionCha
 }
 
 func buildChannelContributionSettingsResponse(setting operation_setting.ChannelContributionSetting) channelContributionSettingsResponse {
+	availableGroupsMap := ratio_setting.GetGroupRatioCopy()
+	availableGroups := make([]string, 0, len(availableGroupsMap))
+	for group := range availableGroupsMap {
+		availableGroups = append(availableGroups, group)
+	}
+	sort.Strings(availableGroups)
 	return channelContributionSettingsResponse{
 		ChannelContributionSetting: setting,
 		SupportedChannelTypes:      channelContributionTypeOptions(operation_setting.GetSupportedChannelContributionTypes()),
+		AvailableGroups:            availableGroups,
 	}
 }
 
@@ -257,6 +266,9 @@ func normalizeChannelContributionInput(input channelContributionInput, previous 
 	}
 	if !setting.IsGroupAllowed(revision.Group) {
 		return nil, errors.New("group is not enabled for contribution")
+	}
+	if _, ok := ratio_setting.GetGroupRatioCopy()[revision.Group]; !ok {
+		return nil, errors.New("group is not configured in the current API groups")
 	}
 
 	seenModels := make(map[string]struct{}, len(input.Models))
@@ -954,6 +966,14 @@ func UpdateAdminChannelContributionSettings(c *gin.Context) {
 	if versionChanged != contentChanged {
 		common.ApiErrorMsg(c, "agreement_version and agreement_content must change together")
 		return
+	}
+	availableGroups := ratio_setting.GetGroupRatioCopy()
+	for _, group := range updated.AllowedGroups {
+		group = strings.TrimSpace(group)
+		if _, ok := availableGroups[group]; !ok {
+			common.ApiErrorMsg(c, fmt.Sprintf("allowed_groups contains a group that is not configured: %s", group))
+			return
+		}
 	}
 
 	groupsJSON, err := common.Marshal(updated.AllowedGroups)

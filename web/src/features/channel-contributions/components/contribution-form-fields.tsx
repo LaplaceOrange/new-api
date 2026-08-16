@@ -50,6 +50,9 @@ export function ContributionFormFields(props: {
 }) {
   const { t } = useTranslation()
   const models = props.form.watch('models')
+  const selectedType = props.channelTypes.find(
+    (option) => option.value === props.form.watch('type')
+  )
   const modelOptions = models.map((model) => ({ label: model, value: model }))
 
   return (
@@ -87,7 +90,9 @@ export function ContributionFormFields(props: {
               >
                 <FormControl>
                   <SelectTrigger className='w-full'>
-                    <SelectValue placeholder={t('Select channel type')} />
+                    <SelectValue placeholder={t('Select channel type')}>
+                      {selectedType ? t(selectedType.label) : undefined}
+                    </SelectValue>
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent alignItemWithTrigger={false}>
