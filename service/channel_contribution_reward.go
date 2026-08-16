@@ -59,6 +59,9 @@ func SettleChannelContributionReward(ctx *gin.Context, info *relaycommon.RelayIn
 	}
 	reward, clamp := common.QuotaFromFloatChecked(float64(chargedQuota) * float64(info.ContributionRewardBps) / 10_000)
 	if clamp != nil {
+		if info.QuotaClamp == nil {
+			info.QuotaClamp = clamp
+		}
 		logger.LogWarn(ctx, fmt.Sprintf(
 			"channel contribution reward saturated: request_id=%s channel_id=%d source_quota=%d reward_bps=%d clamp=%v",
 			info.RequestId,

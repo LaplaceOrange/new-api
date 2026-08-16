@@ -98,14 +98,22 @@ func channelContributionReviewedFieldsChanged(before *Channel, after *Channel) b
 	if before == nil || after == nil {
 		return true
 	}
-	left := *before
-	right := *after
-	left.Id = right.Id
-	left.Status = right.Status
-	left.Tag = right.Tag
-	left.Priority = right.Priority
-	left.Weight = right.Weight
-	left.Keys = nil
-	right.Keys = nil
+	type reviewedFields struct {
+		Name         string
+		Type         int
+		BaseURL      *string
+		Key          string
+		Group        string
+		Models       string
+		ModelMapping *string
+	}
+	left := reviewedFields{
+		Name: before.Name, Type: before.Type, BaseURL: before.BaseURL, Key: before.Key,
+		Group: before.Group, Models: before.Models, ModelMapping: before.ModelMapping,
+	}
+	right := reviewedFields{
+		Name: after.Name, Type: after.Type, BaseURL: after.BaseURL, Key: after.Key,
+		Group: after.Group, Models: after.Models, ModelMapping: after.ModelMapping,
+	}
 	return !reflect.DeepEqual(left, right)
 }

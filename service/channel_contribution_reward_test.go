@@ -15,12 +15,14 @@ func prepareChannelContributionRewardServiceTest(t *testing.T) {
 	require.NoError(t, model.DB.AutoMigrate(
 		&model.ChannelContribution{},
 		&model.ChannelContributionRevision{},
+		&model.ChannelContributionModelHealth{},
 		&model.ChannelContributionRewardAccount{},
 		&model.ChannelContributionRewardLedger{},
 	))
 	clear := func() {
 		model.DB.Exec("DELETE FROM channel_contribution_reward_ledgers")
 		model.DB.Exec("DELETE FROM channel_contribution_reward_accounts")
+		model.DB.Exec("DELETE FROM channel_contribution_model_healths")
 		model.DB.Exec("DELETE FROM channel_contribution_revisions")
 		model.DB.Exec("DELETE FROM channel_contributions")
 		model.DB.Exec("DELETE FROM abilities")

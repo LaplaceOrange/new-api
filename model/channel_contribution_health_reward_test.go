@@ -467,6 +467,25 @@ func TestContributionChannelAdminMutationRequiresRevisionForSensitiveFields(t *t
 	require.ErrorIs(t, err, ErrChannelContributionRequiresReview)
 }
 
+func TestContributionChannelPartialAdminUpdatePreservesReviewedFields(t *testing.T) {
+	prepareChannelContributionFeatureTables(t)
+	_, _, channel := seedApprovedContributionHealthFixture(t, "model-a")
+	newTag := "partial-update"
+
+	patch := &Channel{Id: channel.Id, Tag: &newTag}
+	require.NoError(t, patch.Update())
+
+	reloaded, err := GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, channel.Name, reloaded.Name)
+	assert.Equal(t, channel.Type, reloaded.Type)
+	assert.Equal(t, channel.Key, reloaded.Key)
+	assert.Equal(t, channel.Group, reloaded.Group)
+	assert.Equal(t, channel.Models, reloaded.Models)
+	require.NotNil(t, reloaded.Tag)
+	assert.Equal(t, newTag, *reloaded.Tag)
+}
+
 func TestChannelContributionRewardCreditIsIdempotentAndAuditsSaturation(t *testing.T) {
 	prepareChannelContributionFeatureTables(t)
 	clamp := &common.QuotaClamp{

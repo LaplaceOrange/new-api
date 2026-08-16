@@ -169,7 +169,7 @@ export function AdminContributionList(props: {
                             {contribution.username || '-'}
                           </span>
                           <span className='text-muted-foreground text-xs'>
-                            ID {contribution.user_id ?? '-'}
+                            {t('ID')} {contribution.user_id ?? '-'}
                           </span>
                         </TableCell>
                         <TableCell>
@@ -224,7 +224,7 @@ export function AdminContributionList(props: {
                           {getContributionName(contribution)}
                         </h3>
                         <p className='text-muted-foreground mt-1 text-xs'>
-                          {contribution.username || '-'} · ID{' '}
+                          {contribution.username || '-'} · {t('ID')}{' '}
                           {contribution.user_id ?? '-'}
                         </p>
                       </div>

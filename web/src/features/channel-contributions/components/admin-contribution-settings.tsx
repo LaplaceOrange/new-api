@@ -131,8 +131,14 @@ function NumberSetting(props: {
               min={props.min}
               max={props.max}
               step={1}
-              value={field.value}
-              onChange={(event) => field.onChange(Number(event.target.value))}
+              value={field.value ?? ''}
+              onChange={(event) =>
+                field.onChange(
+                  event.target.value === ''
+                    ? undefined
+                    : event.target.valueAsNumber
+                )
+              }
             />
           </FormControl>
           <FormDescription>{props.description}</FormDescription>

@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -20,11 +21,11 @@ var ErrChannelContributionRewardInsufficientBalance = errors.New("channel contri
 
 type ChannelContributionRewardAccount struct {
 	UserId              int   `json:"user_id" gorm:"primaryKey;autoIncrement:false"`
-	Balance             int64 `json:"balance" gorm:"bigint;not null"`
-	LifetimeEarned      int64 `json:"lifetime_earned" gorm:"bigint;not null"`
-	LifetimeTransferred int64 `json:"lifetime_transferred" gorm:"bigint;not null"`
-	CreatedAt           int64 `json:"created_at" gorm:"bigint;not null"`
-	UpdatedAt           int64 `json:"updated_at" gorm:"bigint;index;not null"`
+	Balance             int64 `json:"balance" gorm:"type:bigint;not null"`
+	LifetimeEarned      int64 `json:"lifetime_earned" gorm:"type:bigint;not null"`
+	LifetimeTransferred int64 `json:"lifetime_transferred" gorm:"type:bigint;not null"`
+	CreatedAt           int64 `json:"created_at" gorm:"type:bigint;not null"`
+	UpdatedAt           int64 `json:"updated_at" gorm:"type:bigint;index;not null"`
 }
 
 type ChannelContributionRewardLedger struct {
@@ -34,13 +35,13 @@ type ChannelContributionRewardLedger struct {
 	ChannelId       int    `json:"channel_id" gorm:"uniqueIndex:uk_contribution_reward_request,priority:1;index;not null"`
 	RequestId       string `json:"request_id" gorm:"type:varchar(128);uniqueIndex:uk_contribution_reward_request,priority:2;not null"`
 	EntryType       string `json:"entry_type" gorm:"type:varchar(32);not null"`
-	Amount          int64  `json:"amount" gorm:"bigint;not null"`
-	BalanceAfter    int64  `json:"balance_after" gorm:"bigint;not null"`
+	Amount          int64  `json:"amount" gorm:"type:bigint;not null"`
+	BalanceAfter    int64  `json:"balance_after" gorm:"type:bigint;not null"`
 	SourceQuota     int    `json:"source_quota" gorm:"not null"`
 	RewardBps       int    `json:"reward_bps" gorm:"not null"`
 	QuotaSaturated  bool   `json:"quota_saturated" gorm:"not null"`
 	QuotaSaturation string `json:"quota_saturation" gorm:"type:text;not null"`
-	CreatedAt       int64  `json:"created_at" gorm:"bigint;index;not null"`
+	CreatedAt       int64  `json:"created_at" gorm:"type:bigint;index;not null"`
 }
 
 type ChannelContributionRewardTarget struct {
@@ -289,5 +290,6 @@ func TransferChannelContributionReward(userId int, amount int) (*ChannelContribu
 	if err := cacheIncrUserQuota(userId, int64(amount)); err != nil {
 		common.SysError(fmt.Sprintf("failed to update user quota cache after contribution reward transfer: user_id=%d err=%v", userId, err))
 	}
+	RecordLog(userId, LogTypeTopup, fmt.Sprintf("渠道贡献奖励划转 %s", logger.LogQuota(amount)))
 	return &entry, nil
 }

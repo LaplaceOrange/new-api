@@ -280,7 +280,7 @@ export function AdminContributionDetail(props: {
                     </h3>
                     <dl className='grid gap-4 border-y py-4 sm:grid-cols-2 lg:grid-cols-3'>
                       <DetailValue label={t('Contributor')}>
-                        {contribution.username || '-'} · ID{' '}
+                        {contribution.username || '-'} · {t('ID')}{' '}
                         {contribution.user_id ?? '-'}
                       </DetailValue>
                       <DetailValue label={t('Channel type')}>

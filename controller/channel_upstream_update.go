@@ -390,7 +390,14 @@ func getFetchModelsResponseBody(method string, requestURL string, channel *model
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("status code: %d", response.StatusCode)
 	}
-	return io.ReadAll(response.Body)
+	body, err := io.ReadAll(io.LimitReader(response.Body, service.StrictSSRFProtectedResponseBodyLimitBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > service.StrictSSRFProtectedResponseBodyLimitBytes {
+		return nil, fmt.Errorf("model list response exceeds %d bytes", service.StrictSSRFProtectedResponseBodyLimitBytes)
+	}
+	return body, nil
 }
 
 func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {

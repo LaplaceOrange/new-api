@@ -76,6 +76,10 @@ func (recorder *channelTestResponseRecorder) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
+func (recorder *channelTestResponseRecorder) WriteString(data string) (int, error) {
+	return recorder.Write([]byte(data))
+}
+
 func normalizeChannelTestEndpoint(channel *model.Channel, endpointType string) string {
 	normalized := strings.TrimSpace(endpointType)
 	if normalized != "" {

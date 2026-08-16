@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -114,6 +114,7 @@ export function ContributionWorkspace(props: {
   const [agreementChecked, setAgreementChecked] = useState(false)
   const [agreementOpen, setAgreementOpen] = useState(false)
   const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
+  const resetContributionId = useRef<number | null | undefined>(undefined)
   const {
     isTurnstileEnabled,
     turnstileSiteKey,
@@ -142,6 +143,9 @@ export function ContributionWorkspace(props: {
   const unsaved = currentFingerprint !== savedFingerprint
 
   useEffect(() => {
+    const contributionId = props.initialContribution?.id ?? null
+    if (resetContributionId.current === contributionId) return
+    resetContributionId.current = contributionId
     form.reset(defaultValues)
     setSavedContribution(props.initialContribution)
     setSavedFingerprint(formFingerprint(defaultValues))

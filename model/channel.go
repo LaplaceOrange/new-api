@@ -587,6 +587,27 @@ func (channel *Channel) Update() error {
 			if err := lockForUpdate(tx).Where("id = ?", channel.Id).First(&existing).Error; err != nil {
 				return err
 			}
+			if channel.Name == "" {
+				channel.Name = existing.Name
+			}
+			if channel.Type == 0 {
+				channel.Type = existing.Type
+			}
+			if channel.BaseURL == nil {
+				channel.BaseURL = existing.BaseURL
+			}
+			if channel.Key == "" {
+				channel.Key = existing.Key
+			}
+			if channel.Group == "" {
+				channel.Group = existing.Group
+			}
+			if channel.Models == "" {
+				channel.Models = existing.Models
+			}
+			if channel.ModelMapping == nil {
+				channel.ModelMapping = existing.ModelMapping
+			}
 			if channelContributionReviewedFieldsChanged(&existing, channel) {
 				return ErrChannelContributionRequiresReview
 			}

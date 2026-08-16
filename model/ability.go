@@ -202,9 +202,11 @@ func (channel *Channel) AddAbilities(tx *gorm.DB) error {
 		useDB = DB
 	}
 	if channel.Id > 0 {
-		if unhealthyByChannel, err := contributionUnhealthyModelSet(useDB, []int{channel.Id}); err == nil {
-			unhealthyModels = unhealthyByChannel[channel.Id]
+		unhealthyByChannel, err := contributionUnhealthyModelSet(useDB, []int{channel.Id})
+		if err != nil {
+			return err
 		}
+		unhealthyModels = unhealthyByChannel[channel.Id]
 	}
 	return createChannelAbilitiesTx(useDB, channel, abilityEnabled, unhealthyModels)
 }

@@ -284,10 +284,19 @@ func CacheUpdateChannelStatus(id int, status int) {
 	if !common.MemoryCacheEnabled {
 		return
 	}
+	var abilities []Ability
+	if status == common.ChannelStatusEnabled {
+		var err error
+		abilities, err = loadEnabledChannelAbilities(id)
+		if err != nil {
+			common.SysError(fmt.Sprintf("failed to refresh channel routing abilities: channel_id=%d err=%v", id, err))
+			return
+		}
+	}
 	channelSyncLock.Lock()
 	if channel, ok := channelsIDM[id]; ok {
 		channel.Status = status
-		refreshChannelRoutingCacheLocked(channel)
+		refreshChannelRoutingCacheLocked(channel, abilities)
 	}
 	channelCacheGeneration++
 	channelSyncLock.Unlock()
@@ -299,6 +308,15 @@ func CacheUpdateChannelStatus(id int, status int) {
 func CacheUpdateChannelState(channel *Channel) {
 	if !common.MemoryCacheEnabled || channel == nil {
 		return
+	}
+	var abilities []Ability
+	if channelIsRoutable(channel) {
+		var err error
+		abilities, err = loadEnabledChannelAbilities(channel.Id)
+		if err != nil {
+			common.SysError(fmt.Sprintf("failed to refresh channel routing abilities: channel_id=%d err=%v", channel.Id, err))
+			return
+		}
 	}
 
 	channelSyncLock.Lock()
@@ -318,7 +336,7 @@ func CacheUpdateChannelState(channel *Channel) {
 		channel.Keys = channel.GetKeys()
 	}
 	channelsIDM[channel.Id] = channel
-	refreshChannelRoutingCacheLocked(channel)
+	refreshChannelRoutingCacheLocked(channel, abilities)
 	channelSyncLock.Unlock()
 	InvalidatePricingCache()
 }
@@ -330,7 +348,13 @@ func channelIsRoutable(channel *Channel) bool {
 	return !channel.ChannelInfo.IsMultiKey || channel.HasEnabledMultiKey()
 }
 
-func refreshChannelRoutingCacheLocked(channel *Channel) {
+func loadEnabledChannelAbilities(channelID int) ([]Ability, error) {
+	var abilities []Ability
+	err := DB.Where("channel_id = ? AND enabled = ?", channelID, true).Find(&abilities).Error
+	return abilities, err
+}
+
+func refreshChannelRoutingCacheLocked(channel *Channel, enabledAbilities []Ability) {
 	if group2model2channels == nil {
 		group2model2channels = make(map[string]map[string][]int)
 	}
@@ -349,11 +373,6 @@ func refreshChannelRoutingCacheLocked(channel *Channel) {
 		return
 	}
 
-	var enabledAbilities []Ability
-	if err := DB.Where("channel_id = ? AND enabled = ?", channel.Id, true).Find(&enabledAbilities).Error; err != nil {
-		common.SysError(fmt.Sprintf("failed to refresh channel routing abilities: channel_id=%d err=%v", channel.Id, err))
-		return
-	}
 	for _, ability := range enabledAbilities {
 		group := ability.Group
 		if group2model2channels[group] == nil {
@@ -381,11 +400,19 @@ func CacheUpdateChannel(channel *Channel) {
 	if !common.MemoryCacheEnabled {
 		return
 	}
-	channelSyncLock.Lock()
 	if channel == nil {
-		channelSyncLock.Unlock()
 		return
 	}
+	var abilities []Ability
+	if channelIsRoutable(channel) {
+		var err error
+		abilities, err = loadEnabledChannelAbilities(channel.Id)
+		if err != nil {
+			common.SysError(fmt.Sprintf("failed to refresh channel routing abilities: channel_id=%d err=%v", channel.Id, err))
+			return
+		}
+	}
+	channelSyncLock.Lock()
 	channelCacheGeneration++
 
 	if channelsIDM == nil {
@@ -404,6 +431,7 @@ func CacheUpdateChannel(channel *Channel) {
 			channel2advancedCustomConfig[channel.Id] = config
 		}
 	}
+	refreshChannelRoutingCacheLocked(channel, abilities)
 	logger.LogDebug(nil, "CacheUpdateChannel after: id=%d, name=%s, status=%d, polling_index=%d", channel.Id, channel.Name, channel.Status, channel.ChannelInfo.MultiKeyPollingIndex)
 	// Lock ordering: do NOT hold channelSyncLock while calling
 	// InvalidatePricingCache. GetPricing acquires updatePricingLock first and then

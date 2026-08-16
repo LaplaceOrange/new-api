@@ -2,6 +2,7 @@ package operation_setting
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -153,22 +154,26 @@ func init() {
 }
 
 func GetChannelContributionSetting() *ChannelContributionSetting {
-	if strings.TrimSpace(channelContributionSetting.Tag) == "" {
-		channelContributionSetting.Tag = "donate"
+	setting := ChannelContributionSetting{}
+	if err := config.GlobalConfig.Snapshot("channel_contribution_setting", &setting); err != nil {
+		common.SysError("failed to snapshot channel contribution setting: " + err.Error())
 	}
-	if channelContributionSetting.UnavailableDeleteHours <= 0 {
-		channelContributionSetting.UnavailableDeleteHours = 48
+	if strings.TrimSpace(setting.Tag) == "" {
+		setting.Tag = "donate"
 	}
-	if channelContributionSetting.HealthCheckIntervalMinutes <= 0 {
-		channelContributionSetting.HealthCheckIntervalMinutes = 10
+	if setting.UnavailableDeleteHours <= 0 {
+		setting.UnavailableDeleteHours = 48
 	}
-	if strings.TrimSpace(channelContributionSetting.AgreementVersion) == "" {
-		channelContributionSetting.AgreementVersion = "2026-08-16"
+	if setting.HealthCheckIntervalMinutes <= 0 {
+		setting.HealthCheckIntervalMinutes = 10
 	}
-	if strings.TrimSpace(channelContributionSetting.AgreementContent) == "" {
-		channelContributionSetting.AgreementContent = DefaultChannelContributionAgreementContent
+	if strings.TrimSpace(setting.AgreementVersion) == "" {
+		setting.AgreementVersion = "2026-08-16"
 	}
-	return &channelContributionSetting
+	if strings.TrimSpace(setting.AgreementContent) == "" {
+		setting.AgreementContent = DefaultChannelContributionAgreementContent
+	}
+	return &setting
 }
 
 func (setting *ChannelContributionSetting) IsGroupAllowed(group string) bool {
@@ -253,18 +258,18 @@ func ValidateChannelContributionOption(key string, value string) error {
 			return fmt.Errorf("agreement_content must contain 1 to 100000 characters")
 		}
 	case "unavailable_delete_hours", "health_check_interval_minutes":
-		var parsed int
-		if _, err := fmt.Sscan(strings.TrimSpace(value), &parsed); err != nil || parsed <= 0 {
+		parsed, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil || parsed <= 0 {
 			return fmt.Errorf("%s must be a positive integer", field)
 		}
 	case "reward_bps":
-		var parsed int
-		if _, err := fmt.Sscan(strings.TrimSpace(value), &parsed); err != nil || parsed < 0 || parsed > 10_000 {
+		parsed, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil || parsed < 0 || parsed > 10_000 {
 			return fmt.Errorf("reward_bps must be an integer from 0 to 10000")
 		}
 	case "priority", "weight":
-		var parsed int64
-		if _, err := fmt.Sscan(strings.TrimSpace(value), &parsed); err != nil || parsed < 0 {
+		parsed, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+		if err != nil || parsed < 0 {
 			return fmt.Errorf("%s must be a non-negative integer", field)
 		}
 	}
