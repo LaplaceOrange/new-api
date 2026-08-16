@@ -23,6 +23,7 @@ func setupMultiKeyControllerTest(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&model.Channel{}, &model.Ability{}, &model.User{}, &model.Log{}, &model.Option{}, &model.Model{},
+		&model.ChannelContribution{}, &model.ChannelContributionRevision{}, &model.ChannelContributionModelHealth{},
 	))
 
 	originalDB := model.DB

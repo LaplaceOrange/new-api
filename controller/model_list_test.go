@@ -56,6 +56,9 @@ func setupModelListControllerTestDB(t *testing.T) *gorm.DB {
 		&model.Model{},
 		&model.Vendor{},
 		&model.Option{},
+		&model.ChannelContribution{},
+		&model.ChannelContributionRevision{},
+		&model.ChannelContributionModelHealth{},
 	))
 
 	t.Cleanup(func() {

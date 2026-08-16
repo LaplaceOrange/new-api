@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -53,23 +52,23 @@ func InitChannelCache() {
 			}
 		}
 		newGroup2model2channels := make(map[string]map[string][]int)
-		for _, channel := range channels {
+		var enabledAbilities []Ability
+		if err := DB.Where("enabled = ?", true).Find(&enabledAbilities).Error; err != nil {
+			common.SysError(fmt.Sprintf("failed to load enabled abilities for channel cache: %v", err))
+			return
+		}
+		for _, ability := range enabledAbilities {
+			channel := newChannelId2channel[ability.ChannelId]
 			if !channelIsRoutable(channel) {
 				continue // skip disabled channels and multi-key channels without a usable key
 			}
-			groups := strings.Split(channel.Group, ",")
-			for _, group := range groups {
-				if _, ok := newGroup2model2channels[group]; !ok {
-					newGroup2model2channels[group] = make(map[string][]int)
-				}
-				models := strings.Split(channel.Models, ",")
-				for _, model := range models {
-					if _, ok := newGroup2model2channels[group][model]; !ok {
-						newGroup2model2channels[group][model] = make([]int, 0)
-					}
-					newGroup2model2channels[group][model] = append(newGroup2model2channels[group][model], channel.Id)
-				}
+			if _, ok := newGroup2model2channels[ability.Group]; !ok {
+				newGroup2model2channels[ability.Group] = make(map[string][]int)
 			}
+			if _, ok := newGroup2model2channels[ability.Group][ability.Model]; !ok {
+				newGroup2model2channels[ability.Group][ability.Model] = make([]int, 0)
+			}
+			newGroup2model2channels[ability.Group][ability.Model] = append(newGroup2model2channels[ability.Group][ability.Model], channel.Id)
 		}
 
 		// sort by priority
@@ -350,26 +349,31 @@ func refreshChannelRoutingCacheLocked(channel *Channel) {
 		return
 	}
 
-	for _, group := range strings.Split(channel.Group, ",") {
+	var enabledAbilities []Ability
+	if err := DB.Where("channel_id = ? AND enabled = ?", channel.Id, true).Find(&enabledAbilities).Error; err != nil {
+		common.SysError(fmt.Sprintf("failed to refresh channel routing abilities: channel_id=%d err=%v", channel.Id, err))
+		return
+	}
+	for _, ability := range enabledAbilities {
+		group := ability.Group
 		if group2model2channels[group] == nil {
 			group2model2channels[group] = make(map[string][]int)
 		}
-		for _, modelName := range strings.Split(channel.Models, ",") {
-			channelIDs := group2model2channels[group][modelName]
-			channelIDs = append(channelIDs, channel.Id)
-			sort.Slice(channelIDs, func(i, j int) bool {
-				left := channelsIDM[channelIDs[i]]
-				right := channelsIDM[channelIDs[j]]
-				if left == nil {
-					return false
-				}
-				if right == nil {
-					return true
-				}
-				return left.GetPriority() > right.GetPriority()
-			})
-			group2model2channels[group][modelName] = channelIDs
-		}
+		modelName := ability.Model
+		channelIDs := group2model2channels[group][modelName]
+		channelIDs = append(channelIDs, channel.Id)
+		sort.Slice(channelIDs, func(i, j int) bool {
+			left := channelsIDM[channelIDs[i]]
+			right := channelsIDM[channelIDs[j]]
+			if left == nil {
+				return false
+			}
+			if right == nil {
+				return true
+			}
+			return left.GetPriority() > right.GetPriority()
+		})
+		group2model2channels[group][modelName] = channelIDs
 	}
 }
 

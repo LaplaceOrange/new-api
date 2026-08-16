@@ -121,6 +121,7 @@ func GetChannel(group string, model string, retry int, requestPath string) (*Cha
 	if err != nil {
 		return nil, err
 	}
+	abilities = applyContributionHealthToAbilities(abilities)
 	abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, model)
 	channel := Channel{}
 	if len(abilities) > 0 {
@@ -195,6 +196,20 @@ func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath strin
 
 func (channel *Channel) AddAbilities(tx *gorm.DB) error {
 	abilityEnabled := channelAbilitiesEnabled(channel)
+	unhealthyModels := map[string]struct{}{}
+	useDB := tx
+	if useDB == nil {
+		useDB = DB
+	}
+	if channel.Id > 0 {
+		if unhealthyByChannel, err := contributionUnhealthyModelSet(useDB, []int{channel.Id}); err == nil {
+			unhealthyModels = unhealthyByChannel[channel.Id]
+		}
+	}
+	return createChannelAbilitiesTx(useDB, channel, abilityEnabled, unhealthyModels)
+}
+
+func createChannelAbilitiesTx(tx *gorm.DB, channel *Channel, abilityEnabled bool, unhealthyModels map[string]struct{}) error {
 	models_ := strings.Split(channel.Models, ",")
 	groups_ := strings.Split(channel.Group, ",")
 	abilitySet := make(map[string]struct{})
@@ -206,11 +221,12 @@ func (channel *Channel) AddAbilities(tx *gorm.DB) error {
 				continue
 			}
 			abilitySet[key] = struct{}{}
+			_, unhealthy := unhealthyModels[model]
 			ability := Ability{
 				Group:     group,
 				Model:     model,
 				ChannelId: channel.Id,
-				Enabled:   abilityEnabled,
+				Enabled:   abilityEnabled && !unhealthy,
 				Priority:  channel.Priority,
 				Weight:    uint(channel.GetWeight()),
 				Tag:       channel.Tag,
@@ -221,13 +237,8 @@ func (channel *Channel) AddAbilities(tx *gorm.DB) error {
 	if len(abilities) == 0 {
 		return nil
 	}
-	// choose DB or provided tx
-	useDB := DB
-	if tx != nil {
-		useDB = tx
-	}
 	for _, chunk := range lo.Chunk(abilities, 50) {
-		err := useDB.Clauses(clause.OnConflict{DoNothing: true}).Create(&chunk).Error
+		err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&chunk).Error
 		if err != nil {
 			return err
 		}
@@ -257,7 +268,17 @@ func (channel *Channel) UpdateAbilities(tx *gorm.DB) error {
 		}()
 	}
 
-	// First delete all abilities of this channel
+	abilityEnabled := channelAbilitiesEnabled(channel)
+	unhealthyModels := map[string]struct{}{}
+	if unhealthyByChannel, queryErr := contributionUnhealthyModelSet(tx, []int{channel.Id}); queryErr == nil {
+		unhealthyModels = unhealthyByChannel[channel.Id]
+	} else {
+		if isNewTx {
+			tx.Rollback()
+		}
+		return queryErr
+	}
+
 	err := tx.Where("channel_id = ?", channel.Id).Delete(&Ability{}).Error
 	if err != nil {
 		if isNewTx {
@@ -266,42 +287,11 @@ func (channel *Channel) UpdateAbilities(tx *gorm.DB) error {
 		return err
 	}
 
-	// Then add new abilities
-	abilityEnabled := channelAbilitiesEnabled(channel)
-	models_ := strings.Split(channel.Models, ",")
-	groups_ := strings.Split(channel.Group, ",")
-	abilitySet := make(map[string]struct{})
-	abilities := make([]Ability, 0, len(models_))
-	for _, model := range models_ {
-		for _, group := range groups_ {
-			key := group + "|" + model
-			if _, exists := abilitySet[key]; exists {
-				continue
-			}
-			abilitySet[key] = struct{}{}
-			ability := Ability{
-				Group:     group,
-				Model:     model,
-				ChannelId: channel.Id,
-				Enabled:   abilityEnabled,
-				Priority:  channel.Priority,
-				Weight:    uint(channel.GetWeight()),
-				Tag:       channel.Tag,
-			}
-			abilities = append(abilities, ability)
+	if err := createChannelAbilitiesTx(tx, channel, abilityEnabled, unhealthyModels); err != nil {
+		if isNewTx {
+			tx.Rollback()
 		}
-	}
-
-	if len(abilities) > 0 {
-		for _, chunk := range lo.Chunk(abilities, 50) {
-			err = tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&chunk).Error
-			if err != nil {
-				if isNewTx {
-					tx.Rollback()
-				}
-				return err
-			}
-		}
+		return err
 	}
 
 	// 如果是新创建的事务，需要提交
@@ -313,11 +303,49 @@ func (channel *Channel) UpdateAbilities(tx *gorm.DB) error {
 }
 
 func UpdateAbilityStatus(channelId int, status bool) error {
-	return DB.Model(&Ability{}).Where("channel_id = ?", channelId).Select("enabled").Update("enabled", status).Error
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var unhealthy map[int]map[string]struct{}
+		if status {
+			var err error
+			unhealthy, err = contributionUnhealthyModelSet(tx, []int{channelId})
+			if err != nil {
+				return err
+			}
+		}
+		if err := tx.Model(&Ability{}).Where("channel_id = ?", channelId).Select("enabled").Update("enabled", status).Error; err != nil {
+			return err
+		}
+		if !status {
+			return nil
+		}
+		return applyContributionUnhealthyAbilitiesTx(tx, unhealthy)
+	})
 }
 
 func UpdateAbilityStatusByTag(tag string, status bool) error {
-	return DB.Model(&Ability{}).Where("tag = ?", tag).Select("enabled").Update("enabled", status).Error
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var channelIds []int
+		if status {
+			if err := tx.Model(&Ability{}).Where("tag = ?", tag).Distinct("channel_id").Pluck("channel_id", &channelIds).Error; err != nil {
+				return err
+			}
+		}
+		var unhealthy map[int]map[string]struct{}
+		if status {
+			var err error
+			unhealthy, err = contributionUnhealthyModelSet(tx, channelIds)
+			if err != nil {
+				return err
+			}
+		}
+		if err := tx.Model(&Ability{}).Where("tag = ?", tag).Select("enabled").Update("enabled", status).Error; err != nil {
+			return err
+		}
+		if !status {
+			return nil
+		}
+		return applyContributionUnhealthyAbilitiesTx(tx, unhealthy)
+	})
 }
 
 func UpdateAbilityByTag(tag string, newTag *string, priority *int64, weight *uint) error {
@@ -346,16 +374,27 @@ func FixAbility() (int, int, error) {
 	successCount := 0
 	failCount := 0
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		var channelIds []int
+		if err := tx.Model(&Channel{}).Order("id ASC").Pluck("id", &channelIds).Error; err != nil {
+			return err
+		}
+		if _, err := lockActiveChannelContributionsTx(tx, channelIds); err != nil {
+			return err
+		}
+		var channels []*Channel
+		if err := lockForUpdate(tx).Where("id IN ?", channelIds).Order("id ASC").Find(&channels).Error; err != nil {
+			return err
+		}
+		unhealthyByChannel, err := contributionUnhealthyModelSet(tx, channelIds)
+		if err != nil {
+			return err
+		}
 		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&Ability{}).Error; err != nil {
 			common.SysLog(fmt.Sprintf("Delete abilities failed: %s", err.Error()))
 			return err
 		}
-		var channels []*Channel
-		if err := tx.Model(&Channel{}).Find(&channels).Error; err != nil {
-			return err
-		}
 		for _, channel := range channels {
-			if err := channel.AddAbilities(tx); err != nil {
+			if err := createChannelAbilitiesTx(tx, channel, channelAbilitiesEnabled(channel), unhealthyByChannel[channel.Id]); err != nil {
 				common.SysLog(fmt.Sprintf("Add abilities for channel %d failed: %s", channel.Id, err.Error()))
 				failCount++
 				return err

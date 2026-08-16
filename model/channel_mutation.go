@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -37,6 +38,10 @@ func UpdateChannelAtomically(channelID int, apply func(*Channel) error) (*Channe
 
 	channel := &Channel{}
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		contribution, err := lockActiveChannelContributionTx(tx, channelID)
+		if err != nil {
+			return err
+		}
 		// SQLite has no SELECT FOR UPDATE. Acquire its single writer lock before
 		// reading so a competing writer cannot commit between the read and write.
 		if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
@@ -49,6 +54,7 @@ func UpdateChannelAtomically(channelID int, apply func(*Channel) error) (*Channe
 		if err := lockForUpdate(tx).Where("id = ?", channelID).First(channel).Error; err != nil {
 			return err
 		}
+		before := *channel
 
 		channel.Keys = nil
 		if err := apply(channel); err != nil {
@@ -56,6 +62,9 @@ func UpdateChannelAtomically(channelID int, apply func(*Channel) error) (*Channe
 		}
 		channel.Id = channelID
 		channel.Keys = nil
+		if contribution != nil && channelContributionReviewedFieldsChanged(&before, channel) {
+			return ErrChannelContributionRequiresReview
+		}
 		channel.normalizeMultiKeyAvailability()
 
 		if err := tx.Model(&Channel{}).
@@ -65,10 +74,38 @@ func UpdateChannelAtomically(channelID int, apply func(*Channel) error) (*Channe
 			Updates(channel).Error; err != nil {
 			return err
 		}
+		if contribution != nil && channel.Status != before.Status {
+			now := common.GetTimestamp()
+			if channel.Status == common.ChannelStatusManuallyDisabled {
+				if err := setLockedContributionHealthPausedTx(tx, contribution, channelID, true, now); err != nil {
+					return err
+				}
+			} else if before.Status == common.ChannelStatusManuallyDisabled {
+				if err := setLockedContributionHealthPausedTx(tx, contribution, channelID, false, now); err != nil {
+					return err
+				}
+			}
+		}
 		return channel.UpdateAbilities(tx)
 	})
 	if err != nil {
 		return nil, err
 	}
 	return channel, nil
+}
+
+func channelContributionReviewedFieldsChanged(before *Channel, after *Channel) bool {
+	if before == nil || after == nil {
+		return true
+	}
+	left := *before
+	right := *after
+	left.Id = right.Id
+	left.Status = right.Status
+	left.Tag = right.Tag
+	left.Priority = right.Priority
+	left.Weight = right.Weight
+	left.Keys = nil
+	right.Keys = nil
+	return !reflect.DeepEqual(left, right)
 }

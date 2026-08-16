@@ -320,7 +320,9 @@ func parseOpenAIModelIDs(body []byte) ([]string, error) {
 	return ids, nil
 }
 
-func sanitizeFetchModelsError(err error, key string) error {
+var authorizationCredentialPattern = regexp.MustCompile(`(?i)(authorization(?:\s*|["']\s*)[:=]\s*["']?)(?:bearer\s+)?[^"'\s,}\r\n]+`)
+
+func sanitizeChannelCredentialError(err error, key string, baseURL string) error {
 	if err == nil {
 		return nil
 	}
@@ -334,16 +336,28 @@ func sanitizeFetchModelsError(err error, key string) error {
 	}
 
 	message := err.Error()
-	key = strings.TrimSpace(key)
-	if key != "" {
-		message = strings.ReplaceAll(message, key, "[REDACTED]")
-		message = strings.ReplaceAll(message, url.QueryEscape(key), "[REDACTED]")
-		message = strings.ReplaceAll(message, url.PathEscape(key), "[REDACTED]")
+	for _, candidate := range []string{strings.TrimSpace(key), strings.TrimSpace(baseURL)} {
+		if candidate == "" {
+			continue
+		}
+		message = strings.ReplaceAll(message, candidate, "[REDACTED]")
+		message = strings.ReplaceAll(message, url.QueryEscape(candidate), "[REDACTED]")
+		message = strings.ReplaceAll(message, url.PathEscape(candidate), "[REDACTED]")
 	}
+	message = authorizationCredentialPattern.ReplaceAllString(message, `${1}[REDACTED]`)
 	return errors.New(message)
 }
 
-func getFetchModelsResponseBody(method string, requestURL string, channel *model.Channel, headers http.Header) ([]byte, error) {
+func sanitizeFetchModelsError(err error, key string) error {
+	return sanitizeChannelCredentialError(err, key, "")
+}
+
+type fetchChannelModelsOptions struct {
+	UseSSRFProtectedClient bool
+	HTTPClient             *http.Client
+}
+
+func getFetchModelsResponseBody(method string, requestURL string, channel *model.Channel, headers http.Header, options fetchChannelModelsOptions) ([]byte, error) {
 	request, err := http.NewRequest(method, requestURL, nil)
 	if err != nil {
 		return nil, err
@@ -356,9 +370,17 @@ func getFetchModelsResponseBody(method string, requestURL string, channel *model
 			request.Host = headers.Get(name)
 		}
 	}
-	client, err := service.NewProxyHttpClient(channel.GetSetting().Proxy)
-	if err != nil {
-		return nil, err
+	var client *http.Client
+	if options.HTTPClient != nil {
+		client = options.HTTPClient
+	} else if options.UseSSRFProtectedClient {
+		client = service.GetStrictSSRFProtectedHTTPClient()
+	} else {
+		var err error
+		client, err = service.NewProxyHttpClient(channel.GetSetting().Proxy)
+		if err != nil {
+			return nil, err
+		}
 	}
 	response, err := client.Do(request)
 	if err != nil {
@@ -372,6 +394,10 @@ func getFetchModelsResponseBody(method string, requestURL string, channel *model
 }
 
 func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
+	return fetchChannelUpstreamModelIDsWithOptions(channel, fetchChannelModelsOptions{})
+}
+
+func fetchChannelUpstreamModelIDsWithOptions(channel *model.Channel, options fetchChannelModelsOptions) ([]string, error) {
 	baseURL := constant.ChannelBaseURLs[channel.Type]
 	if channel.GetBaseURL() != "" {
 		baseURL = channel.GetBaseURL()
@@ -379,7 +405,15 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 
 	if channel.Type == constant.ChannelTypeOllama {
 		key := strings.TrimSpace(strings.Split(channel.Key, "\n")[0])
-		models, err := ollama.FetchOllamaModels(baseURL, key)
+		var models []ollama.OllamaModel
+		var err error
+		if options.HTTPClient != nil {
+			models, err = ollama.FetchOllamaModelsWithClient(options.HTTPClient, baseURL, key)
+		} else if options.UseSSRFProtectedClient {
+			models, err = ollama.FetchOllamaModelsWithClient(service.GetStrictSSRFProtectedHTTPClient(), baseURL, key)
+		} else {
+			models, err = ollama.FetchOllamaModels(baseURL, key)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -394,7 +428,15 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 			return nil, fmt.Errorf("获取渠道密钥失败: %w", apiErr)
 		}
 		key = strings.TrimSpace(key)
-		models, err := gemini.FetchGeminiModels(baseURL, key, channel.GetSetting().Proxy)
+		var models []string
+		var err error
+		if options.HTTPClient != nil {
+			models, err = gemini.FetchGeminiModelsWithClient(options.HTTPClient, baseURL, key)
+		} else if options.UseSSRFProtectedClient {
+			models, err = gemini.FetchGeminiModelsWithClient(service.GetStrictSSRFProtectedHTTPClient(), baseURL, key)
+		} else {
+			models, err = gemini.FetchGeminiModels(baseURL, key, channel.GetSetting().Proxy)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -402,7 +444,7 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 	}
 
 	if channel.Type == constant.ChannelTypeAdvancedCustom {
-		return fetchAdvancedCustomUpstreamModelIDs(channel, baseURL)
+		return fetchAdvancedCustomUpstreamModelIDs(channel, baseURL, options)
 	}
 
 	if channel.Type == constant.ChannelTypeCodex {
@@ -446,7 +488,7 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		return nil, sanitizeFetchModelsError(err, key)
 	}
 
-	body, err := getFetchModelsResponseBody(http.MethodGet, url, channel, headers)
+	body, err := getFetchModelsResponseBody(http.MethodGet, url, channel, headers, options)
 	if err != nil {
 		return nil, sanitizeFetchModelsError(err, key)
 	}
@@ -464,7 +506,7 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 	return normalizeModelNames(ids), nil
 }
 
-func fetchAdvancedCustomUpstreamModelIDs(channel *model.Channel, baseURL string) ([]string, error) {
+func fetchAdvancedCustomUpstreamModelIDs(channel *model.Channel, baseURL string, options fetchChannelModelsOptions) ([]string, error) {
 	key, _, apiErr := channel.GetNextEnabledKey()
 	if apiErr != nil {
 		return nil, fmt.Errorf("获取渠道密钥失败: %w", apiErr)
@@ -492,7 +534,7 @@ func fetchAdvancedCustomUpstreamModelIDs(channel *model.Channel, baseURL string)
 		return nil, sanitizeFetchModelsError(err, key)
 	}
 
-	body, err := getFetchModelsResponseBody(http.MethodGet, url, channel, headers)
+	body, err := getFetchModelsResponseBody(http.MethodGet, url, channel, headers, options)
 	if err != nil {
 		return nil, sanitizeFetchModelsError(err, key)
 	}
@@ -778,6 +820,7 @@ scanLoop:
 			break
 		}
 		lastID = channels[len(channels)-1].Id
+		channels = model.FilterNonContributionChannels(channels)
 
 		for _, channel := range channels {
 			if channel == nil {

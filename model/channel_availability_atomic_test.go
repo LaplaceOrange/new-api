@@ -15,7 +15,13 @@ func useChannelAvailabilityTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&Channel{}, &Ability{}))
+	require.NoError(t, db.AutoMigrate(
+		&Channel{},
+		&Ability{},
+		&ChannelContribution{},
+		&ChannelContributionRevision{},
+		&ChannelContributionModelHealth{},
+	))
 
 	originalDB := DB
 	originalDatabaseType := common.MainDatabaseType()
@@ -85,7 +91,7 @@ func TestEnableChannelByTagKeepsChannelDisabledWithoutUsableKey(t *testing.T) {
 	assert.False(t, ability.Enabled)
 }
 
-func TestInitChannelCacheBuildsRoutesFromChannelSnapshot(t *testing.T) {
+func TestInitChannelCacheBuildsRoutesFromEnabledAbilities(t *testing.T) {
 	useChannelAvailabilityTestDB(t)
 	common.MemoryCacheEnabled = true
 
@@ -112,7 +118,7 @@ func TestInitChannelCacheBuildsRoutesFromChannelSnapshot(t *testing.T) {
 		Models: "gpt-4",
 		Group:  "default",
 	}
-	require.NoError(t, DB.Create(&channel).Error)
+	require.NoError(t, channel.Insert())
 	require.NotPanics(t, InitChannelCache)
 
 	channelSyncLock.RLock()
