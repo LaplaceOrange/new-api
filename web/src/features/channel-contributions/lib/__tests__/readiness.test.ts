@@ -127,6 +127,32 @@ describe('channel contribution readiness', () => {
     )
   })
 
+  test('uses live per-model system pricing instead of the run snapshot', () => {
+    const run = successfulRun({
+      pricing_ready: false,
+      results: [
+        {
+          model: 'priced-model',
+          endpoint_type: 'chat',
+          stream: false,
+          success: true,
+          price_configured: true,
+        },
+        {
+          model: 'priced-model',
+          endpoint_type: 'chat',
+          stream: true,
+          success: true,
+          price_configured: true,
+        },
+      ],
+    })
+    const results = getTestRunResults(run)
+
+    assert.equal(results[0]?.price_configured, true)
+    assert.equal(testRunPassed(run), true)
+  })
+
   test('blocks editing while a pending revision exists and permits withdrawal until deletion', () => {
     const contribution = {
       id: 1,

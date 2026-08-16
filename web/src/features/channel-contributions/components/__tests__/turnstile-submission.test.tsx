@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { afterAll as after, afterEach, assert, describe, test } from 'vitest'
+import { afterAll, afterEach, assert, describe, test } from 'vitest'
 
 import { Window } from 'happy-dom'
 
@@ -142,7 +142,7 @@ afterEach(async () => {
   delete (window as unknown as Window & { turnstile?: unknown }).turnstile
 })
 
-after(() => {
+afterAll(() => {
   domWindow.close()
 })
 
