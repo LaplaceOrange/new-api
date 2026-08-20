@@ -167,6 +167,14 @@ export function parseLogOther(other: string): LogOtherData | null {
   }
 }
 
+export function getSensitiveWordMatches(other: LogOtherData | null): string[] {
+  if (!other || !Array.isArray(other.sensitive_words)) return []
+  return other.sensitive_words
+    .filter((word): word is string => typeof word === 'string')
+    .map((word) => word.trim())
+    .filter(Boolean)
+}
+
 export function getReasoningEffortVariant(
   effort: string | undefined
 ): StatusBadgeProps['variant'] {

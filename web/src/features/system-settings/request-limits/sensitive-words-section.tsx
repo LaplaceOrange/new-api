@@ -31,6 +31,7 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
+import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 
@@ -42,10 +43,14 @@ import {
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
+import { SensitiveWordBanLists } from './sensitive-word-ban-lists'
 
 const sensitiveSchema = z.object({
   CheckSensitiveEnabled: z.boolean(),
   CheckSensitiveOnPromptEnabled: z.boolean(),
+  SensitiveWordAutoBanEnabled: z.boolean(),
+  SensitiveWordUserBanThreshold: z.number().int().min(1).max(1000000),
+  SensitiveWordIPUserBanThreshold: z.number().int().min(1).max(1000000),
   SensitiveWords: z.string().optional(),
 })
 
@@ -115,6 +120,27 @@ export function SensitiveWordsSection({
 
             <FormField
               control={form.control}
+              name='SensitiveWordAutoBanEnabled'
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>{t('Automatically ban repeated matches')}</FormLabel>
+                    <FormDescription>
+                      {t('Automatic bans use the thresholds below.')}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </SettingsSwitchItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
               name='CheckSensitiveOnPromptEnabled'
               render={({ field }) => (
                 <SettingsSwitchItem>
@@ -135,6 +161,59 @@ export function SensitiveWordsSection({
                 </SettingsSwitchItem>
               )}
             />
+
+            <div className='grid gap-4 md:grid-cols-2'>
+              <FormField
+                control={form.control}
+                name='SensitiveWordUserBanThreshold'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('User ban match threshold')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={1}
+                        max={1000000}
+                        step={1}
+                        {...field}
+                        onChange={(event) =>
+                          field.onChange(Number.parseInt(event.target.value, 10) || 1)
+                        }
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Automatically ban a user after this many sensitive-word matches.')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='SensitiveWordIPUserBanThreshold'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('IP ban user threshold')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={1}
+                        max={1000000}
+                        step={1}
+                        {...field}
+                        onChange={(event) =>
+                          field.onChange(Number.parseInt(event.target.value, 10) || 1)
+                        }
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Automatically ban an IP after this many distinct users are banned from it.')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
           </div>
 
           <FormField
@@ -159,6 +238,8 @@ export function SensitiveWordsSection({
               </FormItem>
             )}
           />
+
+          <SensitiveWordBanLists />
         </SettingsForm>
       </Form>
     </SettingsSection>

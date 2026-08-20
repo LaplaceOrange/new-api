@@ -40,7 +40,7 @@ import { cn } from '@/lib/utils'
 
 import { LOG_TYPE_ENUM } from '../constants'
 import type { UsageLog } from '../data/schema'
-import { parseLogOther } from '../lib/format'
+import { getSensitiveWordMatches, parseLogOther } from '../lib/format'
 import {
   getLogTypeConfig,
   isDisplayableLogType,
@@ -195,7 +195,13 @@ function MobileTokensField({ log }: { log: UsageLog }) {
 
   const promptTokens = log.prompt_tokens || 0
   const completionTokens = log.completion_tokens || 0
-  if (promptTokens === 0 && completionTokens === 0) {
+  const other = parseLogOther(log.other)
+  const sensitiveWords = getSensitiveWordMatches(other)
+  if (
+    promptTokens === 0 &&
+    completionTokens === 0 &&
+    sensitiveWords.length === 0
+  ) {
     return (
       <div className='bg-muted/20 min-w-0 rounded-md px-2 py-1.5'>
         <span className='text-muted-foreground text-xs'>-</span>
@@ -203,7 +209,6 @@ function MobileTokensField({ log }: { log: UsageLog }) {
     )
   }
 
-  const other = parseLogOther(log.other)
   const cacheReadTokens = other?.cache_tokens || 0
   const cacheWrite5m = other?.cache_creation_tokens_5m || 0
   const cacheWrite1h = other?.cache_creation_tokens_1h || 0
@@ -219,6 +224,13 @@ function MobileTokensField({ log }: { log: UsageLog }) {
         <span className='font-mono text-xs font-medium tabular-nums'>
           {promptTokens.toLocaleString()} / {completionTokens.toLocaleString()}
         </span>
+        {sensitiveWords.length > 0 && (
+          <span className='text-red-600 dark:text-red-400 text-xs'>
+            {t('Prohibited word: {{word}}', {
+              word: sensitiveWords.join('、'),
+            })}
+          </span>
+        )}
         {showCache ? (
           <div className='text-muted-foreground flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] leading-none'>
             {cacheReadTokens > 0 && (

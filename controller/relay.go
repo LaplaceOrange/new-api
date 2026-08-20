@@ -140,8 +140,33 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	if needSensitiveCheck && meta != nil {
 		contains, words := service.CheckSensitiveText(meta.CombineText)
 		if contains {
-			logger.LogWarn(c, fmt.Sprintf("user sensitive words detected: %s", strings.Join(words, ", ")))
-			newAPIError = types.NewError(err, types.ErrorCodeSensitiveWordsDetected)
+			logger.LogWarn(c, fmt.Sprintf("sensitive word match blocked: matched_word_count=%d", len(words)))
+			statusCode := 999
+			if setting.SensitiveWordAutoBanEnabled {
+				enforcement, recordErr := service.HandleSensitiveWordHit(c, words)
+				if recordErr != nil {
+					model.RecordSensitiveWordLog(c, words, statusCode)
+					newAPIError = types.NewError(recordErr, types.ErrorCodeQueryDataError)
+					return
+				}
+				if enforcement.UserBanned || enforcement.IPBanned {
+					statusCode = http.StatusForbidden
+				}
+				newAPIError = types.NewErrorWithStatusCode(
+					errors.New(service.SensitiveWordBlockMessage(enforcement)),
+					types.ErrorCodeSensitiveWordsDetected,
+					statusCode,
+					types.ErrOptionWithSkipRetry(),
+				)
+			} else {
+				newAPIError = types.NewErrorWithStatusCode(
+					errors.New("敏感词命中"),
+					types.ErrorCodeSensitiveWordsDetected,
+					statusCode,
+					types.ErrOptionWithSkipRetry(),
+				)
+			}
+			model.RecordSensitiveWordLog(c, words, statusCode)
 			return
 		}
 	}

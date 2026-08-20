@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -176,6 +177,9 @@ func InitOptionMap() {
 	common.OptionMap["SelfUseModeEnabled"] = strconv.FormatBool(operation_setting.SelfUseModeEnabled)
 	common.OptionMap["ModelRequestRateLimitEnabled"] = strconv.FormatBool(setting.ModelRequestRateLimitEnabled)
 	common.OptionMap["CheckSensitiveOnPromptEnabled"] = strconv.FormatBool(setting.CheckSensitiveOnPromptEnabled)
+	common.OptionMap["SensitiveWordAutoBanEnabled"] = strconv.FormatBool(setting.SensitiveWordAutoBanEnabled)
+	common.OptionMap["SensitiveWordUserBanThreshold"] = strconv.Itoa(setting.SensitiveWordUserBanThreshold)
+	common.OptionMap["SensitiveWordIPUserBanThreshold"] = strconv.Itoa(setting.SensitiveWordIPUserBanThreshold)
 	common.OptionMap["StopOnSensitiveEnabled"] = strconv.FormatBool(setting.StopOnSensitiveEnabled)
 	common.OptionMap["SensitiveWords"] = setting.SensitiveWordsToString()
 	common.OptionMap["StreamCacheQueueLength"] = strconv.Itoa(setting.StreamCacheQueueLength)
@@ -231,6 +235,12 @@ func validateOptionValue(key string, value string) error {
 	}
 	if key == "MaxTokenAutoGroups" {
 		return setting.ValidateMaxTokenAutoGroups(value)
+	}
+	if key == "SensitiveWordUserBanThreshold" || key == "SensitiveWordIPUserBanThreshold" {
+		threshold, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil || threshold < 1 || threshold > setting.SensitiveWordBanThresholdMax {
+			return fmt.Errorf("%s must be an integer between 1 and %d", key, setting.SensitiveWordBanThresholdMax)
+		}
 	}
 	return nil
 }
@@ -494,6 +504,8 @@ func updateOptionMap(key string, value string) (err error) {
 			operation_setting.SelfUseModeEnabled = boolValue
 		case "CheckSensitiveOnPromptEnabled":
 			setting.CheckSensitiveOnPromptEnabled = boolValue
+		case "SensitiveWordAutoBanEnabled":
+			setting.SensitiveWordAutoBanEnabled = boolValue
 		case "ModelRequestRateLimitEnabled":
 			setting.ModelRequestRateLimitEnabled = boolValue
 		case "StopOnSensitiveEnabled":
@@ -708,6 +720,10 @@ func updateOptionMap(key string, value string) (err error) {
 		common.QuotaPerUnit, _ = strconv.ParseFloat(value, 64)
 	case "SensitiveWords":
 		setting.SensitiveWordsFromString(value)
+	case "SensitiveWordUserBanThreshold":
+		setting.SensitiveWordUserBanThreshold, _ = strconv.Atoi(value)
+	case "SensitiveWordIPUserBanThreshold":
+		setting.SensitiveWordIPUserBanThreshold, _ = strconv.Atoi(value)
 	case "AutomaticDisableKeywords":
 		operation_setting.AutomaticDisableKeywordsFromString(value)
 	case "AutomaticDisableStatusCodes":

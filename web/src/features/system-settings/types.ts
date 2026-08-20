@@ -377,6 +377,9 @@ export type SecuritySettings = {
   ModelRequestRateLimitGroup: string
   CheckSensitiveEnabled: boolean
   CheckSensitiveOnPromptEnabled: boolean
+  SensitiveWordAutoBanEnabled: boolean
+  SensitiveWordUserBanThreshold: number
+  SensitiveWordIPUserBanThreshold: number
   SensitiveWords: string
   'fetch_setting.enable_ssrf_protection': boolean
   'fetch_setting.allow_private_ip': boolean
@@ -387,6 +390,32 @@ export type SecuritySettings = {
   'fetch_setting.allowed_ports': number[]
   'fetch_setting.apply_ip_filter_for_domain': boolean
   'token_setting.max_user_tokens': number
+}
+
+export type SensitiveWordUserBan = {
+  id: number
+  user_id: number
+  username: string
+  hit_count: number
+  first_hit_at: number
+  last_hit_at: number
+  banned_at: number
+}
+
+export type SensitiveWordIPBan = {
+  id: number
+  ip: string
+  hit_count: number
+  first_hit_at: number
+  last_hit_at: number
+  banned_at: number
+}
+
+export type SensitiveWordBanPage<T> = {
+  page: number
+  page_size: number
+  total: number
+  items: T[]
 }
 
 export type UpstreamChannel = {

@@ -25,6 +25,9 @@ import type {
   SystemOptionsResponse,
   SystemTaskListResponse,
   SystemTaskResponse,
+  SensitiveWordBanPage,
+  SensitiveWordIPBan,
+  SensitiveWordUserBan,
   UpdateOptionRequest,
   UpdateOptionResponse,
   UpstreamChannelsResponse,
@@ -38,6 +41,38 @@ export async function getSystemOptions() {
 
 export async function updateSystemOption(request: UpdateOptionRequest) {
   const res = await api.put<UpdateOptionResponse>('/api/option/', request)
+  return res.data
+}
+
+export async function getSensitiveWordUserBans(page: number, search: string) {
+  const res = await api.get<{
+    success: boolean
+    data: SensitiveWordBanPage<SensitiveWordUserBan>
+  }>('/api/option/sensitive-word-bans/users', {
+    params: { p: page, page_size: 10, search },
+  })
+  return res.data.data
+}
+
+export async function getSensitiveWordIPBans(page: number, search: string) {
+  const res = await api.get<{
+    success: boolean
+    data: SensitiveWordBanPage<SensitiveWordIPBan>
+  }>('/api/option/sensitive-word-bans/ips', {
+    params: { p: page, page_size: 10, search },
+  })
+  return res.data.data
+}
+
+export async function unbanSensitiveWordUser(userId: number) {
+  const res = await api.delete(`/api/option/sensitive-word-bans/users/${userId}`)
+  return res.data
+}
+
+export async function unbanSensitiveWordIP(ip: string) {
+  const res = await api.delete(
+    `/api/option/sensitive-word-bans/ips/${encodeURIComponent(ip)}`
+  )
   return res.data
 }
 

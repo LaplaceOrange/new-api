@@ -163,6 +163,8 @@ export interface LogOtherData {
   user_agent?: string
   request_path?: string
   request_conversion?: string[]
+  sensitive_words?: string[]
+  sensitive_word_count?: number
   ws?: boolean
   audio?: boolean
   audio_input?: number

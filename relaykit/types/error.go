@@ -194,11 +194,15 @@ func (e *NewAPIError) ToOpenAIError() OpenAIError {
 			}
 		}
 	default:
+		code := any(e.errorCode)
+		if e.StatusCode == 999 && e.errorCode == ErrorCodeSensitiveWordsDetected {
+			code = 999
+		}
 		result = OpenAIError{
 			Message: e.Error(),
 			Type:    string(e.errorType),
 			Param:   "",
-			Code:    e.errorCode,
+			Code:    code,
 		}
 	}
 	if e.errorCode != ErrorCodeCountTokenFailed {
@@ -212,6 +216,9 @@ func (e *NewAPIError) ToOpenAIError() OpenAIError {
 
 func (e *NewAPIError) ToClaudeError() ClaudeError {
 	var result ClaudeError
+	if e.StatusCode == 999 && e.errorCode == ErrorCodeSensitiveWordsDetected {
+		return ClaudeError{Message: kitutil.MaskSensitiveInfo(e.Error()), Type: "999"}
+	}
 	switch e.errorType {
 	case ErrorTypeOpenAIError:
 		if openAIError, ok := e.RelayError.(OpenAIError); ok {

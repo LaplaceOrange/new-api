@@ -4,6 +4,37 @@ import "strings"
 
 var CheckSensitiveEnabled = true
 var CheckSensitiveOnPromptEnabled = true
+var SensitiveWordAutoBanEnabled = false
+
+// SensitiveWordUserBanThreshold is the number of prompt matches required to
+// automatically disable a user when sensitive-word auto-ban is enabled.
+var SensitiveWordUserBanThreshold = 2
+
+// SensitiveWordIPUserBanThreshold is the number of distinct automatically
+// banned users from one IP required to automatically ban that IP.
+var SensitiveWordIPUserBanThreshold = 3
+
+const SensitiveWordBanThresholdMax = 1_000_000
+
+func SensitiveWordUserBanLimit() int {
+	if SensitiveWordUserBanThreshold < 1 {
+		return 2
+	}
+	if SensitiveWordUserBanThreshold > SensitiveWordBanThresholdMax {
+		return SensitiveWordBanThresholdMax
+	}
+	return SensitiveWordUserBanThreshold
+}
+
+func SensitiveWordIPUserBanLimit() int {
+	if SensitiveWordIPUserBanThreshold < 1 {
+		return 3
+	}
+	if SensitiveWordIPUserBanThreshold > SensitiveWordBanThresholdMax {
+		return SensitiveWordBanThresholdMax
+	}
+	return SensitiveWordIPUserBanThreshold
+}
 
 //var CheckSensitiveOnCompletionEnabled = true
 

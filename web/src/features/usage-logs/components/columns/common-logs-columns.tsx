@@ -44,6 +44,7 @@ import { LOG_TYPE_ALL_VALUE } from '../../constants'
 import type { UsageLog } from '../../data/schema'
 import {
   formatModelName,
+  getSensitiveWordMatches,
   getTieredBillingSummary,
   hasAnyCacheTokens,
   parseLogOther,
@@ -653,7 +654,12 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
 
         const promptTokens = log.prompt_tokens || 0
         const completionTokens = log.completion_tokens || 0
-        if (promptTokens === 0 && completionTokens === 0) {
+        const sensitiveWords = getSensitiveWordMatches(other)
+        if (
+          promptTokens === 0 &&
+          completionTokens === 0 &&
+          sensitiveWords.length === 0
+        ) {
           return <span className='text-muted-foreground text-xs'>-</span>
         }
 
@@ -671,6 +677,13 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               {promptTokens.toLocaleString()} /{' '}
               {completionTokens.toLocaleString()}
             </span>
+            {sensitiveWords.length > 0 && (
+              <span className='text-red-600 dark:text-red-400 text-xs'>
+                {t('Prohibited word: {{word}}', {
+                  word: sensitiveWords.join('、'),
+                })}
+              </span>
+            )}
             {(cacheReadTokens > 0 || cacheWriteTokens > 0) && (
               <div className='flex items-center gap-1 text-[11px]'>
                 {cacheReadTokens > 0 && (

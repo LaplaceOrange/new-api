@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/types"
 
@@ -323,6 +324,51 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 	if err != nil {
 		logger.LogError(c, "failed to record log: "+err.Error())
 	}
+}
+
+// RecordSensitiveWordLog writes a request-scoped error log for a prompt that
+// was blocked before billing or upstream dispatch. The matched words are kept
+// in structured data so the usage-log Tokens column can render them without
+// putting them into the generic error message.
+func RecordSensitiveWordLog(c *gin.Context, words []string, statusCode int) {
+	if c == nil || len(words) == 0 {
+		return
+	}
+	matchedWords := make([]string, 0, len(words))
+	seen := make(map[string]struct{}, len(words))
+	for _, word := range words {
+		word = strings.TrimSpace(word)
+		if word == "" {
+			continue
+		}
+		if _, ok := seen[word]; ok {
+			continue
+		}
+		seen[word] = struct{}{}
+		matchedWords = append(matchedWords, word)
+	}
+	if len(matchedWords) == 0 {
+		return
+	}
+	other := map[string]interface{}{
+		"sensitive_words":      matchedWords,
+		"sensitive_word_count": len(matchedWords),
+		"error_code":           "sensitive_words_detected",
+		"status_code":          statusCode,
+	}
+	RecordErrorLog(
+		c,
+		c.GetInt("id"),
+		c.GetInt("channel_id"),
+		c.GetString("original_model"),
+		c.GetString("token_name"),
+		"sensitive words detected",
+		c.GetInt("token_id"),
+		0,
+		common.GetContextKeyBool(c, constant.ContextKeyIsStream),
+		c.GetString("group"),
+		other,
+	)
 }
 
 type RecordConsumeLogParams struct {
