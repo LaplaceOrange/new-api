@@ -100,9 +100,10 @@ func (r *GeminiChatRequest) GetTokenCountMeta() *types.TokenCountMeta {
 
 	inputText := strings.Join(inputTexts, "\n")
 	return &types.TokenCountMeta{
-		CombineText: inputText,
-		Files:       files,
-		MaxTokens:   maxTokens,
+		CombineText:   inputText,
+		SensitiveText: inputText,
+		Files:         files,
+		MaxTokens:     maxTokens,
 	}
 }
 
@@ -572,7 +573,8 @@ func (r *GeminiEmbeddingRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	}
 	inputText := strings.Join(inputTexts, "\n")
 	return &types.TokenCountMeta{
-		CombineText: inputText,
+		CombineText:   inputText,
+		SensitiveText: inputText,
 	}
 }
 

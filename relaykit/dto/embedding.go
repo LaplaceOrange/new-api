@@ -40,7 +40,8 @@ func (r *EmbeddingRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	}
 
 	return &types.TokenCountMeta{
-		CombineText: strings.Join(texts, "\n"),
+		CombineText:   strings.Join(texts, "\n"),
+		SensitiveText: strings.Join(texts, "\n"),
 	}
 }
 

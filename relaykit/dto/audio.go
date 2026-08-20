@@ -31,8 +31,9 @@ type AudioRequest struct {
 
 func (r *AudioRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	meta := &types.TokenCountMeta{
-		CombineText: r.Input,
-		TokenType:   types.TokenTypeTextNumber,
+		CombineText:   r.Input,
+		SensitiveText: r.Input,
+		TokenType:     types.TokenTypeTextNumber,
 	}
 	if strings.Contains(r.Model, "gpt") {
 		meta.TokenType = types.TokenTypeTokenizer

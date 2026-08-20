@@ -20,6 +20,7 @@ const (
 type TokenCountMeta struct {
 	TokenType     TokenType   `json:"token_type,omitempty"`     // Type of tokens used in the request
 	CombineText   string      `json:"combine_text,omitempty"`   // Combined text from all messages
+	SensitiveText string      `json:"-"`                        // User/system prompt text used for sensitive-word checks
 	ToolsCount    int         `json:"tools_count,omitempty"`    // Number of tools used
 	NameCount     int         `json:"name_count,omitempty"`     // Number of names in the request
 	MessagesCount int         `json:"messages_count,omitempty"` // Number of messages in the request

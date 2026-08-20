@@ -35,7 +35,8 @@ func (r *OpenAIResponsesCompactionRequest) GetTokenCountMeta() *types.TokenCount
 		parts = append(parts, string(r.Input))
 	}
 	return &types.TokenCountMeta{
-		CombineText: strings.Join(parts, "\n"),
+		CombineText:   strings.Join(parts, "\n"),
+		SensitiveText: strings.Join(parts, "\n"),
 	}
 }
 

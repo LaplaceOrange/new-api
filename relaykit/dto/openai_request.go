@@ -119,26 +119,32 @@ func (r GeneralOpenAIRequest) MarshalJSON() ([]byte, error) {
 func (r *GeneralOpenAIRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	var tokenCountMeta types.TokenCountMeta
 	var texts = make([]string, 0)
+	var sensitiveTexts = make([]string, 0)
 	var fileMeta = make([]*types.FileMeta, 0)
 
 	if r.Prompt != nil {
 		switch v := r.Prompt.(type) {
 		case string:
 			texts = append(texts, v)
+			sensitiveTexts = append(sensitiveTexts, v)
 		case []any:
 			for _, item := range v {
 				if str, ok := item.(string); ok {
 					texts = append(texts, str)
+					sensitiveTexts = append(sensitiveTexts, str)
 				}
 			}
 		default:
-			texts = append(texts, fmt.Sprintf("%v", r.Prompt))
+			prompt := fmt.Sprintf("%v", r.Prompt)
+			texts = append(texts, prompt)
+			sensitiveTexts = append(sensitiveTexts, prompt)
 		}
 	}
 
 	if r.Input != nil {
 		inputs := r.ParseInput()
 		texts = append(texts, inputs...)
+		sensitiveTexts = append(sensitiveTexts, inputs...)
 	}
 
 	maxTokens := lo.FromPtrOr(r.MaxTokens, uint(0))
@@ -178,6 +184,7 @@ func (r *GeneralOpenAIRequest) GetTokenCountMeta() *types.TokenCountMeta {
 					fileMeta = append(fileMeta, meta)
 				} else if m.Type == ContentTypeText {
 					texts = append(texts, m.Text)
+					sensitiveTexts = append(sensitiveTexts, m.Text)
 				}
 			}
 		}
@@ -200,6 +207,7 @@ func (r *GeneralOpenAIRequest) GetTokenCountMeta() *types.TokenCountMeta {
 		//tkm += toolTokens
 	}
 	tokenCountMeta.CombineText = strings.Join(texts, "\n")
+	tokenCountMeta.SensitiveText = strings.Join(sensitiveTexts, "\n")
 	tokenCountMeta.Files = fileMeta
 	return &tokenCountMeta
 }
@@ -859,14 +867,14 @@ type OpenAIResponsesRequest struct {
 	Include json.RawMessage `json:"include,omitempty"`
 	// 在后台运行推理，暂时还不支持依赖的接口
 	// Background         json.RawMessage `json:"background,omitempty"`
-	Conversation       json.RawMessage `json:"conversation,omitempty"`
-	ContextManagement  json.RawMessage `json:"context_management,omitempty"`
-	Instructions       json.RawMessage `json:"instructions,omitempty"`
-	MaxOutputTokens    *uint           `json:"max_output_tokens,omitempty"`
-	TopLogProbs        *int            `json:"top_logprobs,omitempty"`
-	Metadata           json.RawMessage `json:"metadata,omitempty"`
-	Moderation         json.RawMessage `json:"moderation,omitempty"`
-	ParallelToolCalls  json.RawMessage `json:"parallel_tool_calls,omitempty"`
+	Conversation      json.RawMessage `json:"conversation,omitempty"`
+	ContextManagement json.RawMessage `json:"context_management,omitempty"`
+	Instructions      json.RawMessage `json:"instructions,omitempty"`
+	MaxOutputTokens   *uint           `json:"max_output_tokens,omitempty"`
+	TopLogProbs       *int            `json:"top_logprobs,omitempty"`
+	Metadata          json.RawMessage `json:"metadata,omitempty"`
+	Moderation        json.RawMessage `json:"moderation,omitempty"`
+	ParallelToolCalls json.RawMessage `json:"parallel_tool_calls,omitempty"`
 	// FrequencyPenalty/PresencePenalty are not part of the official OpenAI
 	// Responses API; they are forwarded verbatim for OpenAI-compatible upstreams
 	// (e.g. vLLM) that accept them.
@@ -918,6 +926,7 @@ func (r OpenAIResponsesRequest) MarshalJSON() ([]byte, error) {
 func (r *OpenAIResponsesRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	var fileMeta = make([]*types.FileMeta, 0)
 	var texts = make([]string, 0)
+	var sensitiveTexts = make([]string, 0)
 
 	if r.Input != nil {
 		inputs := r.ParseInput()
@@ -939,12 +948,14 @@ func (r *OpenAIResponsesRequest) GetTokenCountMeta() *types.TokenCountMeta {
 				}
 			} else {
 				texts = append(texts, input.Text)
+				sensitiveTexts = append(sensitiveTexts, input.Text)
 			}
 		}
 	}
 
 	if len(r.Instructions) > 0 {
 		texts = append(texts, string(r.Instructions))
+		sensitiveTexts = append(sensitiveTexts, string(r.Instructions))
 	}
 
 	if len(r.Metadata) > 0 {
@@ -953,6 +964,7 @@ func (r *OpenAIResponsesRequest) GetTokenCountMeta() *types.TokenCountMeta {
 
 	if len(r.Text) > 0 {
 		texts = append(texts, string(r.Text))
+		sensitiveTexts = append(sensitiveTexts, string(r.Text))
 	}
 
 	if len(r.ToolChoice) > 0 {
@@ -961,6 +973,7 @@ func (r *OpenAIResponsesRequest) GetTokenCountMeta() *types.TokenCountMeta {
 
 	if len(r.Prompt) > 0 {
 		texts = append(texts, string(r.Prompt))
+		sensitiveTexts = append(sensitiveTexts, string(r.Prompt))
 	}
 
 	if len(r.Tools) > 0 {
@@ -968,9 +981,10 @@ func (r *OpenAIResponsesRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	}
 
 	return &types.TokenCountMeta{
-		CombineText: strings.Join(texts, "\n"),
-		Files:       fileMeta,
-		MaxTokens:   int(lo.FromPtrOr(r.MaxOutputTokens, uint(0))),
+		CombineText:   strings.Join(texts, "\n"),
+		SensitiveText: strings.Join(sensitiveTexts, "\n"),
+		Files:         fileMeta,
+		MaxTokens:     int(lo.FromPtrOr(r.MaxOutputTokens, uint(0))),
 	}
 }
 

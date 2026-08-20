@@ -138,7 +138,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	if needSensitiveCheck && meta != nil {
-		contains, words := service.CheckSensitiveText(meta.CombineText)
+		// CombineText includes roles, tool names, and schemas for token accounting.
+		// Inspect only actual prompt text so protocol metadata cannot trigger a match.
+		contains, words := service.CheckSensitiveText(meta.SensitiveText)
 		if contains {
 			logger.LogWarn(c, fmt.Sprintf("sensitive word match blocked: matched_word_count=%d", len(words)))
 			statusCode := 999

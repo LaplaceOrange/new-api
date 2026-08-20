@@ -251,6 +251,7 @@ func (c *ClaudeRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	}
 
 	var texts = make([]string, 0)
+	var sensitiveTexts = make([]string, 0)
 	var fileMeta = make([]*types.FileMeta, 0)
 
 	// system
@@ -259,13 +260,16 @@ func (c *ClaudeRequest) GetTokenCountMeta() *types.TokenCountMeta {
 			sys := c.GetStringSystem()
 			if sys != "" {
 				texts = append(texts, sys)
+				sensitiveTexts = append(sensitiveTexts, sys)
 			}
 		} else {
 			systemMedia := c.ParseSystem()
 			for _, media := range systemMedia {
 				switch media.Type {
 				case "text":
-					texts = append(texts, media.GetText())
+					text := media.GetText()
+					texts = append(texts, text)
+					sensitiveTexts = append(sensitiveTexts, text)
 				case "image":
 					if source := media.ToFileSource(); source != nil {
 						fileMeta = append(fileMeta, &types.FileMeta{
@@ -286,6 +290,7 @@ func (c *ClaudeRequest) GetTokenCountMeta() *types.TokenCountMeta {
 			content := message.GetStringContent()
 			if content != "" {
 				texts = append(texts, content)
+				sensitiveTexts = append(sensitiveTexts, content)
 			}
 			continue
 		}
@@ -294,7 +299,9 @@ func (c *ClaudeRequest) GetTokenCountMeta() *types.TokenCountMeta {
 		for _, media := range content {
 			switch media.Type {
 			case "text":
-				texts = append(texts, media.GetText())
+				text := media.GetText()
+				texts = append(texts, text)
+				sensitiveTexts = append(sensitiveTexts, text)
 			case "image":
 				if source := media.ToFileSource(); source != nil {
 					fileMeta = append(fileMeta, &types.FileMeta{
@@ -353,6 +360,7 @@ func (c *ClaudeRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	}
 
 	tokenCountMeta.CombineText = strings.Join(texts, "\n")
+	tokenCountMeta.SensitiveText = strings.Join(sensitiveTexts, "\n")
 	tokenCountMeta.Files = fileMeta
 	return &tokenCountMeta
 }

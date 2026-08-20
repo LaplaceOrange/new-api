@@ -22,8 +22,9 @@ func (r *AlphaSearchRequest) GetTokenCountMeta() *types.TokenCountMeta {
 		combineText = string(r.RawBody)
 	}
 	return &types.TokenCountMeta{
-		CombineText: combineText,
-		TokenType:   types.TokenTypeTokenizer,
+		CombineText:   combineText,
+		SensitiveText: "",
+		TokenType:     types.TokenTypeTokenizer,
 	}
 }
 
