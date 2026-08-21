@@ -155,6 +155,17 @@ func UpdateOption(c *gin.Context) {
 		}
 	}
 	switch option.Key {
+	case "RegionRestrictionCountries":
+		option.Value, err = setting.NormalizeRegionRestrictionCountries(option.Value.(string))
+		if err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
+	case "RegionRestrictionRedirectURL":
+		if err = setting.ValidateRegionRestrictionRedirectURL(option.Value.(string)); err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
 	case "GitHubOAuthEnabled":
 		if option.Value == "true" && common.GitHubClientId == "" {
 			c.JSON(http.StatusOK, gin.H{

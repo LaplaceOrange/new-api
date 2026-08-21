@@ -173,6 +173,9 @@ func InitOptionMap() {
 	common.OptionMap["MjForwardUrlEnabled"] = strconv.FormatBool(setting.MjForwardUrlEnabled)
 	common.OptionMap["MjActionCheckSuccessEnabled"] = strconv.FormatBool(setting.MjActionCheckSuccessEnabled)
 	common.OptionMap["CheckSensitiveEnabled"] = strconv.FormatBool(setting.CheckSensitiveEnabled)
+	common.OptionMap["RegionRestrictionEnabled"] = strconv.FormatBool(setting.RegionRestrictionEnabled)
+	common.OptionMap["RegionRestrictionCountries"] = setting.RegionRestrictionCountries
+	common.OptionMap["RegionRestrictionRedirectURL"] = setting.RegionRestrictionRedirectURL
 	common.OptionMap["DemoSiteEnabled"] = strconv.FormatBool(operation_setting.DemoSiteEnabled)
 	common.OptionMap["SelfUseModeEnabled"] = strconv.FormatBool(operation_setting.SelfUseModeEnabled)
 	common.OptionMap["ModelRequestRateLimitEnabled"] = strconv.FormatBool(setting.ModelRequestRateLimitEnabled)
@@ -501,6 +504,8 @@ func updateOptionMap(key string, value string) (err error) {
 			setting.MjActionCheckSuccessEnabled = boolValue
 		case "CheckSensitiveEnabled":
 			setting.CheckSensitiveEnabled = boolValue
+		case "RegionRestrictionEnabled":
+			setting.RegionRestrictionEnabled = boolValue
 		case "DemoSiteEnabled":
 			operation_setting.DemoSiteEnabled = boolValue
 		case "SelfUseModeEnabled":
@@ -723,6 +728,15 @@ func updateOptionMap(key string, value string) (err error) {
 		common.QuotaPerUnit, _ = strconv.ParseFloat(value, 64)
 	case "SensitiveWords":
 		setting.SensitiveWordsFromString(value)
+	case "RegionRestrictionCountries":
+		normalized, normalizeErr := setting.NormalizeRegionRestrictionCountries(value)
+		if normalizeErr != nil {
+			return normalizeErr
+		}
+		setting.RegionRestrictionCountries = normalized
+		common.OptionMap[key] = normalized
+	case "RegionRestrictionRedirectURL":
+		setting.RegionRestrictionRedirectURL = strings.TrimSpace(value)
 	case "SensitiveWordUserBanThreshold":
 		setting.SensitiveWordUserBanThreshold, _ = strconv.Atoi(value)
 	case "SensitiveWordIPUserBanThreshold":

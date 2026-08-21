@@ -371,6 +371,9 @@ export type OperationsSettings = {
 }
 
 export type SecuritySettings = {
+	RegionRestrictionEnabled: boolean
+	RegionRestrictionCountries: string
+	RegionRestrictionRedirectURL: string
   ModelRequestRateLimitEnabled: boolean
   ModelRequestRateLimitCount: number
   ModelRequestRateLimitSuccessCount: number
