@@ -23,6 +23,8 @@ import { GroupBadge } from '@/components/group-badge'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
+import { formatGroupRatio, type GroupRatioValue } from '../lib/group-ratio'
+
 export type GroupRatio = number | string | null | undefined
 
 export const AUTO_GROUP_FRAME_CLASS_NAME =
@@ -87,6 +89,7 @@ function getRatioBadgeClassName(ratio: GroupRatio, isAuto: boolean): string {
 type GroupRatioBadgeProps = {
   isAuto?: boolean
   ratio: GroupRatio
+  topupRatio?: GroupRatioValue
   shouldReduceMotion?: boolean
 }
 
@@ -99,7 +102,12 @@ export function GroupRatioBadge(props: GroupRatioBadgeProps) {
 
   const label =
     typeof props.ratio === 'number'
-      ? `${props.ratio}x ${t('Ratio')}`
+      ? formatGroupRatio(
+          props.ratio,
+          props.topupRatio,
+          t('Ratio'),
+          t('Top-up ratio')
+        )
       : `${t('Auto')} ${t('Ratio')}`
   const badge = (
     <Badge
