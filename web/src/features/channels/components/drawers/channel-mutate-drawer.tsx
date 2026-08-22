@@ -746,6 +746,7 @@ export function ChannelMutateDrawer({
   const currentAdvancedCustom = form.watch('advanced_custom')
   const currentPriority = form.watch('priority')
   const currentWeight = form.watch('weight')
+  const currentConcurrencyLimit = form.watch('concurrency_limit')
   const currentTestModel = form.watch('test_model')
   const currentAutoBan = form.watch('auto_ban')
   const currentTag = form.watch('tag')
@@ -1013,6 +1014,7 @@ export function ChannelMutateDrawer({
   const routingStrategyConfigured = Boolean(
     currentPriority ||
     currentWeight ||
+    currentConcurrencyLimit ||
     currentTestModel?.trim() ||
     (currentAutoBan ?? 1) !== 1
   )
@@ -3726,6 +3728,38 @@ export function ChannelMutateDrawer({
                                     </FormControl>
                                     <FormDescription>
                                       {t(FIELD_DESCRIPTIONS.WEIGHT)}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+
+                              <FormField
+                                control={form.control}
+                                name='concurrency_limit'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>{t('Concurrency Limit')}</FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        type='number'
+                                        min={0}
+                                        step={1}
+                                        inputMode='numeric'
+                                        placeholder={t('Unlimited')}
+                                        value={field.value ?? ''}
+                                        onChange={(event) => {
+                                          const value = event.target.value
+                                          field.onChange(
+                                            value === '' ? undefined : Number(value)
+                                          )
+                                        }}
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t(
+                                        'Leave blank or enter 0 for unlimited concurrency.'
+                                      )}
                                     </FormDescription>
                                     <FormMessage />
                                   </FormItem>

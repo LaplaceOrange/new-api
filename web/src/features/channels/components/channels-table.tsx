@@ -46,7 +46,12 @@ import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
-import { getChannels, searchChannels, getGroups } from '../api'
+import {
+  getChannels,
+  getChannelConcurrency,
+  searchChannels,
+  getGroups,
+} from '../api'
 import {
   DEFAULT_PAGE_SIZE,
   CHANNEL_STATUS,
@@ -60,7 +65,11 @@ import {
   getChannelTypeIcon,
   getChannelTypeLabel,
 } from '../lib'
-import type { Channel, ChannelSortBy } from '../types'
+import type {
+  Channel,
+  ChannelConcurrencyItem,
+  ChannelSortBy,
+} from '../types'
 import { ChannelCard } from './channel-card'
 import { useChannelsColumns } from './channels-columns'
 import { useChannels } from './channels-provider'
@@ -97,6 +106,18 @@ export function ChannelsTable() {
     setSensitiveVisible,
   } = useChannels()
   const isMobile = useMediaQuery('(max-width: 640px)')
+  const [isPageVisible, setIsPageVisible] = useState(
+    () => typeof document === 'undefined' || document.visibilityState === 'visible'
+  )
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      setIsPageVisible(document.visibilityState === 'visible')
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () =>
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [])
 
   // Table state
   const [sorting, setSorting] = useState<SortingState>([])
@@ -290,16 +311,49 @@ export function ChannelsTable() {
     placeholderData: (previousData) => previousData,
   })
 
-  // Apply tag aggregation if tag mode is enabled
-  const channels = useMemo(() => {
-    const rawChannels = data?.data?.items || []
+  const rawChannels = useMemo(() => data?.data?.items ?? [], [data])
+  const channelIds = useMemo(
+    () => rawChannels.map((channel) => channel.id).filter((id) => id > 0),
+    [rawChannels]
+  )
+  const { data: concurrencyData, isError: concurrencyError } = useQuery({
+    queryKey: ['channel-concurrency', channelIds],
+    queryFn: () => getChannelConcurrency(channelIds),
+    enabled: isPageVisible && channelIds.length > 0,
+    refetchInterval: isPageVisible ? 2000 : false,
+    staleTime: 0,
+  })
+  const concurrencyById = useMemo(() => {
+    const result = new Map<number, ChannelConcurrencyItem>()
+    if (concurrencyError) {
+      return result
+    }
+    for (const item of concurrencyData?.data?.items ?? []) {
+      result.set(item.channel_id, item)
+    }
+    return result
+  }, [concurrencyData, concurrencyError])
 
-    if (enableTagMode && rawChannels.length > 0) {
-      return aggregateChannelsByTag(rawChannels)
+  // Apply live concurrency values before tag aggregation so aggregate rows can
+  // sum child counts and limits correctly.
+  const channels = useMemo(() => {
+    const channelsWithConcurrency = rawChannels.map((channel) => {
+      const concurrency = concurrencyById.get(channel.id)
+      return {
+        ...channel,
+        current_concurrency: concurrency?.current_concurrency,
+        concurrency_known: concurrency?.known === true,
+        concurrency_limit:
+          concurrency?.concurrency_limit ?? channel.concurrency_limit,
+      }
+    })
+
+    if (enableTagMode && channelsWithConcurrency.length > 0) {
+      return aggregateChannelsByTag(channelsWithConcurrency)
     }
 
-    return rawChannels
-  }, [data, enableTagMode])
+    return channelsWithConcurrency
+  }, [rawChannels, concurrencyById, enableTagMode])
 
   const totalCount = data?.data?.total || 0
   const typeCounts = data?.data?.type_counts

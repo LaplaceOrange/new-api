@@ -25,6 +25,7 @@ import type {
   BatchSetTagParams,
   Channel,
   ChannelBalanceResponse,
+  ChannelConcurrencyResponse,
   ChannelOpsResponse,
   ChannelTestResponse,
   CopyChannelParams,
@@ -110,6 +111,18 @@ export async function getChannel(id: number): Promise<GetChannelResponse> {
  */
 export async function getChannelOps(): Promise<ChannelOpsResponse> {
   const res = await api.get('/api/channel/ops', channelActionConfig())
+  return res.data
+}
+
+/**
+ * Get current formal relay concurrency for the requested channels.
+ */
+export async function getChannelConcurrency(
+  ids: number[]
+): Promise<ChannelConcurrencyResponse> {
+  const res = await api.get('/api/channel/concurrency', {
+    params: { ids: ids.join(',') },
+  })
   return res.data
 }
 

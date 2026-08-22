@@ -100,6 +100,42 @@ func GetChannelOps(c *gin.Context) {
 	})
 }
 
+func GetChannelConcurrency(c *gin.Context) {
+	idsParam := strings.TrimSpace(c.Query("ids"))
+	if idsParam == "" {
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": gin.H{"items": []any{}}})
+		return
+	}
+	parts := strings.Split(idsParam, ",")
+	ids := make([]int, 0, len(parts))
+	seen := make(map[int]struct{}, len(parts))
+	for _, part := range parts {
+		id, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	counts, known := common.GetChannelsConcurrency(c.Request.Context(), ids)
+	items := make([]gin.H, 0, len(ids))
+	for _, id := range ids {
+		item := gin.H{
+			"channel_id":          id,
+			"current_concurrency": counts[id],
+			"known":               known[id],
+		}
+		if channel, err := model.CacheGetChannel(id); err == nil && channel != nil {
+			item["concurrency_limit"] = channel.ConcurrencyLimit
+		}
+		items = append(items, item)
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": gin.H{"items": items}})
+}
+
 func GetAllChannels(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	channelData := make([]*model.Channel, 0)
@@ -490,6 +526,14 @@ func validateTwoFactorAuth(twoFA *model.TwoFA, code string) bool {
 func validateChannel(channel *model.Channel, isAdd bool) error {
 	if channel == nil {
 		return fmt.Errorf("channel cannot be empty")
+	}
+	if channel.ConcurrencyLimit != nil {
+		if *channel.ConcurrencyLimit < 0 {
+			return fmt.Errorf("concurrency limit cannot be negative")
+		}
+		if *channel.ConcurrencyLimit == 0 {
+			channel.ConcurrencyLimit = nil
+		}
 	}
 
 	// 校验 channel settings
@@ -1047,6 +1091,9 @@ func UpdateChannel(c *gin.Context) {
 		}
 		if _, ok := requestData["weight"]; ok {
 			current.Weight = channel.Weight
+		}
+		if _, ok := requestData["concurrency_limit"]; ok {
+			current.ConcurrencyLimit = channel.ConcurrencyLimit
 		}
 		if _, ok := requestData["base_url"]; ok {
 			current.BaseURL = channel.BaseURL

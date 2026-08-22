@@ -72,6 +72,7 @@ import {
   handleUpdateChannelField,
   handleUpdateTagField,
   createChannelFieldUpdateScheduler,
+  formatChannelConcurrency,
   isTagAggregateRow,
   type TagRow,
 } from '../lib'
@@ -273,6 +274,25 @@ function WeightCell({ channel }: { channel: Channel }) {
       value={channel.weight}
       field='weight'
       min={0}
+    />
+  )
+}
+
+function ConcurrencyCell({ channel }: { channel: Channel }) {
+  const { t } = useTranslation()
+  const label = formatChannelConcurrency(channel)
+  if (label === '—') {
+    return <span className='text-muted-foreground text-xs'>—</span>
+  }
+
+  return (
+    <StatusBadge
+      label={label}
+      variant='neutral'
+      size='sm'
+      copyable={false}
+      className='-ml-1.5'
+      title={t('Current formal relay concurrency')}
     />
   )
 }
@@ -1126,6 +1146,16 @@ export function useChannelsColumns(
         meta: { mobileHidden: true },
         cell: ({ row }) => <WeightCell channel={row.original} />,
         size: 90,
+        enableSorting: false,
+      },
+
+      // Concurrency column
+      {
+        accessorKey: 'current_concurrency',
+        header: t('Concurrency'),
+        meta: { mobileHidden: true },
+        cell: ({ row }) => <ConcurrencyCell channel={row.original} />,
+        size: 120,
         enableSorting: false,
       },
 

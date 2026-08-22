@@ -29,6 +29,17 @@ import {
 } from '../constants'
 import type { Channel, ChannelSettings, ChannelOtherSettings } from '../types'
 
+export function formatChannelConcurrency(channel: Pick<Channel, 'current_concurrency' | 'concurrency_limit' | 'concurrency_known'>): string {
+  if (channel.concurrency_known !== true) {
+    return '—'
+  }
+  const current = channel.current_concurrency ?? 0
+  const limit = channel.concurrency_limit
+  return typeof limit === 'number' && limit > 0
+    ? `${current} / ${limit}`
+    : `${current} / ∞`
+}
+
 // ============================================================================
 // Channel Type Utilities
 // ============================================================================
@@ -655,6 +666,9 @@ export function aggregateChannelsByTag(
         priority: -1 as unknown as number | null,
         weight: -1 as unknown as number | null,
         balance: 0,
+        concurrency_limit: 0,
+        current_concurrency: 0,
+        concurrency_known: true,
         test_time: 0,
         created_time: 0,
         balance_updated_time: 0,
@@ -676,6 +690,28 @@ export function aggregateChannelsByTag(
 
     // Aggregate used_quota (sum)
     tagRow.used_quota += channel.used_quota
+
+    // Aggregate formal relay concurrency. Current counts are summed when all
+    // child monitors are available; any unknown child makes the aggregate
+    // unknown. An unlimited child makes the aggregate limit unlimited.
+    if (
+      channel.concurrency_known !== true ||
+      typeof channel.current_concurrency !== 'number'
+    ) {
+      tagRow.concurrency_known = false
+    } else if (tagRow.concurrency_known) {
+      tagRow.current_concurrency =
+        (tagRow.current_concurrency ?? 0) + channel.current_concurrency
+    }
+    if (
+      channel.concurrency_limit == null ||
+      channel.concurrency_limit <= 0
+    ) {
+      tagRow.concurrency_limit = null
+    } else if (tagRow.concurrency_limit !== null) {
+      tagRow.concurrency_limit =
+        (tagRow.concurrency_limit ?? 0) + channel.concurrency_limit
+    }
 
     // Aggregate response_time (average)
     tagRow.response_time =

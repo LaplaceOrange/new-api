@@ -208,6 +208,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			service.ChargeViolationFeeIfNeeded(c, relayInfo, newAPIError)
 		}
 	}()
+	defer service.ReleaseChannelConcurrency(c)
 
 	retryParam := &service.RetryParam{
 		Ctx:         c,
@@ -327,6 +328,17 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
 	if info.ChannelMeta == nil {
+		channelID := c.GetInt("channel_id")
+		if channelID > 0 {
+			if selectedChannel, err := model.CacheGetChannel(channelID); err == nil && selectedChannel != nil {
+				if acquired, acquireErr := service.AcquireChannelConcurrency(c, selectedChannel); acquireErr != nil {
+					return nil, types.NewError(acquireErr, types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+				} else if !acquired {
+					return nil, types.NewError(errors.New("channel concurrency limit reached"), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+				}
+				return selectedChannel, nil
+			}
+		}
 		autoBan := c.GetBool("auto_ban")
 		autoBanInt := 1
 		if !autoBan {
@@ -532,6 +544,15 @@ func RelayTask(c *gin.Context) {
 		respondTaskError(c, taskErr)
 		return
 	}
+	if lockedChannel, ok := relayInfo.LockedChannel.(*model.Channel); ok && lockedChannel != nil {
+		if acquired, acquireErr := service.AcquireChannelConcurrency(c, lockedChannel); acquireErr != nil {
+			respondTaskError(c, service.TaskErrorWrapperLocal(acquireErr, "acquire_channel_concurrency_failed", http.StatusServiceUnavailable))
+			return
+		} else if !acquired {
+			respondTaskError(c, service.TaskErrorWrapperLocal(errors.New("channel concurrency limit reached"), "channel_concurrency_limit_reached", http.StatusServiceUnavailable))
+			return
+		}
+	}
 
 	var result *relay.TaskSubmitResult
 	var taskErr *taskdto.TaskError
@@ -540,6 +561,7 @@ func RelayTask(c *gin.Context) {
 			relayInfo.Billing.Refund(c)
 		}
 	}()
+	defer service.ReleaseChannelConcurrency(c)
 
 	retryParam := &service.RetryParam{
 		Ctx:         c,

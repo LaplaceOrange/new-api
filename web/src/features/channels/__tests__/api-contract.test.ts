@@ -20,7 +20,7 @@ import { afterEach, assert, describe, test } from 'vitest'
 
 import { api } from '@/lib/http-client'
 
-import { createChannel, getChannels } from '../api'
+import { createChannel, getChannelConcurrency, getChannels } from '../api'
 import type { AddChannelRequest } from '../types'
 
 type ApiGet = (
@@ -62,5 +62,20 @@ describe('channel API contract', () => {
       { method: 'GET', url: '/api/channel/' },
       { method: 'POST', url: '/api/channel/' },
     ])
+  })
+
+  test('requests current concurrency with a comma-separated channel id list', async () => {
+    let request: { url: string; config: unknown } | undefined
+    apiClient.get = async (url, config) => {
+      request = { url, config }
+      return { data: { success: true, data: { items: [] } } }
+    }
+
+    await getChannelConcurrency([3, 8, 13])
+
+    assert.deepEqual(request, {
+      url: '/api/channel/concurrency',
+      config: { params: { ids: '3,8,13' } },
+    })
   })
 })

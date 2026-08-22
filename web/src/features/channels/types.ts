@@ -43,6 +43,9 @@ export const channelSchema = z.object({
   status: z.number(), // 1: enabled, 0: manual disabled, 2: auto disabled
   name: z.string(),
   weight: z.number().nullish(),
+  concurrency_limit: z.number().int().nonnegative().nullish(),
+  current_concurrency: z.number().nonnegative().optional(),
+  concurrency_known: z.boolean().optional(),
   created_time: z.number(),
   test_time: z.number(),
   response_time: z.number(), // in milliseconds
@@ -179,6 +182,21 @@ export interface ChannelOpsResponse {
   message?: string
   data?: {
     retry_times: number
+  }
+}
+
+export interface ChannelConcurrencyItem {
+  channel_id: number
+  current_concurrency: number
+  concurrency_limit?: number | null
+  known: boolean
+}
+
+export interface ChannelConcurrencyResponse {
+  success: boolean
+  message?: string
+  data?: {
+    items: ChannelConcurrencyItem[]
   }
 }
 
@@ -332,6 +350,7 @@ export interface TagOperationParams {
   new_tag?: string
   priority?: number
   weight?: number
+  concurrency_limit?: number
   model_mapping?: string
   models?: string
   groups?: string

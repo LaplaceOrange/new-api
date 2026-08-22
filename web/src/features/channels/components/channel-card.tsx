@@ -63,6 +63,7 @@ function ChannelCardComponent({
     balance: t('Used / Remaining'),
     response_time: t('Response'),
     test_time: t('Last Tested'),
+    current_concurrency: t('Concurrency'),
   }
 
   const groups = parseGroupsList(row.original.group ?? '')
@@ -77,6 +78,7 @@ function ChannelCardComponent({
   const balanceCell = renderCell('balance')
   const responseCell = renderCell('response_time')
   const testCell = renderCell('test_time')
+  const concurrencyCell = renderCell('current_concurrency')
 
   const labelClass = 'text-muted-foreground text-[11px] font-medium select-none'
 
@@ -152,6 +154,10 @@ function ChannelCardComponent({
             </div>
             <div className='overflow-hidden text-sm'>
               {testCell ?? <span className='text-muted-foreground'>-</span>}
+            </div>
+            <div className='col-span-2 mt-2 flex items-center gap-2 overflow-hidden text-sm'>
+              <span className={labelClass}>{fieldLabels.current_concurrency}</span>
+              {concurrencyCell ?? <span className='text-muted-foreground'>-</span>}
             </div>
           </div>
         </div>

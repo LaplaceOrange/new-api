@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -14,6 +15,140 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
+
+// GetRandomSatisfiedChannelWithConcurrency selects a channel from the highest
+// currently usable priority downward and atomically reserves its concurrency
+// lease. It intentionally starts at the highest priority on every call so
+// retries can return to a recovered high-priority channel.
+func GetRandomSatisfiedChannelWithConcurrency(ctx context.Context, group string, modelName string, requestPath string) (*Channel, *common.ChannelConcurrencyLease, error) {
+	if common.MemoryCacheEnabled {
+		channelSyncLock.RLock()
+
+		channelIDs := filterChannelsByRequestPathAndModel(group2model2channels[group][modelName], requestPath, modelName)
+		if len(channelIDs) == 0 {
+			normalizedModel := ratio_setting.FormatMatchingModelName(modelName)
+			channelIDs = filterChannelsByRequestPathAndModel(group2model2channels[group][normalizedModel], requestPath, modelName)
+		}
+		channels := make([]*Channel, 0, len(channelIDs))
+		for _, channelID := range channelIDs {
+			channel, ok := channelsIDM[channelID]
+			if !ok {
+				channelSyncLock.RUnlock()
+				return nil, nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelID)
+			}
+			if channelIsRoutable(channel) {
+				channels = append(channels, channel)
+			}
+		}
+		channelSyncLock.RUnlock()
+		return selectChannelWithConcurrency(ctx, channels)
+	}
+
+	abilities := make([]Ability, 0)
+	if err := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, modelName, true).
+		Order("priority DESC").Order("weight DESC").Find(&abilities).Error; err != nil {
+		return nil, nil, err
+	}
+	abilities = applyContributionHealthToAbilities(abilities)
+	abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, modelName)
+	if len(abilities) == 0 {
+		normalizedModel := ratio_setting.FormatMatchingModelName(modelName)
+		if normalizedModel != modelName {
+			if err := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, normalizedModel, true).
+				Order("priority DESC").Order("weight DESC").Find(&abilities).Error; err != nil {
+				return nil, nil, err
+			}
+			abilities = applyContributionHealthToAbilities(abilities)
+			abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, modelName)
+		}
+	}
+	if len(abilities) == 0 {
+		return nil, nil, nil
+	}
+	channelIDs := make([]int, 0, len(abilities))
+	seen := make(map[int]struct{}, len(abilities))
+	for _, ability := range abilities {
+		if _, ok := seen[ability.ChannelId]; ok {
+			continue
+		}
+		seen[ability.ChannelId] = struct{}{}
+		channelIDs = append(channelIDs, ability.ChannelId)
+	}
+	var channels []*Channel
+	if err := DB.Where("id IN ?", channelIDs).Find(&channels).Error; err != nil {
+		return nil, nil, err
+	}
+	routable := make([]*Channel, 0, len(channels))
+	for _, channel := range channels {
+		if channelIsRoutable(channel) {
+			routable = append(routable, channel)
+		}
+	}
+	return selectChannelWithConcurrency(ctx, routable)
+}
+
+func selectChannelWithConcurrency(ctx context.Context, channels []*Channel) (*Channel, *common.ChannelConcurrencyLease, error) {
+	if len(channels) == 0 {
+		return nil, nil, nil
+	}
+	byPriority := make(map[int64][]*Channel)
+	priorities := make([]int64, 0)
+	seenPriority := make(map[int64]struct{})
+	for _, channel := range channels {
+		priority := channel.GetPriority()
+		byPriority[priority] = append(byPriority[priority], channel)
+		if _, ok := seenPriority[priority]; !ok {
+			seenPriority[priority] = struct{}{}
+			priorities = append(priorities, priority)
+		}
+	}
+	sort.Slice(priorities, func(i, j int) bool { return priorities[i] > priorities[j] })
+
+	for _, priority := range priorities {
+		for _, channel := range weightedChannelOrder(byPriority[priority]) {
+			lease, acquired, err := common.AcquireChannelConcurrency(ctx, channel.Id, channel.ConcurrencyLimit)
+			if err != nil {
+				return nil, nil, err
+			}
+			if acquired {
+				return channel, lease, nil
+			}
+		}
+	}
+	return nil, nil, nil
+}
+
+func weightedChannelOrder(channels []*Channel) []*Channel {
+	remaining := append([]*Channel(nil), channels...)
+	ordered := make([]*Channel, 0, len(channels))
+	for len(remaining) > 0 {
+		sumWeight := 0
+		for _, channel := range remaining {
+			sumWeight += channel.GetWeight()
+		}
+		smoothingFactor := 1
+		smoothingAdjustment := 0
+		if sumWeight == 0 {
+			sumWeight = len(remaining) * 100
+			smoothingAdjustment = 100
+		} else if sumWeight/len(remaining) < 10 {
+			smoothingFactor = 100
+		}
+		weightSum := sumWeight * smoothingFactor
+		randomWeight := common.GetRandomInt(weightSum)
+		selected := 0
+		for i, channel := range remaining {
+			randomWeight -= channel.GetWeight()*smoothingFactor + smoothingAdjustment
+			if randomWeight <= 0 {
+				selected = i
+				break
+			}
+		}
+		ordered = append(ordered, remaining[selected])
+		remaining = append(remaining[:selected], remaining[selected+1:]...)
+	}
+	return ordered
+}
 
 var group2model2channels map[string]map[string][]int // enabled channel
 var channelsIDM map[int]*Channel                     // all channels include disabled
