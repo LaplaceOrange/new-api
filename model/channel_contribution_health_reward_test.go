@@ -545,6 +545,25 @@ func TestTransferChannelContributionRewardMovesBalanceToUserQuotaAtomically(t *t
 	assert.Equal(t, int64(20), account.Balance)
 }
 
+func TestTransferChannelContributionRewardAcceptsQuotaForOneDisplayUnit(t *testing.T) {
+	prepareChannelContributionFeatureTables(t)
+	user := &User{Id: 42, Username: "contributor", Quota: 100, Status: common.UserStatusEnabled}
+	require.NoError(t, DB.Create(user).Error)
+	credited, err := CreditChannelContributionReward(42, 10, 20, "request-1", 1_000, 500, 500_000, nil)
+	require.NoError(t, err)
+	require.True(t, credited)
+
+	_, err = TransferChannelContributionReward(42, 500_000)
+	require.NoError(t, err)
+
+	var reloadedUser User
+	require.NoError(t, DB.First(&reloadedUser, 42).Error)
+	assert.Equal(t, 500_100, reloadedUser.Quota)
+	account, err := GetChannelContributionRewardAccount(42)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), account.Balance)
+}
+
 func TestTransferChannelContributionRewardPreventsConcurrentOverspend(t *testing.T) {
 	prepareChannelContributionFeatureTables(t)
 	user := &User{Id: 42, Username: "contributor", Quota: 100, Status: common.UserStatusEnabled}

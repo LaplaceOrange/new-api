@@ -42,6 +42,57 @@ func createUserBindTestUser(t *testing.T) User {
 	return user
 }
 
+func TestTransferAffQuotaToQuotaMovesQuotaUnitsWithoutExceedingWalletLimit(t *testing.T) {
+	setupUserUpdateTestState(t)
+
+	oldQuotaPerUnit := common.QuotaPerUnit
+	common.QuotaPerUnit = 500000
+	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
+
+	user := User{
+		Id:       11,
+		Username: "affiliate-transfer-user",
+		Password: "password",
+		Status:   common.UserStatusEnabled,
+		Quota:    100,
+		AffQuota: 500000,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+
+	require.NoError(t, user.TransferAffQuotaToQuota(500000))
+
+	var got User
+	require.NoError(t, DB.First(&got, user.Id).Error)
+	assert.Equal(t, 500100, got.Quota)
+	assert.Equal(t, 0, got.AffQuota)
+}
+
+func TestTransferAffQuotaToQuotaRejectsWalletQuotaOverflow(t *testing.T) {
+	setupUserUpdateTestState(t)
+
+	oldQuotaPerUnit := common.QuotaPerUnit
+	common.QuotaPerUnit = 1
+	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
+
+	user := User{
+		Id:       12,
+		Username: "affiliate-transfer-overflow-user",
+		Password: "password",
+		Status:   common.UserStatusEnabled,
+		Quota:    common.MaxQuota - 10,
+		AffQuota: 20,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+
+	err := user.TransferAffQuotaToQuota(20)
+	require.EqualError(t, err, "user quota would exceed the supported limit")
+
+	var got User
+	require.NoError(t, DB.First(&got, user.Id).Error)
+	assert.Equal(t, common.MaxQuota-10, got.Quota)
+	assert.Equal(t, 20, got.AffQuota)
+}
+
 func TestUserUpdateDoesNotOverwriteConcurrentAccountingOrTokenChanges(t *testing.T) {
 	setupUserUpdateTestState(t)
 

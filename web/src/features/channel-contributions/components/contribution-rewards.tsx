@@ -41,7 +41,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { formatQuota } from '@/lib/format'
+import { getCurrencyLabel } from '@/lib/currency'
+import {
+  formatQuota,
+  parseQuotaFromDollars,
+  quotaUnitsToDollars,
+} from '@/lib/format'
 
 import {
   createChannelContributionRewardTransfer,
@@ -113,15 +118,19 @@ export function ContributionRewards(props: { rewardBps: number }) {
   const account = rewardsQuery.data?.account
   const balance = account?.balance ?? 0
   const transferAmount = Number(amount)
+  const transferQuota = parseQuotaFromDollars(transferAmount)
+  const editableBalance = quotaUnitsToDollars(balance)
+  const editableStep = quotaUnitsToDollars(1)
   const amountValid =
-    Number.isInteger(transferAmount) &&
+    Number.isFinite(transferAmount) &&
     transferAmount > 0 &&
-    transferAmount <= balance
+    transferQuota > 0 &&
+    transferQuota <= balance
 
   const handleTransfer = async () => {
     if (!amountValid) return
     try {
-      const response = await transferMutation.mutateAsync(transferAmount)
+      const response = await transferMutation.mutateAsync(transferQuota)
       if (!response.success) {
         toast.error(response.message || t('Failed to transfer rewards'))
         return
@@ -212,12 +221,14 @@ export function ContributionRewards(props: { rewardBps: number }) {
               <Input
                 id='channel-contribution-transfer-amount'
                 type='number'
-                min={1}
-                max={balance}
-                step={1}
+                min={editableStep}
+                max={editableBalance}
+                step={editableStep}
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
-                placeholder={t('Enter reward quota')}
+                placeholder={t('Enter amount in {{currency}}', {
+                  currency: getCurrencyLabel(),
+                })}
               />
               <div className='flex items-center justify-between gap-3 text-xs'>
                 <span className='text-muted-foreground'>
@@ -229,7 +240,7 @@ export function ContributionRewards(props: { rewardBps: number }) {
                   size='sm'
                   className='h-auto p-0'
                   disabled={balance <= 0}
-                  onClick={() => setAmount(String(balance))}
+                  onClick={() => setAmount(String(editableBalance))}
                 >
                   {t('Transfer all')}
                 </Button>

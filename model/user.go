@@ -549,6 +549,9 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 	if float64(quota) < common.QuotaPerUnit {
 		return fmt.Errorf("转移额度最小为%s！", logger.LogQuota(common.QuotaFromFloat(common.QuotaPerUnit)))
 	}
+	if quota > common.MaxQuota {
+		return errors.New("user quota would exceed the supported limit")
+	}
 
 	// 开始数据库事务
 	tx := DB.Begin()
@@ -567,14 +570,23 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 	if user.AffQuota < quota {
 		return errors.New("邀请额度不足！")
 	}
+	maxCurrentQuota := int64(common.MaxQuota) - int64(quota)
+	if int64(user.Quota) > maxCurrentQuota {
+		return errors.New("user quota would exceed the supported limit")
+	}
 
-	// 更新用户额度
-	user.AffQuota -= quota
-	user.Quota += quota
-
-	// 保存用户状态
-	if err := tx.Save(user).Error; err != nil {
-		return err
+	// 使用条件更新同时转移邀请额度和用户额度，避免超出数据库支持的上限。
+	result := tx.Model(&User{}).
+		Where("id = ? AND aff_quota >= ? AND quota <= ?", user.Id, quota, maxCurrentQuota).
+		Updates(map[string]interface{}{
+			"aff_quota": gorm.Expr("aff_quota - ?", quota),
+			"quota":     gorm.Expr("quota + ?", quota),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return errors.New("邀请额度不足！")
 	}
 
 	// 提交事务

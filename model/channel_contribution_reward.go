@@ -241,8 +241,8 @@ func TransferChannelContributionReward(userId int, amount int) (*ChannelContribu
 		if err := lockForUpdate(tx).Select("id", "quota").Where("id = ?", userId).First(&user).Error; err != nil {
 			return err
 		}
-		newQuota := int64(user.Quota) + int64(amount)
-		if newQuota > int64(common.MaxQuota) {
+		maxCurrentQuota := int64(common.MaxQuota) - int64(amount)
+		if int64(user.Quota) > maxCurrentQuota {
 			return errors.New("user quota would exceed the supported limit")
 		}
 
@@ -264,8 +264,14 @@ func TransferChannelContributionReward(userId int, amount int) (*ChannelContribu
 		if result.RowsAffected != 1 {
 			return ErrChannelContributionRewardInsufficientBalance
 		}
-		if err := tx.Model(&User{}).Where("id = ?", userId).Update("quota", int(newQuota)).Error; err != nil {
-			return err
+		userUpdate := tx.Model(&User{}).
+			Where("id = ? AND quota <= ?", userId, maxCurrentQuota).
+			Update("quota", gorm.Expr("quota + ?", amount))
+		if userUpdate.Error != nil {
+			return userUpdate.Error
+		}
+		if userUpdate.RowsAffected != 1 {
+			return errors.New("user quota would exceed the supported limit")
 		}
 		transferId, err := common.GenerateRandomCharsKey(24)
 		if err != nil {
