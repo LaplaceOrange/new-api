@@ -19,11 +19,39 @@ For commercial licensing, please contact support@quantumnous.com
 
 export type GroupRatioValue = number | string | null | undefined
 
-function formatRatioValue(value: number | string): string {
+export type GroupRatioParts = {
+  ratio: number
+  topupRatio: number
+  effectiveRatio: number
+}
+
+export function formatRatioValue(value: number | string): string {
   if (typeof value === 'number') {
     return String(Number(value.toFixed(10)))
   }
   return value
+}
+
+export function getGroupRatioParts(
+  ratio: GroupRatioValue,
+  topupRatio: GroupRatioValue
+): GroupRatioParts | null {
+  if (ratio === undefined || ratio === null || ratio === '') return null
+  if (topupRatio === undefined || topupRatio === null || topupRatio === '') {
+    return null
+  }
+
+  const numericRatio = Number(ratio)
+  const numericTopupRatio = Number(topupRatio)
+  if (!Number.isFinite(numericRatio) || !Number.isFinite(numericTopupRatio)) {
+    return null
+  }
+
+  return {
+    ratio: numericRatio,
+    topupRatio: numericTopupRatio,
+    effectiveRatio: Number((numericRatio * numericTopupRatio).toFixed(10)),
+  }
 }
 
 export function formatGroupRatio(
@@ -37,12 +65,10 @@ export function formatGroupRatio(
     return `${formatRatioValue(ratio)}x ${ratioLabel}`
   }
 
-  const numericRatio = Number(ratio)
-  const numericTopupRatio = Number(topupRatio)
-  if (!Number.isFinite(numericRatio) || !Number.isFinite(numericTopupRatio)) {
+  const parts = getGroupRatioParts(ratio, topupRatio)
+  if (!parts) {
     return `${formatRatioValue(ratio)}x ${ratioLabel}`
   }
 
-  const effectiveRatio = Number((numericRatio * numericTopupRatio).toFixed(10))
-  return `${formatRatioValue(numericRatio)}${ratioLabel}*${formatRatioValue(numericTopupRatio)}${topupRatioLabel}=${formatRatioValue(effectiveRatio)}${ratioLabel}`
+  return `${formatRatioValue(parts.ratio)}${ratioLabel}*${formatRatioValue(parts.topupRatio)}${topupRatioLabel}=${formatRatioValue(parts.effectiveRatio)}${ratioLabel}`
 }

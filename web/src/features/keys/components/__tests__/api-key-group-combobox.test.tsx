@@ -51,6 +51,8 @@ await i18n.use(initReactI18next).init({
         'Search...': 'Search...',
         'No group found.': 'No group found.',
         'Select a group': 'Select a group',
+        'Top-up ratio': 'Top-up ratio',
+        'Effective ratio': 'Effective ratio',
       },
     },
   },
@@ -64,7 +66,13 @@ const options = [
     ratio: '自动',
   },
   { value: 'default', label: 'default', desc: 'User group', ratio: 1 },
-  { value: 'vip', label: 'vip', desc: 'Priority group', ratio: 3 },
+  {
+    value: 'vip',
+    label: 'vip',
+    desc: 'Priority group',
+    ratio: 3,
+    topupRatio: 0.1,
+  },
 ]
 
 function Harness(props: { initialValue: string }) {
@@ -189,6 +197,17 @@ describe('API key group combobox Auto effect', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'false')
     expect(trigger).not.toHaveAttribute('data-auto-group-effect')
     expect(trigger.querySelector('[data-auto-group-flow-border]')).toBe(null)
+  })
+
+  test('renders group, top-up, and effective ratios as separate badges', () => {
+    setReducedMotion(false)
+    render(<Harness initialValue='vip' />)
+
+    const trigger = getTrigger()
+    expect(trigger).toHaveTextContent('3x Ratio')
+    expect(trigger).toHaveTextContent('0.1x Top-up ratio')
+    expect(trigger).toHaveTextContent('0.3x Effective ratio')
+    expect(trigger.querySelectorAll('[data-slot="badge"]')).toHaveLength(3)
   })
 
   test('preserves the static Auto treatment but omits moving layers for reduced motion', async () => {

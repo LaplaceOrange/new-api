@@ -23,7 +23,11 @@ import { GroupBadge } from '@/components/group-badge'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
-import { formatGroupRatio, type GroupRatioValue } from '../lib/group-ratio'
+import {
+  formatRatioValue,
+  getGroupRatioParts,
+  type GroupRatioValue,
+} from '../lib/group-ratio'
 
 export type GroupRatio = number | string | null | undefined
 
@@ -100,15 +104,13 @@ export function GroupRatioBadge(props: GroupRatioBadgeProps) {
     return null
   }
 
-  const label =
-    typeof props.ratio === 'number'
-      ? formatGroupRatio(
-          props.ratio,
-          props.topupRatio,
-          t('Ratio'),
-          t('Top-up ratio')
-        )
-      : `${t('Auto')} ${t('Ratio')}`
+  const parts = getGroupRatioParts(props.ratio, props.topupRatio)
+  let label = `${t('Auto')} ${t('Ratio')}`
+  if (parts) {
+    label = `${formatRatioValue(parts.ratio)}x ${t('Ratio')}`
+  } else if (typeof props.ratio === 'number') {
+    label = `${formatRatioValue(props.ratio)}x ${t('Ratio')}`
+  }
   const badge = (
     <Badge
       variant='outline'
@@ -120,6 +122,48 @@ export function GroupRatioBadge(props: GroupRatioBadgeProps) {
       {label}
     </Badge>
   )
+
+  if (parts) {
+    const topupBadge = (
+      <Badge
+        variant='outline'
+        className={cn(
+          'max-w-full truncate text-[10px] sm:text-xs',
+          getRatioBadgeClassName(parts.topupRatio, false)
+        )}
+      >
+        {`${formatRatioValue(parts.topupRatio)}x ${t('Top-up ratio')}`}
+      </Badge>
+    )
+    const effectiveBadge = (
+      <Badge
+        variant='outline'
+        className={cn(
+          'max-w-full truncate text-[10px] sm:text-xs',
+          getRatioBadgeClassName(parts.effectiveRatio, false)
+        )}
+      >
+        {`${formatRatioValue(parts.effectiveRatio)}x ${t('Effective ratio')}`}
+      </Badge>
+    )
+    const formula = (
+      <span className='inline-flex max-w-full min-w-0 shrink items-center gap-1'>
+        <span className='min-w-0 shrink'>{badge}</span>
+        <span aria-hidden='true' className='text-muted-foreground shrink-0'>
+          *
+        </span>
+        <span className='min-w-0 shrink'>{topupBadge}</span>
+        <span aria-hidden='true' className='text-muted-foreground shrink-0'>
+          =
+        </span>
+        <span className='min-w-0 shrink'>{effectiveBadge}</span>
+      </span>
+    )
+
+    if (!props.isAuto) {
+      return formula
+    }
+  }
 
   if (!props.isAuto) {
     return <span className='max-w-24 shrink-0 sm:max-w-none'>{badge}</span>
