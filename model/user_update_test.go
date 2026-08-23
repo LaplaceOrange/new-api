@@ -60,6 +60,8 @@ func TestTransferAffQuotaToQuotaMovesQuotaUnitsWithoutExceedingWalletLimit(t *te
 	require.NoError(t, DB.Create(&user).Error)
 
 	require.NoError(t, user.TransferAffQuotaToQuota(500000))
+	assert.Equal(t, 500100, user.Quota)
+	assert.Equal(t, 0, user.AffQuota)
 
 	var got User
 	require.NoError(t, DB.First(&got, user.Id).Error)
@@ -91,6 +93,34 @@ func TestTransferAffQuotaToQuotaRejectsWalletQuotaOverflow(t *testing.T) {
 	require.NoError(t, DB.First(&got, user.Id).Error)
 	assert.Equal(t, common.MaxQuota-10, got.Quota)
 	assert.Equal(t, 20, got.AffQuota)
+}
+
+func TestTransferAffQuotaToQuotaUpdatesCachedWalletQuota(t *testing.T) {
+	truncateTables(t)
+	require.NoError(t, DB.Exec("DELETE FROM users").Error)
+	useUserCacheMiniRedis(t)
+
+	oldQuotaPerUnit := common.QuotaPerUnit
+	common.QuotaPerUnit = 500000
+	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
+
+	user := User{
+		Id:          13,
+		Username:    "affiliate-transfer-cache-user",
+		Password:    "password",
+		Status:      common.UserStatusEnabled,
+		AuthVersion: 1,
+		Quota:       100,
+		AffQuota:    500000,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+	require.NoError(t, populateUserCache(user))
+
+	require.NoError(t, user.TransferAffQuotaToQuota(500000))
+
+	cached, err := GetUserCache(user.Id)
+	require.NoError(t, err)
+	assert.Equal(t, 500100, cached.Quota)
 }
 
 func TestUserUpdateDoesNotOverwriteConcurrentAccountingOrTokenChanges(t *testing.T) {

@@ -590,7 +590,19 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 	}
 
 	// 提交事务
-	return tx.Commit().Error
+	if err := tx.Commit().Error; err != nil {
+		return err
+	}
+
+	// Keep the caller's snapshot and the Redis quota cache in sync with the
+	// committed database update. Quota transfers must be visible immediately
+	// to quota reservation paths that prefer the cache.
+	user.AffQuota -= quota
+	user.Quota += quota
+	if err := cacheIncrUserQuota(user.Id, int64(quota)); err != nil {
+		common.SysError(fmt.Sprintf("failed to update user quota cache after affiliate quota transfer: user_id=%d err=%v", user.Id, err))
+	}
+	return nil
 }
 
 func (user *User) prepareForInsert(tx *gorm.DB) error {
