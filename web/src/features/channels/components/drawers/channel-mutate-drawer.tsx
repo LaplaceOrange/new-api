@@ -305,6 +305,8 @@ const SENSITIVE_FORM_FIELDS = [
   'upstream_model_update_check_enabled',
   'upstream_model_update_auto_sync_enabled',
   'upstream_model_update_ignored_models',
+  'upstream_rate_multiplier_check_enabled',
+  'upstream_rate_multiplier_check_type',
 ] satisfies (keyof ChannelFormValues)[]
 
 function readAdvancedSettingsPreference(): boolean {
@@ -352,7 +354,8 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.claude_beta_query ||
     values.upstream_model_update_check_enabled ||
     values.upstream_model_update_auto_sync_enabled ||
-    values.upstream_model_update_ignored_models?.trim()
+    values.upstream_model_update_ignored_models?.trim() ||
+    values.upstream_rate_multiplier_check_enabled
   )
 }
 
@@ -778,6 +781,9 @@ export function ChannelMutateDrawer({
   const currentUpstreamModelUpdateIgnoredModels = form.watch(
     'upstream_model_update_ignored_models'
   )
+  const currentUpstreamRateMultiplierCheckEnabled = form.watch(
+    'upstream_rate_multiplier_check_enabled'
+  )
   const shouldPreviewUnsavedModels =
     !isEditing ||
     (currentType === CHANNEL_TYPE_ADVANCED_CUSTOM && canEditSensitive)
@@ -1019,7 +1025,9 @@ export function ChannelMutateDrawer({
     (currentAutoBan ?? 1) !== 1
   )
   const internalNotesConfigured = Boolean(
-    currentTag?.trim() || currentRemark?.trim()
+    currentTag?.trim() ||
+      currentRemark?.trim() ||
+      currentUpstreamRateMultiplierCheckEnabled
   )
   const overrideRulesConfigured = Boolean(
     hasConfiguredOverrideValue(currentStatusCodeMapping) ||
@@ -3873,6 +3881,71 @@ export function ChannelMutateDrawer({
                                   </FormItem>
                                 )}
                               />
+                            </div>
+                            <div className='border-border/60 bg-muted/10 rounded-lg border p-3'>
+                              <div className='mb-3 space-y-1'>
+                                <h4 className='text-sm font-medium'>
+                                  {t('Upstream Rate Multiplier Check')}
+                                </h4>
+                                <p className='text-muted-foreground text-xs'>
+                                  {t(
+                                    'Fetch the upstream multiplier during every channel test and replace the first line of the remark.'
+                                  )}
+                                </p>
+                              </div>
+                              <FormField
+                                control={form.control}
+                                name='upstream_rate_multiplier_check_enabled'
+                                render={({ field }) => (
+                                  <FormItem className='flex items-center justify-between gap-3'>
+                                    <div className='space-y-0.5'>
+                                      <FormLabel className='text-sm'>
+                                        {t('Enable upstream rate multiplier check')}
+                                      </FormLabel>
+                                      <FormDescription>
+                                        {t('Currently supports Sub2API only')}
+                                      </FormDescription>
+                                    </div>
+                                    <FormControl>
+                                      <Switch
+                                        checked={field.value}
+                                        disabled={configurationLocked}
+                                        onCheckedChange={field.onChange}
+                                      />
+                                    </FormControl>
+                                  </FormItem>
+                                )}
+                              />
+                              {currentUpstreamRateMultiplierCheckEnabled && (
+                                <FormField
+                                  control={form.control}
+                                  name='upstream_rate_multiplier_check_type'
+                                  render={({ field }) => (
+                                    <FormItem className='mt-3'>
+                                      <FormLabel>
+                                        {t('Upstream type')}
+                                      </FormLabel>
+                                      <Select
+                                        value={field.value}
+                                        onValueChange={field.onChange}
+                                        disabled={configurationLocked}
+                                      >
+                                        <FormControl>
+                                          <SelectTrigger>
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                          <SelectItem value='sub2api'>
+                                            Sub2API
+                                          </SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              )}
                             </div>
                           </div>
 

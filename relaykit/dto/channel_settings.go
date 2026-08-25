@@ -84,8 +84,12 @@ type ChannelOtherSettings struct {
 	UpstreamModelUpdateLastDetectedModels []string              `json:"upstream_model_update_last_detected_models,omitempty"` // 上次检测到的可加入模型
 	UpstreamModelUpdateLastRemovedModels  []string              `json:"upstream_model_update_last_removed_models,omitempty"`  // 上次检测到的可删除模型
 	UpstreamModelUpdateIgnoredModels      []string              `json:"upstream_model_update_ignored_models,omitempty"`       // 手动忽略的模型
+	UpstreamRateMultiplierCheckEnabled    bool                  `json:"upstream_rate_multiplier_check_enabled,omitempty"`     // 是否在渠道测试时检测上游倍率
+	UpstreamRateMultiplierCheckType       string                `json:"upstream_rate_multiplier_check_type,omitempty"`        // 上游倍率检测类型
 	AdvancedCustom                        *AdvancedCustomConfig `json:"advanced_custom,omitempty"`
 }
+
+const UpstreamRateMultiplierCheckTypeSub2API = "sub2api"
 
 func (s *ChannelOtherSettings) IsOpenRouterEnterprise() bool {
 	if s == nil || s.OpenRouterEnterprise == nil {

@@ -287,6 +287,8 @@ export const channelFormSchema = z
     upstream_model_update_check_enabled: z.boolean().optional(),
     upstream_model_update_auto_sync_enabled: z.boolean().optional(),
     upstream_model_update_ignored_models: z.string().optional(),
+    upstream_rate_multiplier_check_enabled: z.boolean().optional(),
+    upstream_rate_multiplier_check_type: z.enum(['sub2api']).optional(),
   })
   .superRefine((data, ctx) => {
     if (
@@ -459,6 +461,8 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   upstream_model_update_check_enabled: false,
   upstream_model_update_auto_sync_enabled: false,
   upstream_model_update_ignored_models: '',
+  upstream_rate_multiplier_check_enabled: false,
+  upstream_rate_multiplier_check_type: 'sub2api',
   advanced_custom: '',
 }
 
@@ -523,6 +527,8 @@ export function transformChannelToFormDefaults(
   let upstreamModelUpdateCheckEnabled = false
   let upstreamModelUpdateAutoSyncEnabled = false
   let upstreamModelUpdateIgnoredModels = ''
+  let upstreamRateMultiplierCheckEnabled = false
+  const upstreamRateMultiplierCheckType = 'sub2api' as const
   let advancedCustom = ''
 
   if (channel.settings) {
@@ -549,6 +555,8 @@ export function transformChannelToFormDefaults(
       )
         ? parsed.upstream_model_update_ignored_models.join(',')
         : ''
+      upstreamRateMultiplierCheckEnabled =
+        parsed.upstream_rate_multiplier_check_enabled === true
       if (parsed.advanced_custom) {
         advancedCustom = stringifyAdvancedCustomConfig(parsed.advanced_custom)
       }
@@ -606,6 +614,8 @@ export function transformChannelToFormDefaults(
     upstream_model_update_check_enabled: upstreamModelUpdateCheckEnabled,
     upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
+    upstream_rate_multiplier_check_enabled: upstreamRateMultiplierCheckEnabled,
+    upstream_rate_multiplier_check_type: upstreamRateMultiplierCheckType,
     advanced_custom: advancedCustom,
   }
 }
@@ -761,6 +771,11 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
       settingsObj.upstream_model_update_last_check_time = 0
     }
   }
+
+  settingsObj.upstream_rate_multiplier_check_enabled =
+    formData.upstream_rate_multiplier_check_enabled === true
+  settingsObj.upstream_rate_multiplier_check_type =
+    formData.upstream_rate_multiplier_check_type || 'sub2api'
 
   if (formData.type === CHANNEL_TYPE_ADVANCED_CUSTOM) {
     const advancedCustomConfig = parseAdvancedCustomConfig(

@@ -98,3 +98,16 @@ func TestAdvancedCustomChannelRequiresModelListRouteOnlyWhenUpdateChecksEnabled(
 		})
 	}
 }
+
+func TestChannelValidateSettingsRejectsUnsupportedUpstreamRateMultiplierCheckType(t *testing.T) {
+	channel := &Channel{}
+	channel.SetOtherSettings(dto.ChannelOtherSettings{
+		UpstreamRateMultiplierCheckEnabled: true,
+		UpstreamRateMultiplierCheckType:    "unsupported",
+	})
+
+	err := channel.ValidateSettings()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported upstream rate multiplier check type")
+}

@@ -1427,6 +1427,10 @@ func (channel *Channel) ValidateSettings() error {
 			return err
 		}
 	}
+	if channelOtherSettings.UpstreamRateMultiplierCheckEnabled &&
+		channelOtherSettings.UpstreamRateMultiplierCheckType != dto.UpstreamRateMultiplierCheckTypeSub2API {
+		return fmt.Errorf("unsupported upstream rate multiplier check type: %s", channelOtherSettings.UpstreamRateMultiplierCheckType)
+	}
 	if channel.Type == constant.ChannelTypeAdvancedCustom && channelOtherSettings.UpstreamModelUpdateCheckEnabled {
 		if _, ok := channelOtherSettings.AdvancedCustom.ModelListRoute(); !ok {
 			return fmt.Errorf("advanced custom channels require a %s route when upstream model update checks are enabled", dto.AdvancedCustomModelListPath)

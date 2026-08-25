@@ -117,6 +117,7 @@ func testChannelWithOptions(ctx context.Context, channel *model.Channel, testUse
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	checkAndPersistChannelRateMultiplier(ctx, channel)
 	if options.UseSSRFProtectedClient {
 		ctx = context.WithValue(ctx, constant.ContextKeySuppressUpstreamResponseLog, true)
 	}
@@ -584,6 +585,114 @@ func testChannelWithOptions(ctx context.Context, channel *model.Channel, testUse
 		localErr:    nil,
 		newAPIError: nil,
 	}
+}
+
+const channelRateMultiplierResponseBodyLimit = 1 << 20
+
+func checkAndPersistChannelRateMultiplier(ctx context.Context, channel *model.Channel) {
+	if channel == nil {
+		return
+	}
+	settings := channel.GetOtherSettings()
+	if !settings.UpstreamRateMultiplierCheckEnabled {
+		return
+	}
+	if settings.UpstreamRateMultiplierCheckType != dto.UpstreamRateMultiplierCheckTypeSub2API {
+		common.SysError(fmt.Sprintf("channel rate multiplier check has unsupported type: channel_id=%d type=%s", channel.Id, settings.UpstreamRateMultiplierCheckType))
+		return
+	}
+
+	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	rateMultiplier, err := fetchSub2APIRateMultiplier(checkCtx, channel, nil)
+	if err != nil {
+		common.SysError(fmt.Sprintf("failed to fetch channel rate multiplier: channel_id=%d name=%s error=%v", channel.Id, channel.Name, err))
+		return
+	}
+
+	updated, err := model.UpdateChannelAtomically(channel.Id, func(current *model.Channel) error {
+		remark := ""
+		if current.Remark != nil {
+			remark = *current.Remark
+		}
+		updatedRemark := replaceChannelRemarkFirstLine(remark, rateMultiplier)
+		current.Remark = common.GetPointer(updatedRemark)
+		return nil
+	})
+	if err != nil {
+		common.SysError(fmt.Sprintf("failed to persist channel rate multiplier: channel_id=%d name=%s error=%v", channel.Id, channel.Name, err))
+		return
+	}
+	model.CacheUpdateChannel(updated)
+}
+
+func fetchSub2APIRateMultiplier(ctx context.Context, channel *model.Channel, httpClient *http.Client) (float64, error) {
+	if channel == nil {
+		return 0, errors.New("channel is nil")
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(channel.GetBaseURL()), "/")
+	if baseURL == "" {
+		return 0, errors.New("channel base URL is empty")
+	}
+	requestURL := baseURL + "/v1/sub2api/billing"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return 0, err
+	}
+	key := strings.TrimSpace(strings.Split(channel.Key, "\n")[0])
+	if key != "" {
+		request.Header.Set("Authorization", "Bearer "+key)
+	}
+
+	client := httpClient
+	if client == nil {
+		client, err = service.NewProxyHttpClient(channel.GetSetting().Proxy)
+		if err != nil {
+			return 0, err
+		}
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return 0, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("status code: %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, channelRateMultiplierResponseBodyLimit+1))
+	if err != nil {
+		return 0, err
+	}
+	if len(body) > channelRateMultiplierResponseBodyLimit {
+		return 0, fmt.Errorf("rate multiplier response exceeds %d bytes", channelRateMultiplierResponseBodyLimit)
+	}
+
+	value := gjson.GetBytes(body, "effective_rate_multiplier")
+	if !value.Exists() {
+		return 0, errors.New("effective_rate_multiplier is missing")
+	}
+	rateMultiplier := value.Float()
+	if value.Type == gjson.String {
+		rateMultiplier, err = strconv.ParseFloat(strings.TrimSpace(value.String()), 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid effective_rate_multiplier: %w", err)
+		}
+	}
+	if math.IsNaN(rateMultiplier) || math.IsInf(rateMultiplier, 0) || rateMultiplier <= 0 {
+		return 0, fmt.Errorf("invalid effective_rate_multiplier: %v", rateMultiplier)
+	}
+	return rateMultiplier, nil
+}
+
+func replaceChannelRemarkFirstLine(remark string, rateMultiplier float64) string {
+	firstLine := strconv.FormatFloat(rateMultiplier, 'f', -1, 64)
+	lines := strings.Split(remark, "\n")
+	lines[0] = firstLine
+	updated := strings.Join(lines, "\n")
+	if len([]rune(updated)) <= 255 {
+		return updated
+	}
+	return string([]rune(updated)[:255])
 }
 
 func attachTestBillingRequestInput(info *relaycommon.RelayInfo, request dto.Request) error {

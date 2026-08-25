@@ -58,6 +58,53 @@ func TestValidateChannelProxy(t *testing.T) {
 	}
 }
 
+func TestCheckAndPersistChannelRateMultiplierUpdatesRemark(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	var requestedPath string
+	var authorization string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPath = r.URL.Path
+		authorization = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"effective_rate_multiplier":1.25}`))
+	}))
+	t.Cleanup(server.Close)
+
+	settings := dto.ChannelOtherSettings{
+		UpstreamRateMultiplierCheckEnabled: true,
+		UpstreamRateMultiplierCheckType:    dto.UpstreamRateMultiplierCheckTypeSub2API,
+	}
+	otherSettings, err := common.Marshal(settings)
+	require.NoError(t, err)
+	baseURL := server.URL
+	remark := "0.8\nkeep this note"
+	channel := &model.Channel{
+		Type:          constant.ChannelTypeOpenAI,
+		Name:          "rate multiplier test",
+		Key:           "test-key\nsecond-key",
+		BaseURL:       &baseURL,
+		Remark:        &remark,
+		OtherSettings: string(otherSettings),
+		Models:        "gpt-test",
+		Group:         "default",
+	}
+	require.NoError(t, db.Create(channel).Error)
+
+	checkAndPersistChannelRateMultiplier(context.Background(), channel)
+
+	var persisted model.Channel
+	require.NoError(t, db.First(&persisted, channel.Id).Error)
+	require.NotNil(t, persisted.Remark)
+	assert.Equal(t, "/v1/sub2api/billing", requestedPath)
+	assert.Equal(t, "Bearer test-key", authorization)
+	assert.Equal(t, "1.25\nkeep this note", *persisted.Remark)
+}
+
+func TestReplaceChannelRemarkFirstLinePreservesEmptyRemark(t *testing.T) {
+	assert.Equal(t, "1.25", replaceChannelRemarkFirstLine("", 1.25))
+	assert.Equal(t, "1.25\nsecond", replaceChannelRemarkFirstLine("old\nsecond", 1.25))
+}
+
 func TestChannelTestResponseRecorderLimitsStringWrites(t *testing.T) {
 	recorder := newChannelTestResponseRecorder(4)
 	written, err := recorder.WriteString("streamed")

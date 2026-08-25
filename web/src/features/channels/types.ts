@@ -112,6 +112,8 @@ export interface ChannelOtherSettings {
   upstream_model_update_ignored_models?: string[]
   upstream_model_update_last_check_time?: number
   upstream_model_update_last_detected_models?: string[]
+  upstream_rate_multiplier_check_enabled?: boolean
+  upstream_rate_multiplier_check_type?: 'sub2api'
   advanced_custom?: AdvancedCustomConfig
 }
 
