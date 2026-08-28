@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 import { SectionPageLayout } from '@/components/layout'
 import { Badge } from '@/components/ui/badge'
 
+import { LogStoragePanel } from './components/log-storage-panel'
 import { SystemInstancesPanel } from './components/system-instances-panel'
 import { SystemTasksPanel } from './components/system-tasks-panel'
 
@@ -40,6 +41,7 @@ export function SystemInfo() {
       <SectionPageLayout.Content>
         <div className='space-y-4'>
           <SystemInstancesPanel />
+          <LogStoragePanel />
           <SystemTasksPanel />
         </div>
       </SectionPageLayout.Content>

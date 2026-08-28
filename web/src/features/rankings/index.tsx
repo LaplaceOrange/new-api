@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate, useSearch } from '@tanstack/react-router'
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
@@ -28,18 +29,25 @@ import {
   ModelsSection,
   PulseSection,
   RankingsHero,
+  UserLeaderboardSection,
 } from './components'
 import { useRankings } from './hooks/use-rankings'
 import type { RankingPeriod } from './types'
 
-const VALID_PERIODS: RankingPeriod[] = ['today', 'week', 'month', 'year']
+const VALID_PERIODS = new Set<RankingPeriod>([
+  'today',
+  'week',
+  'month',
+  'year',
+  'all',
+])
 
 export function Rankings() {
   const { t } = useTranslation()
   const search = useSearch({ from: '/rankings/' })
   const navigate = useNavigate()
 
-  const period: RankingPeriod = VALID_PERIODS.includes(
+  const period: RankingPeriod = VALID_PERIODS.has(
     search.period as RankingPeriod
   )
     ? (search.period as RankingPeriod)
@@ -47,6 +55,44 @@ export function Rankings() {
 
   const rankingsQuery = useRankings(period)
   const snapshot = rankingsQuery.data?.data
+
+  let content: ReactNode
+  if (rankingsQuery.isLoading) {
+    content = <RankingsLoading />
+  } else if (!snapshot) {
+    content = (
+      <RankingsError
+        message={
+          rankingsQuery.error instanceof Error
+            ? rankingsQuery.error.message
+            : t('Unable to load rankings data')
+        }
+      />
+    )
+  } else {
+    content = (
+      <>
+        <ModelsSection
+          history={snapshot.models_history}
+          rows={snapshot.models}
+          period={period}
+        />
+
+        <MarketShareSection
+          history={snapshot.vendor_share_history}
+          rows={snapshot.vendors}
+          period={period}
+        />
+
+        <PulseSection
+          movers={snapshot.top_movers}
+          droppers={snapshot.top_droppers}
+        />
+
+        <UserLeaderboardSection rows={snapshot.users} />
+      </>
+    )
+  }
 
   const handlePeriodChange = (next: RankingPeriod) => {
     navigate({
@@ -76,36 +122,7 @@ export function Rankings() {
         <PageTransition className='relative mx-auto w-full max-w-[1280px] space-y-8 px-3 pt-16 pb-10 sm:px-6 sm:pt-20 sm:pb-12 xl:px-8'>
           <RankingsHero period={period} onPeriodChange={handlePeriodChange} />
 
-          {rankingsQuery.isLoading ? (
-            <RankingsLoading />
-          ) : !snapshot ? (
-            <RankingsError
-              message={
-                rankingsQuery.error instanceof Error
-                  ? rankingsQuery.error.message
-                  : t('Unable to load rankings data')
-              }
-            />
-          ) : (
-            <>
-              <ModelsSection
-                history={snapshot.models_history}
-                rows={snapshot.models}
-                period={period}
-              />
-
-              <MarketShareSection
-                history={snapshot.vendor_share_history}
-                rows={snapshot.vendors}
-                period={period}
-              />
-
-              <PulseSection
-                movers={snapshot.top_movers}
-                droppers={snapshot.top_droppers}
-              />
-            </>
-          )}
+          {content}
         </PageTransition>
       </div>
     </PublicLayout>
@@ -118,6 +135,7 @@ function RankingsLoading() {
       <Skeleton className='h-[420px] w-full rounded-xl' />
       <Skeleton className='h-[360px] w-full rounded-xl' />
       <Skeleton className='h-[180px] w-full rounded-xl' />
+      <Skeleton className='h-[220px] w-full rounded-xl' />
     </div>
   )
 }

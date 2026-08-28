@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   Activity,
   Box,
+  DollarSign,
   CreditCard,
   FileText,
   FlaskConical,
@@ -139,6 +140,11 @@ export function useSidebarData(): SidebarData {
             title: t('Users'),
             url: '/users',
             icon: Users,
+          },
+          {
+            title: t('Revenue'),
+            url: '/revenue',
+            icon: DollarSign,
           },
           {
             title: t('Redemption Codes'),

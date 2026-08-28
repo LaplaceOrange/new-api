@@ -348,6 +348,10 @@ func runLogCleanupTask(ctx context.Context, task *model.SystemTask, runnerID str
 	if payload.BatchSize <= 0 {
 		payload.BatchSize = logCleanupBatchSize
 	}
+	if err := prepareAnalyticsForLogCleanup(); err != nil {
+		failSystemTask(task, runnerID, fmt.Errorf("failed to preserve analytics before log cleanup: %w", err))
+		return
+	}
 
 	state := LogCleanupState{}
 	if err := task.DecodeState(&state); err != nil {
@@ -423,6 +427,28 @@ func runLogCleanupTask(ctx context.Context, task *model.SystemTask, runnerID str
 	if err := model.FinishSystemTask(task.TaskID, runnerID, model.SystemTaskStatusSucceeded, result, ""); err != nil {
 		logSystemTaskLockError(ctx, task, err)
 	}
+}
+
+func prepareAnalyticsForLogCleanup() error {
+	if err := model.SaveQuotaDataCache(); err != nil {
+		return err
+	}
+	// Keep these snapshots warm while the log rows are removed. The analytics
+	// caches are intentionally not invalidated after cleanup: a future log
+	// backend may derive analytics from the rows being deleted, and the
+	// precomputed snapshots are the source of truth until their normal TTL
+	// expires.
+	InvalidateRankingsCache()
+	InvalidateRevenueCache()
+	for _, period := range []string{"today", "week", "month", "year", "all"} {
+		if _, err := GetRankingsSnapshot(period); err != nil {
+			return err
+		}
+		if _, err := GetRevenueSnapshot(period); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func syncLogCleanupStateFromRemaining(state *LogCleanupState, remaining int64) {

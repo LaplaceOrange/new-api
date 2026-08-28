@@ -30,6 +30,20 @@ func ListSystemInstances(c *gin.Context) {
 	})
 }
 
+func GetLogStorageStats(c *gin.Context) {
+	stats, err := model.GetLogStorageStats(common.GetTimestamp())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    stats,
+	})
+}
+
 func DeleteStaleSystemInstances(c *gin.Context) {
 	deletedCount, err := model.DeleteStaleSystemInstances(common.GetTimestamp())
 	if err != nil {

@@ -13,6 +13,17 @@ import (
 
 func CreateLogCleanupSystemTask(c *gin.Context) {
 	targetTimestamp, _ := strconv.ParseInt(c.Query("target_timestamp"), 10, 64)
+	if retentionValue := c.Query("retention_days"); retentionValue != "" {
+		retentionDays, err := strconv.Atoi(retentionValue)
+		if err != nil || !model.IsAllowedLogRetentionDays(retentionDays) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "retention_days must be one of 0, 1, 7, or 30",
+			})
+			return
+		}
+		targetTimestamp = model.LogRetentionCutoff(common.GetTimestamp(), retentionDays)
+	}
 	if targetTimestamp == 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,

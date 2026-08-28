@@ -1,3 +1,7 @@
+import type {
+  LogCleanupTask,
+  SystemTaskResponse,
+} from '@/features/system-settings/types'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -19,6 +23,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { api } from '@/lib/api'
 
 import type {
+  LogStorageResponse,
   SystemInstanceDeleteResponse,
   SystemInstanceListResponse,
 } from './types'
@@ -40,6 +45,20 @@ export async function deleteStaleSystemInstances() {
 export async function deleteStaleSystemInstance(nodeName: string) {
   const res = await api.delete<SystemInstanceDeleteResponse>(
     `/api/system-info/instances/${encodeURIComponent(nodeName)}`
+  )
+  return res.data
+}
+
+export async function getLogStorageStats() {
+  const res = await api.get<LogStorageResponse>('/api/system-info/log-storage')
+  return res.data
+}
+
+export async function startLogCleanupByRetention(retentionDays: number) {
+  const res = await api.post<SystemTaskResponse<LogCleanupTask>>(
+    '/api/system-task/log-cleanup',
+    null,
+    { params: { retention_days: retentionDays } }
   )
   return res.data
 }

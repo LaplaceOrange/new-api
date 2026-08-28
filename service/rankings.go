@@ -16,6 +16,7 @@ const (
 	rankingHistoryLimit     = 10
 	rankingVendorLimit      = 5
 	rankingMoverLimit       = 6
+	rankingUserLimit        = 10
 	rankingOthersLabel      = "Others"
 	rankingUnknownVendor    = "Unknown"
 )
@@ -27,6 +28,7 @@ type RankingsResponse struct {
 	TopDroppers        []RankingMover     `json:"top_droppers"`
 	ModelsHistory      ModelHistorySeries `json:"models_history"`
 	VendorShareHistory VendorShareSeries  `json:"vendor_share_history"`
+	Users              []RankedUser       `json:"users"`
 }
 
 type RankedModel struct {
@@ -59,6 +61,14 @@ type RankingMover struct {
 	RankDelta   int     `json:"rank_delta"`
 	CurrentRank int     `json:"current_rank"`
 	GrowthPct   float64 `json:"growth_pct"`
+}
+
+type RankedUser struct {
+	Rank        int    `json:"rank"`
+	UserID      int    `json:"user_id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name,omitempty"`
+	TotalTokens int64  `json:"total_tokens"`
 }
 
 type ModelHistoryPoint struct {
@@ -173,6 +183,8 @@ func rankingConfig(period string) (rankingPeriodConfig, error) {
 		return rankingPeriodConfig{id: "month", duration: 30 * 24 * time.Hour, bucketSize: 24 * 3600, labelLayout: "Jan 2", hasPrevious: true}, nil
 	case "year":
 		return rankingPeriodConfig{id: "year", duration: 365 * 24 * time.Hour, bucketSize: 7 * 24 * 3600, labelLayout: "Jan 2", hasPrevious: true}, nil
+	case "all":
+		return rankingPeriodConfig{id: "all", bucketSize: 30 * 24 * 3600, labelLayout: "Jan 2006", hasPrevious: false}, nil
 	default:
 		return rankingPeriodConfig{}, fmt.Errorf("invalid ranking period: %s", period)
 	}
@@ -185,6 +197,10 @@ func buildRankingsSnapshot(config rankingPeriodConfig, now time.Time) (*Rankings
 		return nil, err
 	}
 	currentBuckets, err := model.GetRankingQuotaBuckets(startTime, endTime, config.bucketSize)
+	if err != nil {
+		return nil, err
+	}
+	userTotals, err := model.GetRankingUserTotals(startTime, endTime, rankingUserLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +232,14 @@ func buildRankingsSnapshot(config rankingPeriodConfig, now time.Time) (*Rankings
 		TopDroppers:        droppers,
 		ModelsHistory:      modelHistory,
 		VendorShareHistory: vendorHistory,
+		Users:              buildRankedUsers(userTotals),
 	}, nil
+}
+
+func InvalidateRankingsCache() {
+	rankingCacheMu.Lock()
+	rankingCache = map[string]rankingCacheItem{}
+	rankingCacheMu.Unlock()
 }
 
 func rankingTimeRange(config rankingPeriodConfig, now time.Time) (int64, int64) {
@@ -509,6 +532,24 @@ func buildRankingMovers(models []RankedModel) ([]RankingMover, []RankingMover) {
 		return droppers[i].RankDelta < droppers[j].RankDelta
 	})
 	return limitRankingMovers(movers, rankingMoverLimit), limitRankingMovers(droppers, rankingMoverLimit)
+}
+
+func buildRankedUsers(totals []model.RankingUserTotal) []RankedUser {
+	rows := make([]RankedUser, 0, len(totals))
+	for idx, item := range totals {
+		username := item.Username
+		if username == "" {
+			username = fmt.Sprintf("User %d", item.UserID)
+		}
+		rows = append(rows, RankedUser{
+			Rank:        idx + 1,
+			UserID:      item.UserID,
+			Username:    username,
+			DisplayName: item.DisplayName,
+			TotalTokens: item.TotalTokens,
+		})
+	}
+	return rows
 }
 
 func sortedRankingBuckets(bucketSet map[int64]struct{}) []int64 {

@@ -83,6 +83,7 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
     models: true,
     redemption: true,
     user: true,
+    revenue: true,
     setting: true,
     subscription: true,
     channel_contribution: true,

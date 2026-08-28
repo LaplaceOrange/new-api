@@ -85,3 +85,23 @@ export type SystemInstanceDeleteResponse = {
     deleted_count: number
   }
 }
+
+export type LogStorageRetention = {
+  days: number
+  cutoff: number
+  clearable_rows: number
+  estimated_bytes: number
+}
+
+export type LogStorageStats = {
+  total_rows: number
+  total_bytes: number
+  estimated: boolean
+  options: LogStorageRetention[]
+}
+
+export type LogStorageResponse = {
+  success: boolean
+  message: string
+  data?: LogStorageStats
+}
