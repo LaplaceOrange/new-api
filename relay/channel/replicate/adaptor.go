@@ -2,7 +2,6 @@ package replicate
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +10,7 @@ import (
 	"net/textproto"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -42,6 +42,9 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	if requestPath == "" {
 		return info.ChannelBaseUrl, nil
 	}
+	if isWaveSpeedBaseURL(info.ChannelBaseUrl) {
+		return waveSpeedURL(info.ChannelBaseUrl, requestPath), nil
+	}
 	return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, requestPath, info.ChannelType), nil
 }
 
@@ -54,7 +57,9 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	}
 	channel.SetupApiRequestHeader(info, c, req)
 	req.Set("Authorization", "Bearer "+info.ApiKey)
-	req.Set("Prefer", "wait")
+	if !isWaveSpeedBaseURL(info.ChannelBaseUrl) {
+		req.Set("Prefer", "wait")
+	}
 	if req.Get("Content-Type") == "" {
 		req.Set("Content-Type", "application/json")
 	}
@@ -86,24 +91,37 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	}
 	info.UpstreamModelName = modelName
 
-	info.RequestURLPath = fmt.Sprintf("/v1/models/%s/predictions", modelName)
+	if isWaveSpeedBaseURL(info.ChannelBaseUrl) {
+		info.RequestURLPath = "/" + modelName
+	} else {
+		info.RequestURLPath = fmt.Sprintf("/v1/models/%s/predictions", modelName)
+	}
 
 	inputPayload := make(map[string]any)
 	inputPayload["prompt"] = request.Prompt
+	isWaveSpeed := isWaveSpeedBaseURL(info.ChannelBaseUrl)
 
-	if size := strings.TrimSpace(request.Size); size != "" {
-		if aspect, width, height, ok := mapOpenAISizeToFlux(size); ok {
-			if aspect != "" {
-				if aspect == "custom" {
-					inputPayload["aspect_ratio"] = "custom"
-					if width > 0 {
-						inputPayload["width"] = width
+	if isWaveSpeed {
+		if size := strings.TrimSpace(request.Size); size != "" {
+			inputPayload["size"] = strings.NewReplacer("x", "*", "X", "*").Replace(size)
+		}
+	}
+
+	if !isWaveSpeed {
+		if size := strings.TrimSpace(request.Size); size != "" {
+			if aspect, width, height, ok := mapOpenAISizeToFlux(size); ok {
+				if aspect != "" {
+					if aspect == "custom" {
+						inputPayload["aspect_ratio"] = "custom"
+						if width > 0 {
+							inputPayload["width"] = width
+						}
+						if height > 0 {
+							inputPayload["height"] = height
+						}
+					} else {
+						inputPayload["aspect_ratio"] = aspect
 					}
-					if height > 0 {
-						inputPayload["height"] = height
-					}
-				} else {
-					inputPayload["aspect_ratio"] = aspect
 				}
 			}
 		}
@@ -111,16 +129,25 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 
 	if len(request.OutputFormat) > 0 {
 		var outputFormat string
-		if err := json.Unmarshal(request.OutputFormat, &outputFormat); err == nil && strings.TrimSpace(outputFormat) != "" {
+		if err := common.Unmarshal(request.OutputFormat, &outputFormat); err == nil && strings.TrimSpace(outputFormat) != "" {
 			inputPayload["output_format"] = outputFormat
 		}
 	}
 
 	if imageN := lo.FromPtrOr(request.N, uint(0)); imageN > 0 {
-		inputPayload["num_outputs"] = int(imageN)
+		if imageN > dto.MaxImageN {
+			return nil, fmt.Errorf("n must be an integer between 1 and %d", dto.MaxImageN)
+		}
+		if isWaveSpeed {
+			if imageN > 1 {
+				return nil, fmt.Errorf("wavespeed model %q does not expose multiple image outputs; set n=1", modelName)
+			}
+		} else {
+			inputPayload["num_outputs"] = int(imageN)
+		}
 	}
 
-	if strings.EqualFold(request.Quality, "hd") || strings.EqualFold(request.Quality, "high") {
+	if !isWaveSpeed && (strings.EqualFold(request.Quality, "hd") || strings.EqualFold(request.Quality, "high")) {
 		inputPayload["prompt_upsampling"] = true
 	}
 
@@ -132,7 +159,11 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		if imageURL == "" {
 			return nil, errors.New("replicate adaptor: image file is required for edits")
 		}
-		inputPayload["image_prompt"] = imageURL
+		if isWaveSpeed {
+			inputPayload["images"] = []string{imageURL}
+		} else {
+			inputPayload["image_prompt"] = imageURL
+		}
 	}
 
 	if len(request.ExtraFields) > 0 {
@@ -166,9 +197,13 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		inputPayload[key] = val
 	}
 
-	return map[string]any{
-		"input": inputPayload,
-	}, nil
+	if isWaveSpeed {
+		if strings.EqualFold(request.ResponseFormat, "b64_json") {
+			inputPayload["enable_base64_output"] = true
+		}
+		return inputPayload, nil
+	}
+	return map[string]any{"input": inputPayload}, nil
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
@@ -176,6 +211,9 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (any, *types.NewAPIError) {
+	if info != nil && isWaveSpeedBaseURL(info.ChannelBaseUrl) {
+		return a.doWaveSpeedResponse(c, resp, info)
+	}
 	if resp == nil {
 		return nil, types.NewError(errors.New("replicate adaptor: empty response"), types.ErrorCodeBadResponse)
 	}
@@ -291,6 +329,220 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	return usage, nil
 }
 
+func isWaveSpeedBaseURL(baseURL string) bool {
+	lower := strings.ToLower(strings.TrimRight(strings.TrimSpace(baseURL), "/"))
+	return strings.Contains(lower, "wavespeed.ai")
+}
+
+func waveSpeedURL(baseURL, path string) string {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	path = "/" + strings.TrimLeft(path, "/")
+	if strings.HasSuffix(strings.ToLower(base), "/api/v3") {
+		return base + path
+	}
+	return base + "/api/v3" + path
+}
+
+func (a *Adaptor) doWaveSpeedResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (any, *types.NewAPIError) {
+	if resp == nil {
+		return nil, types.NewError(errors.New("wavespeed adaptor: empty response"), types.ErrorCodeBadResponse)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, types.NewError(err, types.ErrorCodeReadResponseBodyFailed)
+	}
+	_ = resp.Body.Close()
+
+	var envelope WaveSpeedResponse
+	if err := common.Unmarshal(body, &envelope); err != nil {
+		return nil, types.NewError(fmt.Errorf("wavespeed adaptor: failed to decode submit response: %w", err), types.ErrorCodeBadResponseBody)
+	}
+	if envelope.Code != 0 && envelope.Code >= 400 {
+		message := strings.TrimSpace(envelope.Message)
+		if message == "" {
+			message = fmt.Sprintf("wavespeed request failed with code %d", envelope.Code)
+		}
+		return nil, types.NewError(errors.New(message), types.ErrorCodeBadResponse)
+	}
+
+	prediction := envelope.Data
+	if prediction.ID == "" {
+		// Some compatible gateways return the prediction object without data.
+		if err := common.Unmarshal(body, &prediction); err != nil {
+			return nil, types.NewError(fmt.Errorf("wavespeed adaptor: missing prediction id: %w", err), types.ErrorCodeBadResponseBody)
+		}
+	}
+	if prediction.ID == "" {
+		return nil, types.NewError(errors.New("wavespeed adaptor: submission response missing prediction id"), types.ErrorCodeBadResponseBody)
+	}
+
+	if !isWaveSpeedTerminal(prediction.Status) {
+		resultURL := strings.TrimSpace(prediction.URLs.Get)
+		prediction, err = pollWaveSpeedPrediction(c, info, prediction.ID, resultURL)
+		if err != nil {
+			return nil, types.NewError(err, types.ErrorCodeBadResponse)
+		}
+	}
+	if !strings.EqualFold(prediction.Status, "completed") {
+		status := strings.TrimSpace(prediction.Status)
+		if status == "" {
+			status = "unknown"
+		}
+		if prediction.Error != nil {
+			return nil, types.NewError(fmt.Errorf("wavespeed prediction status %q: %v", status, prediction.Error), types.ErrorCodeBadResponse)
+		}
+		return nil, types.NewError(fmt.Errorf("wavespeed prediction status %q", status), types.ErrorCodeBadResponse)
+	}
+	if len(prediction.Outputs) == 0 {
+		return nil, types.NewError(errors.New("wavespeed adaptor: empty prediction outputs"), types.ErrorCodeBadResponseBody)
+	}
+
+	wantsBase64 := false
+	if imageReq, ok := info.Request.(*dto.ImageRequest); ok && imageReq != nil {
+		wantsBase64 = strings.EqualFold(imageReq.ResponseFormat, "b64_json")
+	}
+
+	imageResponse := dto.ImageResponse{Created: common.GetTimestamp(), Data: make([]dto.ImageData, 0, len(prediction.Outputs))}
+	for _, output := range prediction.Outputs {
+		value, kind := waveSpeedOutputValue(output)
+		if value == "" {
+			continue
+		}
+		if wantsBase64 || kind == "base64" {
+			imageResponse.Data = append(imageResponse.Data, dto.ImageData{B64Json: value})
+		} else {
+			imageResponse.Data = append(imageResponse.Data, dto.ImageData{Url: value})
+		}
+	}
+	if len(imageResponse.Data) == 0 {
+		return nil, types.NewError(errors.New("wavespeed adaptor: no usable image outputs"), types.ErrorCodeBadResponseBody)
+	}
+
+	responseBytes, err := common.Marshal(imageResponse)
+	if err != nil {
+		return nil, types.NewError(fmt.Errorf("wavespeed adaptor: encode response failed: %w", err), types.ErrorCodeBadResponseBody)
+	}
+	c.Writer.Header().Set("Content-Type", "application/json")
+	c.Writer.WriteHeader(http.StatusOK)
+	_, _ = c.Writer.Write(responseBytes)
+	return &dto.Usage{}, nil
+}
+
+func isWaveSpeedTerminal(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "completed", "failed", "cancelled", "canceled", "timeout", "deleted":
+		return true
+	default:
+		return false
+	}
+}
+
+func pollWaveSpeedPrediction(c *gin.Context, info *relaycommon.RelayInfo, predictionID, resultURL string) (WaveSpeedPrediction, error) {
+	if info == nil {
+		return WaveSpeedPrediction{}, errors.New("wavespeed adaptor: relay info is nil")
+	}
+	baseURL := info.ChannelBaseUrl
+	if baseURL == "" {
+		baseURL = constant.ChannelBaseURLs[constant.ChannelTypeReplicate]
+	}
+	if strings.TrimSpace(resultURL) == "" {
+		resultURL = waveSpeedURL(baseURL, "/predictions/"+predictionID+"/result")
+	}
+	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
+	if err != nil {
+		return WaveSpeedPrediction{}, fmt.Errorf("wavespeed adaptor: create http client failed: %w", err)
+	}
+
+	deadline := time.NewTimer(10 * time.Minute)
+	defer deadline.Stop()
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			prediction, err := fetchWaveSpeedPrediction(c, client, resultURL, info)
+			if err != nil {
+				return WaveSpeedPrediction{}, err
+			}
+			if isWaveSpeedTerminal(prediction.Status) {
+				return prediction, nil
+			}
+		case <-deadline.C:
+			return WaveSpeedPrediction{}, errors.New("wavespeed adaptor: prediction polling timed out")
+		case <-c.Request.Context().Done():
+			return WaveSpeedPrediction{}, c.Request.Context().Err()
+		}
+	}
+}
+
+func fetchWaveSpeedPrediction(c *gin.Context, client *http.Client, resultURL string, info *relaycommon.RelayInfo) (WaveSpeedPrediction, error) {
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, resultURL, nil)
+	if err != nil {
+		return WaveSpeedPrediction{}, fmt.Errorf("wavespeed adaptor: create result request failed: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+info.ApiKey)
+	req.Header.Set("Accept", "application/json")
+	if overrides, overrideErr := channel.ResolveHeaderOverride(info, c); overrideErr != nil {
+		return WaveSpeedPrediction{}, fmt.Errorf("wavespeed adaptor: resolve header override failed: %w", overrideErr)
+	} else {
+		for key, value := range overrides {
+			req.Header.Set(key, value)
+		}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return WaveSpeedPrediction{}, fmt.Errorf("wavespeed adaptor: fetch result failed: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return WaveSpeedPrediction{}, fmt.Errorf("wavespeed adaptor: read result failed: %w", err)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return WaveSpeedPrediction{}, fmt.Errorf("wavespeed adaptor: result request returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	var envelope WaveSpeedResponse
+	if err := common.Unmarshal(body, &envelope); err != nil {
+		return WaveSpeedPrediction{}, fmt.Errorf("wavespeed adaptor: decode result failed: %w", err)
+	}
+	if envelope.Code != 0 && envelope.Code >= 400 {
+		return WaveSpeedPrediction{}, fmt.Errorf("wavespeed adaptor: result failed with code %d: %s", envelope.Code, envelope.Message)
+	}
+	if envelope.Data.ID != "" || envelope.Data.Status != "" {
+		return envelope.Data, nil
+	}
+	var prediction WaveSpeedPrediction
+	if err := common.Unmarshal(body, &prediction); err != nil {
+		return WaveSpeedPrediction{}, fmt.Errorf("wavespeed adaptor: decode prediction failed: %w", err)
+	}
+	return prediction, nil
+}
+
+func waveSpeedOutputValue(output any) (string, string) {
+	switch value := output.(type) {
+	case string:
+		value = strings.TrimSpace(value)
+		if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {
+			return value, "url"
+		}
+		return value, "base64"
+	case map[string]any:
+		for _, key := range []string{"url", "image_url", "b64_json", "base64"} {
+			if raw, ok := value[key].(string); ok && strings.TrimSpace(raw) != "" {
+				kind := "url"
+				if key != "url" && key != "image_url" {
+					kind = "base64"
+				}
+				return strings.TrimSpace(raw), kind
+			}
+		}
+	}
+	return "", ""
+}
+
 func (a *Adaptor) GetModelList() []string {
 	return ModelList
 }
@@ -401,7 +653,9 @@ func uploadFileFromForm(c *gin.Context, info *relaycommon.RelayInfo, fieldCandid
 	if info == nil {
 		return "", errors.New("replicate adaptor: relay info is nil")
 	}
-
+	if isWaveSpeedBaseURL(info.ChannelBaseUrl) {
+		return uploadFileToWaveSpeed(c, info, fieldCandidates...)
+	}
 	mf := c.Request.MultipartForm
 	if mf == nil {
 		if _, err := c.MultipartForm(); err != nil {
@@ -500,6 +754,104 @@ func uploadFileFromForm(c *gin.Context, info *relaycommon.RelayInfo, fieldCandid
 		return "", errors.New("replicate adaptor: upload response missing url")
 	}
 	return uploadResp.Urls.Get, nil
+}
+
+func uploadFileToWaveSpeed(c *gin.Context, info *relaycommon.RelayInfo, fieldCandidates ...string) (string, error) {
+	mf := c.Request.MultipartForm
+	if mf == nil {
+		if _, err := c.MultipartForm(); err != nil {
+			return "", fmt.Errorf("wavespeed adaptor: parse multipart form failed: %w", err)
+		}
+		mf = c.Request.MultipartForm
+	}
+	if mf == nil || len(mf.File) == 0 {
+		return "", nil
+	}
+	if len(fieldCandidates) == 0 {
+		fieldCandidates = []string{"image", "image[]", "image_prompt"}
+	}
+	var fileHeader *multipart.FileHeader
+	for _, key := range fieldCandidates {
+		if files := mf.File[key]; len(files) > 0 {
+			fileHeader = files[0]
+			break
+		}
+	}
+	if fileHeader == nil {
+		for _, files := range mf.File {
+			if len(files) > 0 {
+				fileHeader = files[0]
+				break
+			}
+		}
+	}
+	if fileHeader == nil {
+		return "", nil
+	}
+
+	file, err := fileHeader.Open()
+	if err != nil {
+		return "", fmt.Errorf("wavespeed adaptor: failed to open image file: %w", err)
+	}
+	defer file.Close()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", fileHeader.Filename)
+	if err != nil {
+		_ = writer.Close()
+		return "", fmt.Errorf("wavespeed adaptor: create upload form failed: %w", err)
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		_ = writer.Close()
+		return "", fmt.Errorf("wavespeed adaptor: copy image content failed: %w", err)
+	}
+	contentType := writer.FormDataContentType()
+	if err := writer.Close(); err != nil {
+		return "", fmt.Errorf("wavespeed adaptor: close upload form failed: %w", err)
+	}
+
+	uploadURL := waveSpeedURL(info.ChannelBaseUrl, "/media/upload/binary")
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, uploadURL, &body)
+	if err != nil {
+		return "", fmt.Errorf("wavespeed adaptor: create upload request failed: %w", err)
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Authorization", "Bearer "+info.ApiKey)
+	if overrides, overrideErr := channel.ResolveHeaderOverride(info, c); overrideErr != nil {
+		return "", fmt.Errorf("wavespeed adaptor: resolve header override failed: %w", overrideErr)
+	} else {
+		for key, value := range overrides {
+			req.Header.Set(key, value)
+		}
+	}
+	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
+	if err != nil {
+		return "", fmt.Errorf("wavespeed adaptor: create upload client failed: %w", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("wavespeed adaptor: upload image failed: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("wavespeed adaptor: read upload response failed: %w", err)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("wavespeed adaptor: upload image failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+	var uploadResp struct {
+		Data struct {
+			DownloadURL string `json:"download_url"`
+		} `json:"data"`
+	}
+	if err := common.Unmarshal(respBody, &uploadResp); err != nil {
+		return "", fmt.Errorf("wavespeed adaptor: decode upload response failed: %w", err)
+	}
+	if strings.TrimSpace(uploadResp.Data.DownloadURL) == "" {
+		return "", errors.New("wavespeed adaptor: upload response missing download_url")
+	}
+	return strings.TrimSpace(uploadResp.Data.DownloadURL), nil
 }
 
 func (a *Adaptor) ConvertOpenAIRequest(*gin.Context, *relaycommon.RelayInfo, *dto.GeneralOpenAIRequest) (any, error) {
