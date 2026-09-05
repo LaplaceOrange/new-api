@@ -34,7 +34,7 @@ import { formatLocalCurrencyAmount } from '@/lib/currency'
 
 import { DEFAULT_DISCOUNT_RATE } from '../../constants'
 import { formatCurrency, getPaymentIcon } from '../../lib'
-import type { PaymentMethod } from '../../types'
+import type { PaymentMethod, PaymentQuote } from '../../types'
 
 interface PaymentConfirmDialogProps {
   open: boolean
@@ -42,6 +42,7 @@ interface PaymentConfirmDialogProps {
   onConfirm: () => void
   topupAmount: number
   paymentAmount: number
+  quote?: PaymentQuote | null
   paymentMethod: PaymentMethod | undefined
   calculating: boolean
   processing: boolean
@@ -55,6 +56,7 @@ export function PaymentConfirmDialog({
   onConfirm,
   topupAmount,
   paymentAmount,
+  quote,
   paymentMethod,
   calculating,
   processing,
@@ -62,9 +64,12 @@ export function PaymentConfirmDialog({
   usdExchangeRate = 1,
 }: PaymentConfirmDialogProps) {
   const { t } = useTranslation()
-  const hasDiscount = discountRate > 0 && discountRate < 1 && paymentAmount > 0
-  const originalAmount = hasDiscount ? paymentAmount / discountRate : 0
-  const discountAmount = hasDiscount ? originalAmount - paymentAmount : 0
+  const subtotal = quote ? Number.parseFloat(quote.subtotal) : paymentAmount
+  const total = quote ? Number.parseFloat(quote.total) : paymentAmount
+  const fee = quote ? Number.parseFloat(quote.fee) : 0
+  const hasDiscount = discountRate > 0 && discountRate < 1 && subtotal > 0
+  const originalAmount = hasDiscount ? subtotal / discountRate : 0
+  const discountAmount = hasDiscount ? originalAmount - subtotal : 0
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -101,7 +106,7 @@ export function PaymentConfirmDialog({
             ) : (
               <div className='flex items-baseline gap-2'>
                 <span className='text-2xl font-semibold'>
-                  {formatCurrency(paymentAmount)}
+                  {formatCurrency(total)}
                 </span>
                 {hasDiscount && (
                   <span className='text-muted-foreground text-sm line-through'>
@@ -111,6 +116,16 @@ export function PaymentConfirmDialog({
               </div>
             )}
           </div>
+
+          {!calculating && fee > 0 && (
+            <div className='flex justify-end'>
+              <span className='text-muted-foreground text-xs'>
+                {t('(Includes {{fee}} payment fee)', {
+                  fee: formatCurrency(fee),
+                })}
+              </span>
+            </div>
+          )}
 
           {hasDiscount && !calculating && (
             <div className='bg-muted/50 rounded-lg p-3'>

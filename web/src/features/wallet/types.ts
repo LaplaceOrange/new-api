@@ -34,7 +34,16 @@ export interface ApiResponse<T = unknown> {
  */
 export type TopupInfoResponse = ApiResponse<TopupInfo>
 export type RedemptionResponse = ApiResponse<number>
-export type AmountResponse = ApiResponse<string>
+export interface PaymentQuote {
+  subtotal: string
+  fee: string
+  total: string
+  fee_rate: string
+}
+
+export type AmountResponse = ApiResponse<string> & {
+  quote?: PaymentQuote
+}
 export type PaymentResponse = ApiResponse<Record<string, unknown>> & {
   url?: string
 }
@@ -134,6 +143,8 @@ export interface TopupInfo {
   amount_options: number[]
   /** Discount rates by amount */
   discount: Record<number, number>
+  /** Global fee rate percentage used for newly created payment orders. */
+  payment_fee_rate?: string
   /** Optional topup link for purchasing codes */
   topup_link?: string
   /** Whether Creem topup is enabled */

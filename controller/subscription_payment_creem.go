@@ -11,8 +11,8 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/thanhpk/randstr"
 )
 
@@ -54,6 +54,15 @@ func SubscriptionRequestCreemPay(c *gin.Context) {
 		common.ApiErrorMsg(c, "该套餐未配置 CreemProductId")
 		return
 	}
+	quote, err := quotePaymentFloat(plan.PriceAmount)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if quote.FeeRate.GreaterThan(decimal.Zero) {
+		common.ApiErrorMsg(c, "配置手续费时不支持 Creem 订阅")
+		return
+	}
 	if setting.CreemWebhookSecret == "" && !setting.CreemTestMode {
 		common.ApiErrorMsg(c, "Creem Webhook 未配置")
 		return
@@ -89,7 +98,7 @@ func SubscriptionRequestCreemPay(c *gin.Context) {
 	order := &model.SubscriptionOrder{
 		UserId:          userId,
 		PlanId:          plan.Id,
-		Money:           plan.PriceAmount,
+		Money:           quote.TotalFloat64(),
 		TradeNo:         referenceId,
 		PaymentMethod:   model.PaymentMethodCreem,
 		PaymentProvider: model.PaymentProviderCreem,
@@ -102,25 +111,18 @@ func SubscriptionRequestCreemPay(c *gin.Context) {
 	}
 
 	// Reuse Creem checkout generator by building a lightweight product reference.
-	currency := "USD"
-	switch operation_setting.GetGeneralSetting().QuotaDisplayType {
-	case operation_setting.QuotaDisplayTypeCNY:
-		currency = "CNY"
-	case operation_setting.QuotaDisplayTypeUSD:
-		currency = "USD"
-	default:
-		currency = "USD"
-	}
 	product := &CreemProduct{
 		ProductId: plan.CreemProductId,
 		Name:      plan.Title,
 		Price:     plan.PriceAmount,
-		Currency:  currency,
+		Currency:  plan.Currency,
 		Quota:     0,
 	}
 
-	checkoutUrl, err := genCreemLink(c.Request.Context(), referenceId, product, user.Email, user.Username)
+	checkoutUrl, err := genCreemLink(c.Request.Context(), referenceId, product, quote, false, user.Email, user.Username)
 	if err != nil {
+		order.Status = common.TopUpStatusFailed
+		_ = order.Update()
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 订阅支付链接创建失败 trade_no=%s product_id=%s error=%q", referenceId, product.ProductId, err.Error()))
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})
 		return

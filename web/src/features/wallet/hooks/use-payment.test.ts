@@ -46,4 +46,24 @@ describe('payment amount routing', () => {
     expect(amount).toBe(18.75)
     expect(calls).toEqual(['waffo:120'])
   })
+
+  test('uses the server-authoritative total from a payment quote', async () => {
+    const amount = await requestPaymentAmount(100, PAYMENT_TYPES.ALIPAY, {
+      regular: async () => ({
+        success: true,
+        data: '108.00',
+        quote: {
+          subtotal: '100.00',
+          fee: '8.00',
+          total: '108.00',
+          fee_rate: '8.00',
+        },
+      }),
+      stripe: async () => ({ success: true, data: '0' }),
+      waffo: async () => ({ success: true, data: '0' }),
+      waffoPancake: async () => ({ success: true, data: '0' }),
+    })
+
+    expect(amount).toBe(108)
+  })
 })

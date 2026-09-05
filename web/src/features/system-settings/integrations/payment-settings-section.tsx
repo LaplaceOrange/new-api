@@ -62,6 +62,7 @@ import { AmountDiscountVisualEditor } from './amount-discount-visual-editor'
 import { AmountOptionsVisualEditor } from './amount-options-visual-editor'
 import { CreemProductsVisualEditor } from './creem-products-visual-editor'
 import { PaymentMethodsVisualEditor } from './payment-methods-visual-editor'
+import { TopUpGroupUpgradeRulesEditor } from './topup-group-upgrade-rules-editor'
 import {
   formatJsonForEditor,
   getJsonError,
@@ -141,6 +142,22 @@ const paymentSchema = z.object({
       })
     }
   }),
+  TopUpGroupUpgradeRules: z.string().superRefine((value, ctx) => {
+    const error = getJsonError(value, (parsed) => Array.isArray(parsed))
+    if (error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: error,
+      })
+    }
+  }),
+  PaymentFeeRate: z
+    .string()
+    .trim()
+    .regex(
+      /^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/,
+      'Enter a non-negative fee rate with up to two decimal places'
+    ),
   StripeApiSecret: z.string(),
   StripeWebhookSecret: z.string(),
   StripePriceId: z.string(),
@@ -201,6 +218,7 @@ type PaymentSettingsSectionProps = {
   waffoPancakeDefaultValues: WaffoPancakeSettingsValues
   waffoPancakeProvisionedStoreID?: string
   waffoPancakeProvisionedProductID?: string
+  groupRatio: string
   complianceDefaults: PaymentComplianceDefaults
 }
 
@@ -219,6 +237,7 @@ export function PaymentSettingsSection({
   waffoPancakeDefaultValues,
   waffoPancakeProvisionedStoreID,
   waffoPancakeProvisionedProductID,
+  groupRatio,
   complianceDefaults,
 }: PaymentSettingsSectionProps) {
   const { t } = useTranslation()
@@ -355,6 +374,9 @@ export function PaymentSettingsSection({
       PayMethods: formatJsonForEditor(initialFormValues.PayMethods),
       AmountOptions: formatJsonForEditor(initialFormValues.AmountOptions),
       AmountDiscount: formatJsonForEditor(initialFormValues.AmountDiscount),
+      TopUpGroupUpgradeRules: formatJsonForEditor(
+        initialFormValues.TopUpGroupUpgradeRules
+      ),
       CreemProducts: formatJsonForEditor(initialFormValues.CreemProducts),
     },
   })
@@ -412,6 +434,9 @@ export function PaymentSettingsSection({
       PayMethods: formatJsonForEditor(parsedDefaults.PayMethods),
       AmountOptions: formatJsonForEditor(parsedDefaults.AmountOptions),
       AmountDiscount: formatJsonForEditor(parsedDefaults.AmountDiscount),
+      TopUpGroupUpgradeRules: formatJsonForEditor(
+        parsedDefaults.TopUpGroupUpgradeRules
+      ),
       CreemProducts: formatJsonForEditor(parsedDefaults.CreemProducts),
     })
   }, [defaultsSignature, form])
@@ -427,6 +452,8 @@ export function PaymentSettingsSection({
       PayMethods: values.PayMethods.trim(),
       AmountOptions: values.AmountOptions.trim(),
       AmountDiscount: values.AmountDiscount.trim(),
+      TopUpGroupUpgradeRules: values.TopUpGroupUpgradeRules.trim(),
+      PaymentFeeRate: values.PaymentFeeRate.trim(),
       StripeApiSecret: values.StripeApiSecret.trim(),
       StripeWebhookSecret: values.StripeWebhookSecret.trim(),
       StripePriceId: values.StripePriceId.trim(),
@@ -471,6 +498,8 @@ export function PaymentSettingsSection({
       PayMethods: initialRef.current.PayMethods.trim(),
       AmountOptions: initialRef.current.AmountOptions.trim(),
       AmountDiscount: initialRef.current.AmountDiscount.trim(),
+      TopUpGroupUpgradeRules: initialRef.current.TopUpGroupUpgradeRules.trim(),
+      PaymentFeeRate: initialRef.current.PaymentFeeRate.trim(),
       StripeApiSecret: initialRef.current.StripeApiSecret.trim(),
       StripeWebhookSecret: initialRef.current.StripeWebhookSecret.trim(),
       StripePriceId: initialRef.current.StripePriceId.trim(),
@@ -559,6 +588,23 @@ export function PaymentSettingsSection({
       updates.push({
         key: 'payment_setting.amount_discount',
         value: sanitized.AmountDiscount,
+      })
+    }
+
+    if (sanitized.PaymentFeeRate !== initial.PaymentFeeRate) {
+      updates.push({
+        key: 'payment_setting.payment_fee_rate',
+        value: sanitized.PaymentFeeRate,
+      })
+    }
+
+    if (
+      normalizeJsonForComparison(sanitized.TopUpGroupUpgradeRules) !==
+      normalizeJsonForComparison(initial.TopUpGroupUpgradeRules)
+    ) {
+      updates.push({
+        key: 'payment_setting.topup_group_upgrade_rules',
+        value: sanitized.TopUpGroupUpgradeRules,
       })
     }
 
@@ -946,6 +992,30 @@ export function PaymentSettingsSection({
                       </FormItem>
                     )}
                   />
+
+                  <FormField
+                    control={form.control}
+                    name='PaymentFeeRate'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Payment fee rate (%)')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            min={0}
+                            step='0.01'
+                            inputMode='decimal'
+                            {...field}
+                            onChange={(event) => field.onChange(event.target.value)}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t('Added after discounts and group pricing. Enter up to two decimal places.')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 </div>
 
                 <FormField
@@ -1131,6 +1201,24 @@ export function PaymentSettingsSection({
                     )}
                   />
                 </div>
+
+                <FormField
+                  control={form.control}
+                  name='TopUpGroupUpgradeRules'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Top-up group upgrades')}</FormLabel>
+                      <FormControl>
+                        <TopUpGroupUpgradeRulesEditor
+                          value={field.value}
+                          groupRatio={groupRatio}
+                          onChange={field.onChange}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
             </TabsContent>
 
