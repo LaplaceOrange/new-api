@@ -35,7 +35,7 @@ import {
   isWaffoPancakePayment,
   submitPaymentForm,
 } from '../lib'
-import type { AmountRequest, AmountResponse } from '../types'
+import type { AmountRequest, AmountResponse, PaymentQuote } from '../types'
 
 // ============================================================================
 // Payment Hook
@@ -62,6 +62,15 @@ export async function requestPaymentAmount(
   paymentType: string,
   calculators: PaymentAmountCalculators = defaultPaymentAmountCalculators
 ): Promise<number> {
+  const quote = await requestPaymentQuote(topupAmount, paymentType, calculators)
+  return quote ? Number.parseFloat(quote.total) : 0
+}
+
+async function requestPaymentQuote(
+  topupAmount: number,
+  paymentType: string,
+  calculators: PaymentAmountCalculators = defaultPaymentAmountCalculators
+): Promise<PaymentQuote | null> {
   let calculator = calculators.regular
   if (isStripePayment(paymentType)) {
     calculator = calculators.stripe
@@ -73,14 +82,22 @@ export async function requestPaymentAmount(
 
   const response = await calculator({ amount: topupAmount })
   if (!isApiSuccess(response) || !response.data) {
-    return 0
+    return null
   }
 
-  return Number.parseFloat(response.data)
+  if (response.quote) return response.quote
+  const total = response.data
+  return {
+    subtotal: total,
+    fee: '0.00',
+    total,
+    fee_rate: '0.00',
+  }
 }
 
 export function usePayment() {
   const [amount, setAmount] = useState<number>(0)
+  const [quote, setQuote] = useState<PaymentQuote | null>(null)
   const [calculating, setCalculating] = useState(false)
   const [processing, setProcessing] = useState(false)
 
@@ -89,13 +106,18 @@ export function usePayment() {
     async (topupAmount: number, paymentType: string) => {
       try {
         setCalculating(true)
-        const calculatedAmount = await requestPaymentAmount(
+        const paymentQuote = await requestPaymentQuote(
           topupAmount,
           paymentType
         )
+        const calculatedAmount = paymentQuote
+          ? Number.parseFloat(paymentQuote.total)
+          : 0
+        setQuote(paymentQuote)
         setAmount(calculatedAmount)
         return calculatedAmount
       } catch {
+        setQuote(null)
         setAmount(0)
         return 0
       } finally {
@@ -159,6 +181,7 @@ export function usePayment() {
 
   return {
     amount,
+    quote,
     calculating,
     processing,
     calculatePaymentAmount,

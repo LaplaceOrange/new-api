@@ -98,7 +98,11 @@ export function SubscriptionPurchaseDialog(props: Props) {
     selectedEpayMethod ||
     t('Select payment method')
   const totalAmount = Number(plan.total_amount || 0)
-  const price = Number(plan.price_amount || 0).toFixed(2)
+  const paymentQuote = props.plan?.quote
+  const price = Number(paymentQuote?.total ?? plan.price_amount ?? 0).toFixed(2)
+  const fee = Number(paymentQuote?.fee ?? 0)
+  const creemUnavailableDueToFee =
+    hasCreem && Number(paymentQuote?.fee_rate ?? 0) > 0
   const quotaPerUnit =
     currency?.quotaPerUnit && currency.quotaPerUnit > 0
       ? currency.quotaPerUnit
@@ -317,7 +321,16 @@ export function SubscriptionPurchaseDialog(props: Props) {
           <Separator />
           <div className='flex items-center justify-between'>
             <span className='text-sm font-medium'>{t('Amount Due')}</span>
-            <span className='text-primary text-lg font-bold'>${price}</span>
+            <div className='text-right'>
+              <span className='text-primary text-lg font-bold'>${price}</span>
+              {fee > 0 && (
+                <p className='text-muted-foreground text-xs'>
+                  {t('(Includes {{fee}} payment fee)', {
+                    fee: Number(paymentQuote?.fee ?? 0).toFixed(2),
+                  })}
+                </p>
+              )}
+            </div>
           </div>
         </div>
 
@@ -385,7 +398,7 @@ export function SubscriptionPurchaseDialog(props: Props) {
                     variant='outline'
                     className='flex-1'
                     onClick={handlePayCreem}
-                    disabled={paying || limitReached}
+                    disabled={paying || limitReached || creemUnavailableDueToFee}
                   >
                     Creem
                   </Button>
@@ -402,15 +415,18 @@ export function SubscriptionPurchaseDialog(props: Props) {
                 )}
               </div>
             )}
+            {creemUnavailableDueToFee && (
+              <p className='text-muted-foreground text-xs'>
+                {t('Creem subscriptions are unavailable when a payment fee is configured.')}
+              </p>
+            )}
             {hasEpay && (
               <div className='grid grid-cols-[minmax(0,1fr)_auto] gap-2'>
                 <Select
-                  items={[
-                    ...(props.epayMethods || []).map((m) => ({
-                      value: m.type,
-                      label: m.name || m.type,
-                    })),
-                  ]}
+                  items={(props.epayMethods || []).map((m) => ({
+                    value: m.type,
+                    label: m.name || m.type,
+                  }))}
                   value={selectedEpayMethod}
                   onValueChange={(v) => v !== null && setSelectedEpayMethod(v)}
                   disabled={limitReached}

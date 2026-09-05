@@ -11,8 +11,10 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/stripe/stripe-go/v81"
 	"github.com/stripe/stripe-go/v81/checkout/session"
+	"github.com/stripe/stripe-go/v81/price"
 	"github.com/thanhpk/randstr"
 )
 
@@ -52,6 +54,16 @@ func SubscriptionRequestStripePay(c *gin.Context) {
 		common.ApiErrorMsg(c, "Stripe Webhook 未配置")
 		return
 	}
+	quote, err := quotePaymentFloat(plan.PriceAmount)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	amountInCents := quote.Total.Mul(decimal.NewFromInt(100)).IntPart()
+	if amountInCents < 50 {
+		common.ApiErrorMsg(c, "套餐金额低于 Stripe 最低支付金额")
+		return
+	}
 
 	userId := c.GetInt("id")
 	user, err := model.GetUserById(userId, false)
@@ -79,7 +91,7 @@ func SubscriptionRequestStripePay(c *gin.Context) {
 	reference := fmt.Sprintf("sub-stripe-ref-%d-%d-%s", user.Id, time.Now().UnixMilli(), randstr.String(4))
 	referenceId := "sub_ref_" + common.Sha1([]byte(reference))
 
-	payLink, err := genStripeSubscriptionLink(referenceId, user.StripeCustomer, user.Email, plan.StripePriceId)
+	payLink, err := genStripeSubscriptionLink(referenceId, user.StripeCustomer, user.Email, plan.StripePriceId, quote)
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Stripe 订阅支付链接创建失败 trade_no=%s plan_id=%d error=%q", referenceId, plan.Id, err.Error()))
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})
@@ -89,7 +101,7 @@ func SubscriptionRequestStripePay(c *gin.Context) {
 	order := &model.SubscriptionOrder{
 		UserId:          userId,
 		PlanId:          plan.Id,
-		Money:           plan.PriceAmount,
+		Money:           quote.TotalFloat64(),
 		TradeNo:         referenceId,
 		PaymentMethod:   model.PaymentMethodStripe,
 		PaymentProvider: model.PaymentProviderStripe,
@@ -109,8 +121,19 @@ func SubscriptionRequestStripePay(c *gin.Context) {
 	})
 }
 
-func genStripeSubscriptionLink(referenceId string, customerId string, email string, priceId string) (string, error) {
+func genStripeSubscriptionLink(referenceId string, customerId string, email string, priceId string, quote PaymentQuote) (string, error) {
 	stripe.Key = setting.StripeApiSecret
+	sourcePrice, err := price.Get(priceId, nil)
+	if err != nil {
+		return "", err
+	}
+	if sourcePrice.Product == nil || sourcePrice.Product.ID == "" || sourcePrice.Recurring == nil {
+		return "", fmt.Errorf("Stripe 订阅价格配置无效")
+	}
+	amountInCents := quote.Total.Mul(decimal.NewFromInt(100)).IntPart()
+	if amountInCents < 50 {
+		return "", fmt.Errorf("Stripe 支付金额低于最低金额")
+	}
 
 	params := &stripe.CheckoutSessionParams{
 		ClientReferenceID: stripe.String(referenceId),
@@ -118,7 +141,15 @@ func genStripeSubscriptionLink(referenceId string, customerId string, email stri
 		CancelURL:         stripe.String(paymentReturnPath("/wallet")),
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
 			{
-				Price:    stripe.String(priceId),
+				PriceData: &stripe.CheckoutSessionLineItemPriceDataParams{
+					Currency: stripe.String(string(sourcePrice.Currency)),
+					Product:  stripe.String(sourcePrice.Product.ID),
+					Recurring: &stripe.CheckoutSessionLineItemPriceDataRecurringParams{
+						Interval:      stripe.String(string(sourcePrice.Recurring.Interval)),
+						IntervalCount: stripe.Int64(sourcePrice.Recurring.IntervalCount),
+					},
+					UnitAmount: stripe.Int64(amountInCents),
+				},
 				Quantity: stripe.Int64(1),
 			},
 		},

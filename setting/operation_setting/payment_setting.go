@@ -35,6 +35,9 @@ type PaymentSetting struct {
 	AmountOptions          []int                   `json:"amount_options"`
 	AmountDiscount         map[int]float64         `json:"amount_discount"` // 充值金额对应的折扣，例如 100 元 0.9 表示 100 元充值享受 9 折优惠
 	TopUpGroupUpgradeRules []TopUpGroupUpgradeRule `json:"topup_group_upgrade_rules"`
+	// PaymentFeeRate is a percentage stored as text so its configured decimal
+	// representation is not changed by float serialization.
+	PaymentFeeRate string `json:"payment_fee_rate"`
 
 	ComplianceConfirmed    bool   `json:"compliance_confirmed"`
 	ComplianceTermsVersion string `json:"compliance_terms_version"`
@@ -50,6 +53,7 @@ var paymentSetting = PaymentSetting{
 	AmountOptions:          []int{10, 20, 50, 100, 200, 500},
 	AmountDiscount:         map[int]float64{},
 	TopUpGroupUpgradeRules: []TopUpGroupUpgradeRule{},
+	PaymentFeeRate:         "0",
 }
 
 func init() {

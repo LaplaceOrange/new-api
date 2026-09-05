@@ -151,6 +151,13 @@ const paymentSchema = z.object({
       })
     }
   }),
+  PaymentFeeRate: z
+    .string()
+    .trim()
+    .regex(
+      /^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/,
+      'Enter a non-negative fee rate with up to two decimal places'
+    ),
   StripeApiSecret: z.string(),
   StripeWebhookSecret: z.string(),
   StripePriceId: z.string(),
@@ -446,6 +453,7 @@ export function PaymentSettingsSection({
       AmountOptions: values.AmountOptions.trim(),
       AmountDiscount: values.AmountDiscount.trim(),
       TopUpGroupUpgradeRules: values.TopUpGroupUpgradeRules.trim(),
+      PaymentFeeRate: values.PaymentFeeRate.trim(),
       StripeApiSecret: values.StripeApiSecret.trim(),
       StripeWebhookSecret: values.StripeWebhookSecret.trim(),
       StripePriceId: values.StripePriceId.trim(),
@@ -491,6 +499,7 @@ export function PaymentSettingsSection({
       AmountOptions: initialRef.current.AmountOptions.trim(),
       AmountDiscount: initialRef.current.AmountDiscount.trim(),
       TopUpGroupUpgradeRules: initialRef.current.TopUpGroupUpgradeRules.trim(),
+      PaymentFeeRate: initialRef.current.PaymentFeeRate.trim(),
       StripeApiSecret: initialRef.current.StripeApiSecret.trim(),
       StripeWebhookSecret: initialRef.current.StripeWebhookSecret.trim(),
       StripePriceId: initialRef.current.StripePriceId.trim(),
@@ -579,6 +588,13 @@ export function PaymentSettingsSection({
       updates.push({
         key: 'payment_setting.amount_discount',
         value: sanitized.AmountDiscount,
+      })
+    }
+
+    if (sanitized.PaymentFeeRate !== initial.PaymentFeeRate) {
+      updates.push({
+        key: 'payment_setting.payment_fee_rate',
+        value: sanitized.PaymentFeeRate,
       })
     }
 
@@ -971,6 +987,30 @@ export function PaymentSettingsSection({
                         </FormControl>
                         <FormDescription>
                           {t('Smallest USD amount users can recharge (Epay)')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='PaymentFeeRate'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Payment fee rate (%)')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            min={0}
+                            step='0.01'
+                            inputMode='decimal'
+                            {...field}
+                            onChange={(event) => field.onChange(event.target.value)}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t('Added after discounts and group pricing. Enter up to two decimal places.')}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

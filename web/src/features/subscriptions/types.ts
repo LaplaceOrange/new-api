@@ -48,8 +48,16 @@ export const subscriptionPlanSchema = z.object({
 
 export type SubscriptionPlan = z.infer<typeof subscriptionPlanSchema>
 
+export interface SubscriptionPaymentQuote {
+  subtotal: string
+  fee: string
+  total: string
+  fee_rate: string
+}
+
 export interface PlanRecord {
   plan: SubscriptionPlan
+  quote?: SubscriptionPaymentQuote
 }
 
 // ============================================================================

@@ -6,7 +6,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
@@ -61,6 +60,19 @@ type CreemProduct struct {
 	Quota     int64   `json:"quota"`
 }
 
+func getCreemProduct(productID string) (*CreemProduct, error) {
+	var products []CreemProduct
+	if err := common.UnmarshalJsonStr(setting.CreemProducts, &products); err != nil {
+		return nil, err
+	}
+	for _, product := range products {
+		if product.ProductId == productID {
+			return &product, nil
+		}
+	}
+	return nil, errors.New("产品不存在")
+}
+
 type CreemAdaptor struct {
 }
 
@@ -75,26 +87,19 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 		return
 	}
 
-	// 解析产品列表
-	var products []CreemProduct
-	err := json.Unmarshal([]byte(setting.CreemProducts), &products)
+	selectedProduct, err := getCreemProduct(req.ProductId)
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 产品配置解析失败 user_id=%d error=%q", c.GetInt("id"), err.Error()))
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "产品配置错误"})
 		return
 	}
-
-	// 查找对应的产品
-	var selectedProduct *CreemProduct
-	for _, product := range products {
-		if product.ProductId == req.ProductId {
-			selectedProduct = &product
-			break
-		}
+	quote, err := quotePaymentFloat(selectedProduct.Price)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": err.Error()})
+		return
 	}
-
-	if selectedProduct == nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "产品不存在"})
+	if quote.Total.Mul(decimal.NewFromInt(100)).IntPart() < 100 || quote.Total.Mul(decimal.NewFromInt(100)).IntPart() > 99999999 {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "支付金额超出 Creem 支持范围"})
 		return
 	}
 
@@ -117,7 +122,7 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 	topUp := &model.TopUp{
 		UserId:          id,
 		Amount:          selectedProduct.Quota, // 充值额度
-		Money:           selectedProduct.Price, // 支付金额
+		Money:           quote.TotalFloat64(),  // 支付金额（含手续费）
 		TradeNo:         referenceId,
 		PaymentMethod:   model.PaymentMethodCreem,
 		PaymentProvider: model.PaymentProviderCreem,
@@ -132,14 +137,16 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 	}
 
 	// 创建支付链接，传入用户邮箱
-	checkoutUrl, err := genCreemLink(c.Request.Context(), referenceId, selectedProduct, user.Email, user.Username)
+	checkoutUrl, err := genCreemLink(c.Request.Context(), referenceId, selectedProduct, quote, true, user.Email, user.Username)
 	if err != nil {
+		topUp.Status = common.TopUpStatusFailed
+		_ = topUp.Update()
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 创建支付链接失败 user_id=%d trade_no=%s product_id=%s error=%q", id, referenceId, selectedProduct.ProductId, err.Error()))
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})
 		return
 	}
 
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem 充值订单创建成功 user_id=%d trade_no=%s product_id=%s product_name=%q quota=%d money=%.2f", id, referenceId, selectedProduct.ProductId, selectedProduct.Name, selectedProduct.Quota, selectedProduct.Price))
+	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem 充值订单创建成功 user_id=%d trade_no=%s product_id=%s product_name=%q quota=%d money=%.2f", id, referenceId, selectedProduct.ProductId, selectedProduct.Name, selectedProduct.Quota, quote.TotalFloat64()))
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
@@ -148,6 +155,25 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 			"order_id":     referenceId,
 		},
 	})
+}
+
+func RequestCreemAmount(c *gin.Context) {
+	var req CreemPayRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.ProductId == "" {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
+		return
+	}
+	product, err := getCreemProduct(req.ProductId)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "产品不存在"})
+		return
+	}
+	quote, err := quotePaymentFloat(product.Price)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "success", "data": quote.Total.StringFixed(2), "quote": quote.APIData()})
 }
 
 func RequestCreemPay(c *gin.Context) {
@@ -368,9 +394,10 @@ func handleCheckoutCompleted(c *gin.Context, event *CreemWebhookEvent) {
 }
 
 type CreemCheckoutRequest struct {
-	ProductId string `json:"product_id"`
-	RequestId string `json:"request_id"`
-	Customer  struct {
+	ProductId   string `json:"product_id"`
+	RequestId   string `json:"request_id"`
+	CustomPrice *int64 `json:"custom_price,omitempty"`
+	Customer    struct {
 		Email string `json:"email"`
 	} `json:"customer"`
 	Metadata map[string]string `json:"metadata,omitempty"`
@@ -381,7 +408,7 @@ type CreemCheckoutResponse struct {
 	Id          string `json:"id"`
 }
 
-func genCreemLink(ctx context.Context, referenceId string, product *CreemProduct, email string, username string) (string, error) {
+func genCreemLink(ctx context.Context, referenceId string, product *CreemProduct, quote PaymentQuote, useCustomPrice bool, email string, username string) (string, error) {
 	if setting.CreemApiKey == "" {
 		return "", fmt.Errorf("未配置Creem API密钥")
 	}
@@ -409,9 +436,12 @@ func genCreemLink(ctx context.Context, referenceId string, product *CreemProduct
 			"quota":        fmt.Sprintf("%d", product.Quota),
 		},
 	}
+	if useCustomPrice {
+		requestData.CustomPrice = common.GetPointer(quote.Total.Mul(decimal.NewFromInt(100)).IntPart())
+	}
 
 	// 序列化请求数据
-	jsonData, err := json.Marshal(requestData)
+	jsonData, err := common.Marshal(requestData)
 	if err != nil {
 		return "", fmt.Errorf("序列化请求数据失败: %v", err)
 	}
@@ -452,7 +482,7 @@ func genCreemLink(ctx context.Context, referenceId string, product *CreemProduct
 	}
 	// 解析响应
 	var checkoutResp CreemCheckoutResponse
-	err = json.Unmarshal(body, &checkoutResp)
+	err = common.Unmarshal(body, &checkoutResp)
 	if err != nil {
 		return "", fmt.Errorf("解析响应失败: %v", err)
 	}

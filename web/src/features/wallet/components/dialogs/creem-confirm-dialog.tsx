@@ -24,7 +24,7 @@ import { Button } from '@/components/ui/button'
 import { formatNumber } from '@/lib/format'
 
 import { formatCreemPrice } from '../../lib/format'
-import type { CreemProduct } from '../../types'
+import type { CreemProduct, PaymentQuote } from '../../types'
 
 interface CreemConfirmDialogProps {
   open: boolean
@@ -32,6 +32,7 @@ interface CreemConfirmDialogProps {
   onConfirm: () => void
   product: CreemProduct | null
   processing: boolean
+  quote?: PaymentQuote | null
 }
 
 export function CreemConfirmDialog({
@@ -40,6 +41,7 @@ export function CreemConfirmDialog({
   onConfirm,
   product,
   processing,
+  quote,
 }: CreemConfirmDialogProps) {
   const { t } = useTranslation()
 
@@ -79,9 +81,24 @@ export function CreemConfirmDialog({
         <div className='flex items-center justify-between'>
           <span className='text-muted-foreground'>{t('Price')}</span>
           <span className='text-primary font-medium'>
-            {formatCreemPrice(product.price, product.currency)}
+            {formatCreemPrice(
+              quote ? Number.parseFloat(quote.total) : product.price,
+              product.currency
+            )}
           </span>
         </div>
+        {quote && Number.parseFloat(quote.fee) > 0 && (
+          <div className='flex justify-end'>
+            <span className='text-muted-foreground text-xs'>
+              {t('(Includes {{fee}} payment fee)', {
+                fee: formatCreemPrice(
+                  Number.parseFloat(quote.fee),
+                  product.currency
+                ),
+              })}
+            </span>
+          </div>
+        )}
         <div className='flex items-center justify-between'>
           <span className='text-muted-foreground'>{t('Quota')}</span>
           <span className='font-medium'>{formatNumber(product.quota)}</span>

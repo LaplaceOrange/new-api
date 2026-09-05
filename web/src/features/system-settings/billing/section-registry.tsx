@@ -145,6 +145,7 @@ const BILLING_SECTIONS = [
           AmountDiscount: settings['payment_setting.amount_discount'],
           TopUpGroupUpgradeRules:
             settings['payment_setting.topup_group_upgrade_rules'] ?? '[]',
+          PaymentFeeRate: settings['payment_setting.payment_fee_rate'] ?? '0',
           StripeApiSecret: settings.StripeApiSecret,
           StripeWebhookSecret: settings.StripeWebhookSecret,
           StripePriceId: settings.StripePriceId,

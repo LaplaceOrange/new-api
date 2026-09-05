@@ -230,6 +230,9 @@ func SyncOptions(frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if key == "payment_setting.payment_fee_rate" {
+		return operation_setting.ValidatePaymentFeeRate(value)
+	}
 	if key == operation_setting.TopUpGroupUpgradeRulesOptionKey {
 		rules, err := operation_setting.ParseTopUpGroupUpgradeRules(value)
 		if err != nil {

@@ -94,6 +94,16 @@ export async function calculateStripeAmount(
   return res.data
 }
 
+/** Calculate the server-authoritative amount for a Creem product. */
+export async function calculateCreemAmount(
+  request: CreemPaymentRequest
+): Promise<AmountResponse> {
+  const res = await api.post('/api/user/creem/amount', request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
 /**
  * Calculate payment amount for Waffo payment
  */

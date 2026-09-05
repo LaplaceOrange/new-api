@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 	"time"
 
 	"github.com/Calcium-Ion/go-epay/epay"
@@ -14,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
+	"github.com/shopspring/decimal"
 )
 
 type SubscriptionEpayPayRequest struct {
@@ -42,6 +42,15 @@ func SubscriptionRequestEpay(c *gin.Context) {
 		return
 	}
 	if plan.PriceAmount < 0.01 {
+		common.ApiErrorMsg(c, "套餐金额过低")
+		return
+	}
+	quote, err := quotePaymentFloat(plan.PriceAmount)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if quote.Total.LessThan(decimal.NewFromFloat(0.01)) {
 		common.ApiErrorMsg(c, "套餐金额过低")
 		return
 	}
@@ -87,7 +96,7 @@ func SubscriptionRequestEpay(c *gin.Context) {
 	order := &model.SubscriptionOrder{
 		UserId:          userId,
 		PlanId:          plan.Id,
-		Money:           plan.PriceAmount,
+		Money:           quote.TotalFloat64(),
 		TradeNo:         tradeNo,
 		PaymentMethod:   req.PaymentMethod,
 		PaymentProvider: model.PaymentProviderEpay,
@@ -102,7 +111,7 @@ func SubscriptionRequestEpay(c *gin.Context) {
 		Type:           req.PaymentMethod,
 		ServiceTradeNo: tradeNo,
 		Name:           fmt.Sprintf("SUB:%s", plan.Title),
-		Money:          strconv.FormatFloat(plan.PriceAmount, 'f', 2, 64),
+		Money:          quote.Total.StringFixed(2),
 		Device:         epay.PC,
 		NotifyUrl:      notifyUrl,
 		ReturnUrl:      returnUrl,

@@ -42,6 +42,7 @@ import {
   useWaffoPayment,
   useWaffoPancakePayment,
 } from './hooks'
+import { calculateCreemAmount, isApiSuccess } from './api'
 import {
   getDefaultPaymentType,
   getMinTopupAmount,
@@ -52,6 +53,7 @@ import type {
   PaymentMethod,
   PresetAmount,
   CreemProduct,
+  PaymentQuote,
   WaffoPayMethod,
 } from './types'
 
@@ -78,6 +80,8 @@ export function Wallet(props: WalletProps) {
   const [creemDialogOpen, setCreemDialogOpen] = useState(false)
   const [selectedCreemProduct, setSelectedCreemProduct] =
     useState<CreemProduct | null>(null)
+  const [selectedCreemQuote, setSelectedCreemQuote] =
+    useState<PaymentQuote | null>(null)
   const [showSubscriptionPanel, setShowSubscriptionPanel] = useState(true)
 
   const { status } = useStatus()
@@ -92,6 +96,7 @@ export function Wallet(props: WalletProps) {
   }, [currency?.quotaDisplayType, currency?.usdExchangeRate])
   const {
     amount: paymentAmount,
+    quote: paymentQuote,
     calculating,
     processing,
     calculatePaymentAmount,
@@ -232,9 +237,20 @@ export function Wallet(props: WalletProps) {
   }
 
   // Handle Creem product selection
-  const handleCreemProductSelect = (product: CreemProduct) => {
-    setSelectedCreemProduct(product)
-    setCreemDialogOpen(true)
+  const handleCreemProductSelect = async (product: CreemProduct) => {
+    setPaymentLoading(`creem-${product.productId}`)
+    try {
+      const response = await calculateCreemAmount({
+        product_id: product.productId,
+        payment_method: 'creem',
+      })
+      if (!isApiSuccess(response) || !response.quote) return
+      setSelectedCreemProduct(product)
+      setSelectedCreemQuote(response.quote)
+      setCreemDialogOpen(true)
+    } finally {
+      setPaymentLoading(null)
+    }
   }
 
   // Handle Creem payment confirmation
@@ -245,6 +261,7 @@ export function Wallet(props: WalletProps) {
     if (success) {
       setCreemDialogOpen(false)
       setSelectedCreemProduct(null)
+      setSelectedCreemQuote(null)
       await fetchUser()
     }
   }
@@ -358,6 +375,7 @@ export function Wallet(props: WalletProps) {
         onConfirm={handlePaymentConfirm}
         topupAmount={topupAmount}
         paymentAmount={paymentAmount}
+        quote={paymentQuote}
         paymentMethod={selectedPaymentMethod}
         calculating={calculating}
         processing={processing || waffoProcessing || pancakeProcessing}
@@ -383,6 +401,7 @@ export function Wallet(props: WalletProps) {
         onOpenChange={setCreemDialogOpen}
         onConfirm={handleCreemConfirm}
         product={selectedCreemProduct}
+        quote={selectedCreemQuote}
         processing={creemProcessing}
       />
     </>

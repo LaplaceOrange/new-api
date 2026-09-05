@@ -16,7 +16,8 @@ import (
 // ---- Shared types ----
 
 type SubscriptionPlanDTO struct {
-	Plan model.SubscriptionPlan `json:"plan"`
+	Plan  model.SubscriptionPlan `json:"plan"`
+	Quote map[string]any         `json:"quote,omitempty"`
 }
 
 type BillingPreferenceRequest struct {
@@ -43,8 +44,14 @@ func GetSubscriptionPlans(c *gin.Context) {
 	result := make([]SubscriptionPlanDTO, 0, len(plans))
 	for _, p := range plans {
 		p.NormalizeDefaults()
+		quote, err := quotePaymentFloat(p.PriceAmount)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
 		result = append(result, SubscriptionPlanDTO{
-			Plan: p,
+			Plan:  p,
+			Quote: quote.APIData(),
 		})
 	}
 	common.ApiSuccess(c, result)
