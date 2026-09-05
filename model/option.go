@@ -230,6 +230,18 @@ func SyncOptions(frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if key == operation_setting.TopUpGroupUpgradeRulesOptionKey {
+		rules, err := operation_setting.ParseTopUpGroupUpgradeRules(value)
+		if err != nil {
+			return err
+		}
+		groups := ratio_setting.GetGroupRatioCopy()
+		for _, rule := range rules {
+			if _, exists := groups[rule.Group]; !exists {
+				return fmt.Errorf("top-up group upgrade rule target group %q does not exist", rule.Group)
+			}
+		}
+	}
 	if err := operation_setting.ValidateChannelContributionOption(key, value); err != nil {
 		return err
 	}
