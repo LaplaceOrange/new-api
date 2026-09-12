@@ -203,3 +203,92 @@ func modelMatchesAvailableChannel(currentModel *Model, availableModels map[strin
 	}
 	return false
 }
+
+// GetAvailableModelChannelIDs returns currently routable channel IDs for each model.
+// A channel is available when its ability is enabled, the channel itself is enabled,
+// and a multi-key channel still has at least one usable key.
+// Keys include the ability model name and any catalog model whose name rule
+// (prefix/contains/suffix) matches that ability.
+func GetAvailableModelChannelIDs(groups []string) (map[string]map[int]struct{}, error) {
+	byAbility := map[string]map[int]struct{}{}
+	if groups != nil && len(groups) == 0 {
+		return byAbility, nil
+	}
+
+	var rows []struct {
+		Model       string      `gorm:"column:model"`
+		ChannelId   int         `gorm:"column:channel_id"`
+		ChannelKey  string      `gorm:"column:channel_key"`
+		ChannelInfo ChannelInfo `gorm:"column:channel_info"`
+	}
+	query := DB.Table("abilities").
+		Select("abilities.model AS model, abilities.channel_id AS channel_id, channels."+commonKeyCol+" AS channel_key, channels.channel_info AS channel_info").
+		Joins("JOIN channels ON channels.id = abilities.channel_id").
+		Where("abilities.enabled = ? AND channels.status = ?", true, common.ChannelStatusEnabled)
+	if groups != nil {
+		query = query.Where("abilities."+commonGroupCol+" IN ?", groups)
+	}
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	for i := range rows {
+		row := &rows[i]
+		if row.ChannelInfo.IsMultiKey {
+			channel := Channel{Key: row.ChannelKey, ChannelInfo: row.ChannelInfo}
+			if !channel.HasEnabledMultiKey() {
+				continue
+			}
+		}
+		name := strings.TrimSpace(row.Model)
+		if name == "" || row.ChannelId <= 0 {
+			continue
+		}
+		channels := byAbility[name]
+		if channels == nil {
+			channels = map[int]struct{}{}
+			byAbility[name] = channels
+		}
+		channels[row.ChannelId] = struct{}{}
+	}
+
+	result := make(map[string]map[int]struct{}, len(byAbility))
+	for name, channels := range byAbility {
+		copied := make(map[int]struct{}, len(channels))
+		for id := range channels {
+			copied[id] = struct{}{}
+		}
+		result[name] = copied
+	}
+
+	var metas []Model
+	if err := DB.Select("model_name", "name_rule").Find(&metas).Error; err != nil {
+		return nil, err
+	}
+	for i := range metas {
+		meta := &metas[i]
+		catalogName := strings.TrimSpace(meta.ModelName)
+		if catalogName == "" || meta.NameRule == NameRuleExact {
+			continue
+		}
+		// Exact ability names already have their own routable channels. Do not
+		// fold prefix/contains/suffix matches into that same key.
+		if _, exists := byAbility[catalogName]; exists {
+			continue
+		}
+		for abilityName, channels := range byAbility {
+			if !modelMatchesAvailableChannel(meta, map[string]struct{}{abilityName: {}}) {
+				continue
+			}
+			dst := result[catalogName]
+			if dst == nil {
+				dst = map[int]struct{}{}
+				result[catalogName] = dst
+			}
+			for id := range channels {
+				dst[id] = struct{}{}
+			}
+		}
+	}
+	return result, nil
+}

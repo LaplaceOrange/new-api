@@ -45,6 +45,7 @@ func RecordRelaySample(info *relaycommon.RelayInfo, success bool, outputTokens i
 	Record(Sample{
 		Model:        info.OriginModelName,
 		Group:        info.UsingGroup,
+		ChannelId:    info.ChannelId,
 		LatencyMs:    latencyMs,
 		TtftMs:       ttftMs,
 		HasTtft:      hasTtft,
@@ -67,9 +68,10 @@ func Record(sample Sample) {
 	}
 
 	key := bucketKey{
-		model:    sample.Model,
-		group:    sample.Group,
-		bucketTs: bucketStart(time.Now().Unix()),
+		model:     sample.Model,
+		group:     sample.Group,
+		channelId: sample.ChannelId,
+		bucketTs:  bucketStart(time.Now().Unix()),
 	}
 	actual, _ := hotBuckets.LoadOrStore(key, &atomicBucket{})
 	actual.(*atomicBucket).add(sample)
@@ -115,14 +117,18 @@ func Query(params QueryParams) (QueryResult, error) {
 		if params.Group != "" && k.group != params.Group {
 			return true
 		}
-		mergeCounters(merged, k, value.(*atomicBucket).snapshot())
+		mergeCounters(merged, bucketKey{
+			model:    k.model,
+			group:    k.group,
+			bucketTs: k.bucketTs,
+		}, value.(*atomicBucket).snapshot())
 		return true
 	})
 
 	return buildQueryResult(params.Model, merged), nil
 }
 
-func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
+func QuerySummaryAll(hours int, groups []string, preferMaxAvailableChannel bool) (SummaryAllResult, error) {
 	if hours <= 0 {
 		hours = 24
 	}
@@ -140,6 +146,8 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 
 	totals := map[string]counters{}
 	modelBuckets := map[string]map[int64]counters{}
+	modelChannelBuckets := map[string]map[int]map[int64]counters{}
+	var availableChannels map[string]map[int]struct{}
 	for _, row := range rows {
 		value := counters{
 			requestCount:   row.RequestCount,
@@ -150,6 +158,27 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 		}
 		mergeModelTotals(totals, row.ModelName, value)
 		mergeModelBucket(modelBuckets, row.ModelName, row.BucketTs, value)
+	}
+
+	if preferMaxAvailableChannel {
+		channelRows, channelErr := model.GetPerfMetricChannelBucketsAll(startTs, endTs, groups)
+		if channelErr != nil {
+			common.SysError("failed to query perf metric channel buckets: " + channelErr.Error())
+		} else {
+			for _, row := range channelRows {
+				mergeChannelBucket(modelChannelBuckets, row.ModelName, row.ChannelId, row.BucketTs, counters{
+					requestCount: row.RequestCount,
+					successCount: row.SuccessCount,
+				})
+			}
+		}
+
+		var availErr error
+		availableChannels, availErr = model.GetAvailableModelChannelIDs(groups)
+		if availErr != nil {
+			common.SysError("failed to query available model channels: " + availErr.Error())
+			availableChannels = nil
+		}
 	}
 
 	hotBuckets.Range(func(key, value any) bool {
@@ -168,6 +197,9 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 		}
 		mergeModelTotals(totals, k.model, snap)
 		mergeModelBucket(modelBuckets, k.model, k.bucketTs, snap)
+		if preferMaxAvailableChannel {
+			mergeChannelBucket(modelChannelBuckets, k.model, k.channelId, k.bucketTs, snap)
+		}
 		return true
 	})
 
@@ -182,12 +214,21 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 		if total.generationMs > 0 {
 			avgTps = float64(total.outputTokens) / (float64(total.generationMs) / 1000.0)
 		}
+		recentRates := recentSuccessRates(modelBuckets[name], 3)
+		if preferMaxAvailableChannel {
+			recentRates = recentSuccessRatesPreferringMaxChannel(
+				modelBuckets[name],
+				modelChannelBuckets[name],
+				availableChannels[name],
+				3,
+			)
+		}
 		models = append(models, ModelSummary{
 			ModelName:          name,
 			AvgLatencyMs:       avgLatency,
 			SuccessRate:        math.Round(successRate*100) / 100,
 			AvgTps:             math.Round(avgTps*100) / 100,
-			RecentSuccessRates: recentSuccessRates(modelBuckets[name], 3),
+			RecentSuccessRates: recentRates,
 			RequestCount:       total.requestCount,
 		})
 	}
@@ -231,7 +272,65 @@ func mergeModelBucket(modelBuckets map[string]map[int64]counters, modelName stri
 	modelBuckets[modelName][bucketTs] = current
 }
 
+func mergeChannelBucket(modelChannelBuckets map[string]map[int]map[int64]counters, modelName string, channelId int, bucketTs int64, value counters) {
+	if channelId <= 0 || value.requestCount == 0 {
+		return
+	}
+	if _, ok := modelChannelBuckets[modelName]; !ok {
+		modelChannelBuckets[modelName] = map[int]map[int64]counters{}
+	}
+	if _, ok := modelChannelBuckets[modelName][channelId]; !ok {
+		modelChannelBuckets[modelName][channelId] = map[int64]counters{}
+	}
+	current := modelChannelBuckets[modelName][channelId][bucketTs]
+	current.requestCount += value.requestCount
+	current.successCount += value.successCount
+	modelChannelBuckets[modelName][channelId][bucketTs] = current
+}
+
 func recentSuccessRates(buckets map[int64]counters, limit int) []float64 {
+	if len(buckets) == 0 || limit <= 0 {
+		return nil
+	}
+	timestamps := lastBucketTimestamps(buckets, limit)
+	rates := make([]float64, 0, len(timestamps))
+	for _, ts := range timestamps {
+		rates = append(rates, math.Round(successRate(buckets[ts])*100)/100)
+	}
+	return rates
+}
+
+func recentSuccessRatesPreferringMaxChannel(
+	aggregated map[int64]counters,
+	channelBuckets map[int]map[int64]counters,
+	available map[int]struct{},
+	limit int,
+) []float64 {
+	aggregatedRates := recentSuccessRates(aggregated, limit)
+	if len(channelBuckets) == 0 || len(available) == 0 {
+		return aggregatedRates
+	}
+	timestamps := lastBucketTimestamps(aggregated, limit)
+	if len(timestamps) == 0 {
+		return aggregatedRates
+	}
+	rates := make([]float64, 0, len(timestamps))
+	hasChannelRate := false
+	for _, ts := range timestamps {
+		if rate, ok := maxAvailableChannelSuccessRate(channelBuckets, available, ts); ok {
+			rates = append(rates, math.Round(rate*100)/100)
+			hasChannelRate = true
+			continue
+		}
+		rates = append(rates, math.Round(successRate(aggregated[ts])*100)/100)
+	}
+	if !hasChannelRate {
+		return aggregatedRates
+	}
+	return rates
+}
+
+func lastBucketTimestamps(buckets map[int64]counters, limit int) []int64 {
 	if len(buckets) == 0 || limit <= 0 {
 		return nil
 	}
@@ -245,11 +344,29 @@ func recentSuccessRates(buckets map[int64]counters, limit int) []float64 {
 	if len(timestamps) > limit {
 		timestamps = timestamps[len(timestamps)-limit:]
 	}
-	rates := make([]float64, 0, len(timestamps))
-	for _, ts := range timestamps {
-		rates = append(rates, math.Round(successRate(buckets[ts])*100)/100)
+	return timestamps
+}
+
+func maxAvailableChannelSuccessRate(channelBuckets map[int]map[int64]counters, available map[int]struct{}, ts int64) (float64, bool) {
+	maxRate := -1.0
+	for channelId := range available {
+		buckets := channelBuckets[channelId]
+		if len(buckets) == 0 {
+			continue
+		}
+		value, ok := buckets[ts]
+		if !ok || value.requestCount <= 0 {
+			continue
+		}
+		rate := successRate(value)
+		if rate > maxRate {
+			maxRate = rate
+		}
 	}
-	return rates
+	if maxRate < 0 {
+		return 0, false
+	}
+	return maxRate, true
 }
 
 func allowedGroupSet(groups []string) map[string]struct{} {
@@ -413,9 +530,9 @@ func mergeRedisActiveBuckets(merged map[bucketKey]counters, params QueryParams, 
 	if active < startTs || active > endTs {
 		return
 	}
-	key := bucketKey{model: params.Model, group: params.Group, bucketTs: active}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
+	key := bucketKey{model: params.Model, group: params.Group, bucketTs: active}
 	values, err := common.RDB.HGetAll(ctx, redisBucketKey(key)).Result()
 	if err != nil || len(values) == 0 {
 		return
@@ -424,5 +541,8 @@ func mergeRedisActiveBuckets(merged map[bucketKey]counters, params QueryParams, 
 }
 
 func redisBucketKey(key bucketKey) string {
+	// Redis counters stay aggregated by model/group/bucket so Query() can
+	// reconstruct the current hour without enumerating per-channel hashes.
+	// Channel-level status coloring uses perf_metric_channels + hotBuckets.
 	return fmt.Sprintf("perf:%s:%s:%d", key.model, key.group, key.bucketTs)
 }

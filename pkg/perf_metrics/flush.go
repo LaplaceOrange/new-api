@@ -38,7 +38,7 @@ func flushCompletedBuckets() {
 			return true
 		}
 
-		err := model.UpsertPerfMetric(&model.PerfMetric{
+		metric := &model.PerfMetric{
 			ModelName:      k.model,
 			Group:          k.group,
 			BucketTs:       k.bucketTs,
@@ -49,10 +49,21 @@ func flushCompletedBuckets() {
 			TtftCount:      drained.ttftCount,
 			OutputTokens:   drained.outputTokens,
 			GenerationMs:   drained.generationMs,
-		})
-		if err != nil {
+		}
+		var channel *model.PerfMetricChannel
+		if k.channelId > 0 {
+			channel = &model.PerfMetricChannel{
+				ModelName:    k.model,
+				Group:        k.group,
+				ChannelId:    k.channelId,
+				BucketTs:     k.bucketTs,
+				RequestCount: drained.requestCount,
+				SuccessCount: drained.successCount,
+			}
+		}
+		if err := model.UpsertPerfMetricPair(metric, channel); err != nil {
 			bucket.addCounters(drained)
-			common.SysError(fmt.Sprintf("failed to flush perf metric bucket model=%s group=%s bucket=%d: %s", k.model, k.group, k.bucketTs, err.Error()))
+			common.SysError(fmt.Sprintf("failed to flush perf metric bucket model=%s group=%s channel=%d bucket=%d: %s", k.model, k.group, k.channelId, k.bucketTs, err.Error()))
 			return true
 		}
 
@@ -74,6 +85,9 @@ func cleanupExpiredMetrics(retentionDays int) {
 	cutoff := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
 	if err := model.DeletePerfMetricsBefore(cutoff); err != nil {
 		common.SysError("failed to cleanup expired perf metrics: " + err.Error())
+	}
+	if err := model.DeletePerfMetricChannelsBefore(cutoff); err != nil {
+		common.SysError("failed to cleanup expired perf metric channels: " + err.Error())
 	}
 }
 

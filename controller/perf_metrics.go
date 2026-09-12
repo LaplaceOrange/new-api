@@ -3,6 +3,7 @@ package controller
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -20,7 +21,13 @@ func GetPerfMetricsSummary(c *gin.Context) {
 	}
 
 	activeGroups := append(lo.Keys(ratio_setting.GetGroupRatioCopy()), "auto")
-	result, err := perfmetrics.QuerySummaryAll(hours, activeGroups)
+	groups := activeGroups
+	preferMaxAvailableChannel := true
+	if group := strings.TrimSpace(c.Query("group")); group != "" && group != "all" {
+		groups = []string{group}
+		preferMaxAvailableChannel = false
+	}
+	result, err := perfmetrics.QuerySummaryAll(hours, groups, preferMaxAvailableChannel)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,

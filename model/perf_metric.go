@@ -27,10 +27,14 @@ func (PerfMetric) TableName() string {
 }
 
 func UpsertPerfMetric(metric *PerfMetric) error {
+	return upsertPerfMetric(DB, metric)
+}
+
+func upsertPerfMetric(db *gorm.DB, metric *PerfMetric) error {
 	if metric == nil || metric.RequestCount == 0 {
 		return nil
 	}
-	return DB.Clauses(clause.OnConflict{
+	return db.Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "model_name"},
 			{Name: "group"},
@@ -127,4 +131,90 @@ func PerfMetricStartTime(hours int) int64 {
 		hours = 24
 	}
 	return time.Now().Add(-time.Duration(hours) * time.Hour).Unix()
+}
+
+// PerfMetricChannel stores per-channel success counts for model-square status coloring.
+type PerfMetricChannel struct {
+	Id           int    `json:"id" gorm:"primaryKey"`
+	ModelName    string `json:"model_name" gorm:"size:128;uniqueIndex:idx_perf_ch_model_group_bucket,priority:1"`
+	Group        string `json:"group" gorm:"column:group;size:64;uniqueIndex:idx_perf_ch_model_group_bucket,priority:2"`
+	ChannelId    int    `json:"channel_id" gorm:"uniqueIndex:idx_perf_ch_model_group_bucket,priority:3"`
+	BucketTs     int64  `json:"bucket_ts" gorm:"uniqueIndex:idx_perf_ch_model_group_bucket,priority:4;index:idx_perf_ch_bucket_ts"`
+	RequestCount int64  `json:"-" gorm:"default:0"`
+	SuccessCount int64  `json:"-" gorm:"default:0"`
+}
+
+func (PerfMetricChannel) TableName() string {
+	return "perf_metric_channels"
+}
+
+func UpsertPerfMetricChannel(metric *PerfMetricChannel) error {
+	return upsertPerfMetricChannel(DB, metric)
+}
+
+func upsertPerfMetricChannel(db *gorm.DB, metric *PerfMetricChannel) error {
+	if metric == nil || metric.ChannelId <= 0 || metric.RequestCount == 0 {
+		return nil
+	}
+	return db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "model_name"},
+			{Name: "group"},
+			{Name: "channel_id"},
+			{Name: "bucket_ts"},
+		},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"request_count": gorm.Expr("perf_metric_channels.request_count + ?", metric.RequestCount),
+			"success_count": gorm.Expr("perf_metric_channels.success_count + ?", metric.SuccessCount),
+		}),
+	}).Create(metric).Error
+}
+
+// UpsertPerfMetricPair writes the aggregated model/group bucket and the matching
+// per-channel bucket in one transaction so a channel-table failure cannot leave
+// the summary row committed without its status-color source data.
+func UpsertPerfMetricPair(metric *PerfMetric, channel *PerfMetricChannel) error {
+	if metric == nil || metric.RequestCount == 0 {
+		return nil
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if err := upsertPerfMetric(tx, metric); err != nil {
+			return err
+		}
+		return upsertPerfMetricChannel(tx, channel)
+	})
+}
+
+type PerfMetricChannelBucket struct {
+	ModelName    string `json:"model_name"`
+	ChannelId    int    `json:"channel_id"`
+	BucketTs     int64  `json:"bucket_ts"`
+	RequestCount int64  `json:"request_count"`
+	SuccessCount int64  `json:"success_count"`
+}
+
+func GetPerfMetricChannelBucketsAll(startTs int64, endTs int64, groups []string) ([]PerfMetricChannelBucket, error) {
+	var summaries []PerfMetricChannelBucket
+	query := DB.Model(&PerfMetricChannel{}).
+		Select("model_name, channel_id, bucket_ts, SUM(request_count) as request_count, SUM(success_count) as success_count").
+		Where("bucket_ts >= ? AND bucket_ts <= ?", startTs, endTs)
+	if groups != nil {
+		if len(groups) == 0 {
+			return summaries, nil
+		}
+		query = query.Where(commonGroupCol+" IN ?", groups)
+	}
+	err := query.
+		Group("model_name, channel_id, bucket_ts").
+		Having("SUM(request_count) > 0").
+		Order("bucket_ts ASC").
+		Find(&summaries).Error
+	return summaries, err
+}
+
+func DeletePerfMetricChannelsBefore(cutoffTs int64) error {
+	if cutoffTs <= 0 {
+		return nil
+	}
+	return DB.Where("bucket_ts < ?", cutoffTs).Delete(&PerfMetricChannel{}).Error
 }
