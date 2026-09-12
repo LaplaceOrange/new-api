@@ -374,6 +374,32 @@ func GetRandomSatisfiedChannel(
 	return nil, errors.New("channel not found")
 }
 
+// filterChannelsByRequestPathAndModel restricts cached candidates by request
+// path and model. Only Advanced Custom channels are path-checked; all other
+// channel types always pass. Caller must hold channelSyncLock read lock.
+func filterChannelsByRequestPathAndModel(channels []int, requestPath string, model string) []int {
+	if requestPath == "" || len(channels) == 0 {
+		return channels
+	}
+	filtered := make([]int, 0, len(channels))
+	for _, channelID := range channels {
+		channel, ok := channelsIDM[channelID]
+		if !ok {
+			// Keep it so the downstream consistency error is raised as before.
+			filtered = append(filtered, channelID)
+			continue
+		}
+		if channel.Type != constant.ChannelTypeAdvancedCustom {
+			filtered = append(filtered, channelID)
+			continue
+		}
+		if config := channel2advancedCustomConfig[channelID]; config != nil && config.SupportsPathForModel(requestPath, model) {
+			filtered = append(filtered, channelID)
+		}
+	}
+	return filtered
+}
+
 func CacheGetChannel(id int) (*Channel, error) {
 	if !common.MemoryCacheEnabled {
 		return GetChannelById(id, true)

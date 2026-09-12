@@ -8,7 +8,9 @@ import (
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -162,6 +164,51 @@ func GetChannel(
 	}
 	err = DB.First(&channel, "id = ?", channel.Id).Error
 	return &channel, err
+}
+
+// filterAbilitiesByRequestPathAndModel restricts candidates by request path and
+// model for the DB (non-memory-cache) selection path. Only Advanced Custom
+// channels are path-checked; all other channel types always pass.
+func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath string, model string) []Ability {
+	if requestPath == "" || len(abilities) == 0 {
+		return abilities
+	}
+
+	channelIDs := make([]int, 0, len(abilities))
+	seen := make(map[int]struct{}, len(abilities))
+	for _, ability := range abilities {
+		if _, ok := seen[ability.ChannelId]; ok {
+			continue
+		}
+		seen[ability.ChannelId] = struct{}{}
+		channelIDs = append(channelIDs, ability.ChannelId)
+	}
+
+	var channels []*Channel
+	if err := DB.Where("id IN ?", channelIDs).Find(&channels).Error; err != nil {
+		// On error, fall back to unfiltered candidates to avoid blocking selection.
+		return abilities
+	}
+
+	advancedConfigs := make(map[int]*kitdto.AdvancedCustomConfig)
+	for _, channel := range channels {
+		if channel.Type == constant.ChannelTypeAdvancedCustom {
+			advancedConfigs[channel.Id] = channel.GetOtherSettings().AdvancedCustom
+		}
+	}
+
+	filtered := make([]Ability, 0, len(abilities))
+	for _, ability := range abilities {
+		config, isAdvancedCustom := advancedConfigs[ability.ChannelId]
+		if !isAdvancedCustom {
+			filtered = append(filtered, ability)
+			continue
+		}
+		if config != nil && config.SupportsPathForModel(requestPath, model) {
+			filtered = append(filtered, ability)
+		}
+	}
+	return filtered
 }
 
 // filterAbilitiesByConstraints applies the same ChannelSatisfiesFilters

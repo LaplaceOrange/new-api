@@ -220,6 +220,20 @@ func Distribute() func(c *gin.Context) {
 	}
 }
 
+// channelSupportsRequestPath reports whether a channel can serve requestPath.
+// Advanced Custom channels require a matching configured route; other channel
+// types are not restricted by the request path.
+func channelSupportsRequestPath(channel *model.Channel, requestPath string, requestModel string) bool {
+	if channel == nil {
+		return false
+	}
+	if channel.Type != constant.ChannelTypeAdvancedCustom {
+		return true
+	}
+	config := channel.GetOtherSettings().AdvancedCustom
+	return config != nil && config.SupportsPathForModel(requestPath, requestModel)
+}
+
 // noAvailableChannelMessage explains a 503 for a task-plugin-claimed model.
 // A model claimed by a plugin is served only by that plugin's channels, so the
 // generic "no channel" text hides the real cause: the claiming plugin has no

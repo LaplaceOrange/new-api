@@ -346,12 +346,11 @@ func RecordSensitiveWordLog(c *gin.Context, words []string, statusCode int) {
 	if len(matchedWords) == 0 {
 		return
 	}
-	other := map[string]interface{}{
-		"sensitive_words":      matchedWords,
-		"sensitive_word_count": len(matchedWords),
-		"error_code":           "sensitive_words_detected",
-		"status_code":          statusCode,
-	}
+	other := NewLogOther()
+	other.SetPublic("sensitive_words", matchedWords)
+	other.SetPublic("sensitive_word_count", len(matchedWords))
+	other.SetPublic("error_code", "sensitive_words_detected")
+	other.SetPublic("status_code", statusCode)
 	RecordErrorLog(
 		c,
 		c.GetInt("id"),

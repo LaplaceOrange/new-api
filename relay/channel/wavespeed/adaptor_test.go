@@ -1,4 +1,4 @@
-package replicate
+package wavespeed
 
 import (
 	"io"
@@ -21,22 +21,15 @@ func TestWaveSpeedURL(t *testing.T) {
 	assert.Equal(t, "https://gateway.example/api/v3/bytedance/seedream-v5.0-lite", waveSpeedURL("https://gateway.example/api/v3", "/bytedance/seedream-v5.0-lite"))
 }
 
-func TestConvertImageRequestWaveSpeed(t *testing.T) {
+func TestConvertImageRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	a := &Adaptor{}
 	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: "https://api.wavespeed.ai"}}
 	n := uint(1)
-	request := dto.ImageRequest{
-		Model:          "bytedance/seedream-v5.0-lite",
-		Prompt:         "a cat",
-		N:              &n,
-		Size:           "2048x2048",
-		ResponseFormat: "b64_json",
-		OutputFormat:   []byte(`"jpeg"`),
-	}
-
-	converted, err := a.ConvertImageRequest(c, info, request)
+	converted, err := (&Adaptor{}).ConvertImageRequest(c, info, dto.ImageRequest{
+		Model: "bytedance/seedream-v5.0-lite", Prompt: "a cat", N: &n,
+		Size: "2048x2048", ResponseFormat: "b64_json", OutputFormat: []byte(`"jpeg"`),
+	})
 	require.NoError(t, err)
 	payload, ok := converted.(map[string]any)
 	require.True(t, ok)
@@ -47,17 +40,12 @@ func TestConvertImageRequestWaveSpeed(t *testing.T) {
 	assert.Equal(t, "/bytedance/seedream-v5.0-lite", info.RequestURLPath)
 }
 
-func TestConvertImageRequestWaveSpeedRejectsUnsupportedMultipleOutputs(t *testing.T) {
+func TestConvertImageRequestRejectsMultipleOutputs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	a := &Adaptor{}
 	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: "https://api.wavespeed.ai"}}
 	n := uint(2)
-	_, err := a.ConvertImageRequest(c, info, dto.ImageRequest{
-		Model:  "bytedance/seedream-v5.0-lite",
-		Prompt: "a cat",
-		N:      &n,
-	})
+	_, err := (&Adaptor{}).ConvertImageRequest(c, info, dto.ImageRequest{Model: ModelSeedreamV50Lite, Prompt: "a cat", N: &n})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not expose multiple image outputs")
 }
@@ -65,15 +53,14 @@ func TestConvertImageRequestWaveSpeedRejectsUnsupportedMultipleOutputs(t *testin
 func TestConvertImageRequestRejectsOversizedN(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	a := &Adaptor{}
 	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: "https://api.wavespeed.ai"}}
 	n := uint(dto.MaxImageN + 1)
-	_, err := a.ConvertImageRequest(c, info, dto.ImageRequest{Model: ModelSeedreamV50Lite, Prompt: "a cat", N: &n})
+	_, err := (&Adaptor{}).ConvertImageRequest(c, info, dto.ImageRequest{Model: ModelSeedreamV50Lite, Prompt: "a cat", N: &n})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "between 1 and")
 }
 
-func TestDoResponseWaveSpeedCompletedBase64(t *testing.T) {
+func TestDoResponseCompletedBase64(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -81,11 +68,7 @@ func TestDoResponseWaveSpeedCompletedBase64(t *testing.T) {
 		ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: "https://api.wavespeed.ai"},
 		Request:     &dto.ImageRequest{ResponseFormat: "b64_json"},
 	}
-	resp := &http.Response{
-		StatusCode: http.StatusOK,
-		Body:       io.NopCloser(strings.NewReader(`{"code":200,"data":{"id":"task-1","status":"completed","outputs":["YmFzZTY0"]}}`)),
-	}
-
+	resp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"code":200,"data":{"id":"task-1","status":"completed","outputs":["YmFzZTY0"]}}`))}
 	usage, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
 	require.Nil(t, apiErr)
 	require.NotNil(t, usage)

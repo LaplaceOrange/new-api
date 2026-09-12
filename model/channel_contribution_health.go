@@ -591,6 +591,15 @@ func contributionUnhealthyModelSet(db *gorm.DB, channelIds []int) (map[int]map[s
 	if db == nil {
 		db = DB
 	}
+	// Contribution health tables are optional on databases created before the
+	// contribution feature was introduced. Treat their absence as an empty
+	// overlay so ordinary channel CRUD and routing continue to work until the
+	// next migration creates them.
+	if !db.Migrator().HasTable(&ChannelContributionModelHealth{}) ||
+		!db.Migrator().HasTable(&ChannelContribution{}) ||
+		!db.Migrator().HasTable(&ChannelContributionRevision{}) {
+		return result, nil
+	}
 	var rows []ChannelContributionModelHealth
 	if err := db.Table("channel_contribution_model_healths AS health").
 		Select("health.channel_id, health.model").

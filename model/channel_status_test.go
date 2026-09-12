@@ -92,7 +92,7 @@ func TestInitChannelCacheExcludesMultiKeyChannelWithoutUsableKey(t *testing.T) {
 	}).Error)
 
 	InitChannelCache()
-	selected, err := GetRandomSatisfiedChannel("default", "cache-model", 0, "")
+	selected, err := GetRandomSatisfiedChannel("default", "cache-model", 0, nil)
 	require.NoError(t, err)
 	assert.Nil(t, selected)
 }
@@ -154,7 +154,7 @@ func TestInitChannelCacheDoesNotOverwriteConcurrentIncrementalUpdate(t *testing.
 	cached, err := CacheGetChannel(channel.Id)
 	require.NoError(t, err)
 	assert.Equal(t, common.ChannelStatusAutoDisabled, cached.Status)
-	selected, err := GetRandomSatisfiedChannel("default", "cache-model", 0, "")
+	selected, err := GetRandomSatisfiedChannel("default", "cache-model", 0, nil)
 	require.NoError(t, err)
 	assert.Nil(t, selected)
 }
@@ -177,7 +177,7 @@ func TestUpdateChannelStatusRestoresEnabledChannelToRoutingCache(t *testing.T) {
 	InitChannelCache()
 
 	require.True(t, UpdateChannelStatus(channel.Id, "", common.ChannelStatusEnabled, "recovered"))
-	selected, err := GetRandomSatisfiedChannel("default", "cache-model", 0, "")
+	selected, err := GetRandomSatisfiedChannel("default", "cache-model", 0, nil)
 	require.NoError(t, err)
 	require.NotNil(t, selected)
 	assert.Equal(t, channel.Id, selected.Id)
