@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 import {
   DEFAULT_PRICING_PAGE_SIZE,
@@ -57,7 +58,7 @@ export function ModelCardGrid(props: ModelCardGridProps) {
       : undefined
   const perfQuery = useQuery({
     queryKey: ['perf-metrics-summary', 24, summaryGroup ?? FILTER_ALL],
-    queryFn: () => getPerfMetricsSummary(24, summaryGroup),
+    queryFn: async () => requireServerSuccess(await getPerfMetricsSummary(24, summaryGroup)),
     staleTime: 60 * 1000,
     retry: false,
   })
@@ -80,8 +81,8 @@ export function ModelCardGrid(props: ModelCardGridProps) {
   }
 
   return (
-    <div className='space-y-4 sm:space-y-5'>
-      <div className='grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-3'>
+    <div className='flex flex-col gap-4 sm:gap-5'>
+      <div className='grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-3'>
         {pagedModels.map((model) => (
           <ModelCard
             key={model.id ?? model.model_name}

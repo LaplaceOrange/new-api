@@ -214,22 +214,21 @@ func QuerySummaryAll(hours int, groups []string, preferMaxAvailableChannel bool)
 		if total.generationMs > 0 {
 			avgTps = float64(total.outputTokens) / (float64(total.generationMs) / 1000.0)
 		}
-		recentRates := recentSuccessRates(modelBuckets[name], 3)
+		recentSeries := recentSuccessSeries(modelBuckets[name])
 		if preferMaxAvailableChannel {
-			recentRates = recentSuccessRatesPreferringMaxChannel(
+			recentSeries = recentSuccessSeriesPreferringMaxChannel(
 				modelBuckets[name],
 				modelChannelBuckets[name],
 				availableChannels[name],
-				3,
 			)
 		}
 		models = append(models, ModelSummary{
-			ModelName:          name,
-			AvgLatencyMs:       avgLatency,
-			SuccessRate:        math.Round(successRate*100) / 100,
-			AvgTps:             math.Round(avgTps*100) / 100,
-			RecentSuccessRates: recentRates,
-			RequestCount:       total.requestCount,
+			ModelName:           name,
+			AvgLatencyMs:        avgLatency,
+			SuccessRate:         math.Round(successRate*100) / 100,
+			AvgTps:              math.Round(avgTps*100) / 100,
+			RecentSuccessSeries: recentSeries,
+			RequestCount:        total.requestCount,
 		})
 	}
 	sort.Slice(models, func(i, j int) bool {
@@ -288,85 +287,84 @@ func mergeChannelBucket(modelChannelBuckets map[string]map[int]map[int64]counter
 	modelChannelBuckets[modelName][channelId][bucketTs] = current
 }
 
-func recentSuccessRates(buckets map[int64]counters, limit int) []float64 {
-	if len(buckets) == 0 || limit <= 0 {
+func recentSuccessSeries(buckets map[int64]counters) []SuccessRatePoint {
+	if len(buckets) == 0 {
 		return nil
 	}
-	timestamps := lastBucketTimestamps(buckets, limit)
-	rates := make([]float64, 0, len(timestamps))
-	for _, ts := range timestamps {
-		rates = append(rates, math.Round(successRate(buckets[ts])*100)/100)
+	hourly := map[int64]counters{}
+	for ts, value := range buckets {
+		hourTs := ts - ts%3600
+		merged := hourly[hourTs]
+		merged.requestCount += value.requestCount
+		merged.successCount += value.successCount
+		hourly[hourTs] = merged
 	}
-	return rates
-}
-
-func recentSuccessRatesPreferringMaxChannel(
-	aggregated map[int64]counters,
-	channelBuckets map[int]map[int64]counters,
-	available map[int]struct{},
-	limit int,
-) []float64 {
-	aggregatedRates := recentSuccessRates(aggregated, limit)
-	if len(channelBuckets) == 0 || len(available) == 0 {
-		return aggregatedRates
-	}
-	timestamps := lastBucketTimestamps(aggregated, limit)
-	if len(timestamps) == 0 {
-		return aggregatedRates
-	}
-	rates := make([]float64, 0, len(timestamps))
-	hasChannelRate := false
-	for _, ts := range timestamps {
-		if rate, ok := maxAvailableChannelSuccessRate(channelBuckets, available, ts); ok {
-			rates = append(rates, math.Round(rate*100)/100)
-			hasChannelRate = true
+	timestamps := make([]int64, 0, len(hourly))
+	for hourTs, value := range hourly {
+		if value.requestCount == 0 {
 			continue
 		}
-		rates = append(rates, math.Round(successRate(aggregated[ts])*100)/100)
-	}
-	if !hasChannelRate {
-		return aggregatedRates
-	}
-	return rates
-}
-
-func lastBucketTimestamps(buckets map[int64]counters, limit int) []int64 {
-	if len(buckets) == 0 || limit <= 0 {
-		return nil
-	}
-	timestamps := make([]int64, 0, len(buckets))
-	for ts := range buckets {
-		timestamps = append(timestamps, ts)
+		timestamps = append(timestamps, hourTs)
 	}
 	sort.Slice(timestamps, func(i, j int) bool {
 		return timestamps[i] < timestamps[j]
 	})
-	if len(timestamps) > limit {
-		timestamps = timestamps[len(timestamps)-limit:]
+	points := make([]SuccessRatePoint, 0, len(timestamps))
+	for _, hourTs := range timestamps {
+		points = append(points, SuccessRatePoint{
+			Ts:          hourTs,
+			SuccessRate: math.Round(successRate(hourly[hourTs])*100) / 100,
+		})
 	}
-	return timestamps
+	return points
 }
 
-func maxAvailableChannelSuccessRate(channelBuckets map[int]map[int64]counters, available map[int]struct{}, ts int64) (float64, bool) {
-	maxRate := -1.0
-	for channelId := range available {
-		buckets := channelBuckets[channelId]
-		if len(buckets) == 0 {
+func recentSuccessSeriesPreferringMaxChannel(
+	aggregated map[int64]counters,
+	channelBuckets map[int]map[int64]counters,
+	available map[int]struct{},
+) []SuccessRatePoint {
+	points := recentSuccessSeries(aggregated)
+	if len(points) == 0 || len(channelBuckets) == 0 || len(available) == 0 {
+		return points
+	}
+	hourlyChannels := map[int]map[int64]counters{}
+	for channelId, buckets := range channelBuckets {
+		if _, ok := available[channelId]; !ok {
 			continue
 		}
-		value, ok := buckets[ts]
-		if !ok || value.requestCount <= 0 {
-			continue
+		hourly := map[int64]counters{}
+		for ts, value := range buckets {
+			hourTs := ts - ts%3600
+			merged := hourly[hourTs]
+			merged.requestCount += value.requestCount
+			merged.successCount += value.successCount
+			hourly[hourTs] = merged
 		}
-		rate := successRate(value)
-		if rate > maxRate {
-			maxRate = rate
+		hourlyChannels[channelId] = hourly
+	}
+	replaced := false
+	for i, point := range points {
+		maxRate := -1.0
+		for _, hourly := range hourlyChannels {
+			value, ok := hourly[point.Ts]
+			if !ok || value.requestCount <= 0 {
+				continue
+			}
+			rate := successRate(value)
+			if rate > maxRate {
+				maxRate = rate
+			}
+		}
+		if maxRate >= 0 {
+			points[i].SuccessRate = math.Round(maxRate*100) / 100
+			replaced = true
 		}
 	}
-	if maxRate < 0 {
-		return 0, false
+	if !replaced {
+		return recentSuccessSeries(aggregated)
 	}
-	return maxRate, true
+	return points
 }
 
 func allowedGroupSet(groups []string) map[string]struct{} {

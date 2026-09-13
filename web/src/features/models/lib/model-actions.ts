@@ -20,6 +20,8 @@ import type { QueryClient } from '@tanstack/react-query'
 import i18next from 'i18next'
 import { toast } from 'sonner'
 
+import { handleServerError } from '@/lib/handle-server-error'
+
 import {
   updateModelStatus,
   batchUpdateModelStatus,
@@ -27,6 +29,7 @@ import {
   batchDisableModelsNoChannels,
   batchEnableModelsWithChannels,
 } from '../api'
+import { invalidateVendorData } from '../vendor-api'
 import { modelsQueryKeys } from './query-keys'
 
 // ============================================================================
@@ -45,17 +48,19 @@ export async function handleEnableModel(
     const response = await updateModelStatus(id, 1)
     if (response.success) {
       queryClient?.invalidateQueries({ queryKey: modelsQueryKeys.all })
+      if (queryClient) await invalidateVendorData(queryClient)
     }
     if (response.success && response.data?.status === 1) {
       toast.success(i18next.t('Model enabled successfully'))
       onSuccess?.()
     } else {
-      toast.error(response.message || i18next.t('Failed to enable model'))
+      handleServerError(
+        response,
+        i18next.t('Failed to show model in model square')
+      )
     }
   } catch (error: unknown) {
-    toast.error(
-      (error as Error)?.message || i18next.t('Failed to enable model')
-    )
+    handleServerError(error, i18next.t('Failed to show model in model square'))
   }
 }
 
@@ -71,16 +76,21 @@ export async function handleDisableModel(
     const response = await updateModelStatus(id, 0)
     if (response.success) {
       queryClient?.invalidateQueries({ queryKey: modelsQueryKeys.all })
+      if (queryClient) await invalidateVendorData(queryClient)
     }
     if (response.success && response.data?.status === 0) {
       toast.success(i18next.t('Model disabled successfully'))
       onSuccess?.()
     } else {
-      toast.error(response.message || i18next.t('Failed to disable model'))
+      handleServerError(
+        response,
+        i18next.t('Failed to hide model from model square')
+      )
     }
   } catch (error: unknown) {
-    toast.error(
-      (error as Error)?.message || i18next.t('Failed to disable model')
+    handleServerError(
+      error,
+      i18next.t('Failed to hide model from model square')
     )
   }
 }
@@ -208,10 +218,11 @@ export async function handleBatchEnableModels(
 
     if (successCount > 0) {
       toast.success(
-        i18next.t('Successfully enabled {{count}} model(s)', {
+        i18next.t('Shown {{count}} models in model square', {
           count: successCount,
         })
       )
+      if (queryClient) await invalidateVendorData(queryClient)
       onSuccess?.()
     }
 
@@ -221,7 +232,7 @@ export async function handleBatchEnableModels(
       )
     }
   } catch (error: unknown) {
-    toast.error((error as Error)?.message || i18next.t('Batch enable failed'))
+    handleServerError(error, i18next.t('Batch enable failed'))
   }
 }
 
@@ -250,10 +261,11 @@ export async function handleBatchDisableModels(
 
     if (successCount > 0) {
       toast.success(
-        i18next.t('Successfully disabled {{count}} model(s)', {
+        i18next.t('Hidden {{count}} models from model square', {
           count: successCount,
         })
       )
+      if (queryClient) await invalidateVendorData(queryClient)
       onSuccess?.()
     }
 
@@ -265,7 +277,7 @@ export async function handleBatchDisableModels(
       )
     }
   } catch (error: unknown) {
-    toast.error((error as Error)?.message || i18next.t('Batch disable failed'))
+    handleServerError(error, i18next.t('Batch disable failed'))
   }
 }
 

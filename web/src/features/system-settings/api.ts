@@ -30,6 +30,8 @@ import type {
   SensitiveWordUserBan,
   UpdateOptionRequest,
   UpdateOptionResponse,
+  UpdatePasskeyDomainsRequest,
+  UpdatePasskeyDomainsResponse,
   UpstreamChannelsResponse,
   UpstreamRatiosResponse,
 } from './types'
@@ -72,6 +74,20 @@ export async function unbanSensitiveWordUser(userId: number) {
 export async function unbanSensitiveWordIP(ip: string) {
   const res = await api.delete(
     `/api/option/sensitive-word-bans/ips/${encodeURIComponent(ip)}`
+  )
+  return res.data
+}
+
+export async function updatePasskeyDomains(
+  request: UpdatePasskeyDomainsRequest
+) {
+  const res = await api.put<UpdatePasskeyDomainsResponse>(
+    '/api/option/passkey/domains',
+    request,
+    {
+      validateStatus: (status) =>
+        (status >= 200 && status < 300) || status === 409,
+    }
   )
   return res.data
 }
