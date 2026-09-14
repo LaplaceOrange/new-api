@@ -45,12 +45,14 @@ import type { User } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
 import { UserQuotaCell } from './user-quota-cell'
 
-export function useUsersColumns(): ColumnDef<User>[] {
+export function useUsersColumns(options?: {
+  omitActions?: boolean
+}): ColumnDef<User>[] {
   const { t } = useTranslation()
   useSystemConfigStore((state) => state.config.currency)
   const { meta: currency } = getCurrencyDisplay()
   const quotaUnit = currency.kind === 'tokens' ? t('Tokens') : currency.symbol
-  return [
+  const columns: ColumnDef<User>[] = [
     {
       id: 'select',
       header: ({ table }) => (
@@ -288,4 +290,8 @@ export function useUsersColumns(): ColumnDef<User>[] {
       meta: { pinned: 'right' as const },
     },
   ]
+  if (options?.omitActions) {
+    return columns.filter((column) => column.id !== 'actions')
+  }
+  return columns
 }

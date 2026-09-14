@@ -89,6 +89,7 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
     setting: true,
     subscription: true,
     channel_contribution: true,
+    user_cleanup: true,
   },
 }
 

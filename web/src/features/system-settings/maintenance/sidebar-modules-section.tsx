@@ -160,6 +160,10 @@ export function SidebarModulesSection({
         title: t('Users'),
         description: t('Administer user accounts and roles.'),
       },
+      user_cleanup: {
+        title: t('User Cleanup'),
+        description: t('Scan enabled users and disable matched accounts.'),
+      },
       revenue: {
         title: t('Revenue'),
         description: t('Analyze online payment revenue and customer trends.'),

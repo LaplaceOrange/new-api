@@ -36,6 +36,7 @@ import {
   ShieldCheck,
   Ticket,
   User,
+  UserMinus,
   Users,
   Wallet,
 } from 'lucide-react'
@@ -153,6 +154,11 @@ export function useSidebarData(): SidebarData {
             title: t('Users'),
             url: '/users',
             icon: Users,
+          },
+          {
+            title: t('User Cleanup'),
+            url: '/user-cleanup',
+            icon: UserMinus,
           },
           {
             title: t('Revenue'),

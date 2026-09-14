@@ -42,6 +42,7 @@ func InitOptionMap() {
 
 	// 添加原有的系统配置
 	common.OptionMap["FileUploadPermission"] = strconv.Itoa(common.FileUploadPermission)
+	common.OptionMap[UserCleanupRulesOptionKey] = UserCleanupRulesConfigJSON(DefaultUserCleanupRulesConfig())
 	common.OptionMap["FileDownloadPermission"] = strconv.Itoa(common.FileDownloadPermission)
 	common.OptionMap["ImageUploadPermission"] = strconv.Itoa(common.ImageUploadPermission)
 	common.OptionMap["ImageDownloadPermission"] = strconv.Itoa(common.ImageDownloadPermission)

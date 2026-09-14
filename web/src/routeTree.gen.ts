@@ -57,6 +57,7 @@ import { Route as AuthenticatedUsageLogsIndexRouteImport } from './routes/_authe
 import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_authenticated/usage-logs/$section'
 import { Route as AuthenticatedUsageLogsAuditRouteImport } from './routes/_authenticated/usage-logs/audit'
 import { Route as AuthenticatedUsersIndexRouteImport } from './routes/_authenticated/users/index'
+import { Route as AuthenticatedUserCleanupIndexRouteImport } from './routes/_authenticated/user-cleanup/index'
 import { Route as AuthenticatedWalletIndexRouteImport } from './routes/_authenticated/wallet/index'
 import { Route as PricingModelIdIndexRouteImport } from './routes/pricing/$modelId/index'
 import { Route as AuthenticatedSystemSettingsAuthIndexRouteImport } from './routes/_authenticated/system-settings/auth/index'
@@ -333,6 +334,12 @@ const AuthenticatedUsersIndexRoute = AuthenticatedUsersIndexRouteImport.update({
   path: '/users/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedUserCleanupIndexRoute =
+  AuthenticatedUserCleanupIndexRouteImport.update({
+  id: '/user-cleanup/',
+  path: '/user-cleanup/',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedWalletIndexRoute =
   AuthenticatedWalletIndexRouteImport.update({
     id: '/wallet/',
@@ -476,6 +483,7 @@ export interface FileRoutesByFullPath {
   '/task-plugins/': typeof AuthenticatedTaskPluginsIndexRoute
   '/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/users/': typeof AuthenticatedUsersIndexRoute
+  '/user-cleanup/': typeof AuthenticatedUserCleanupIndexRoute
   '/wallet/': typeof AuthenticatedWalletIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
   '/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
@@ -539,6 +547,7 @@ export interface FileRoutesByTo {
   '/task-plugins': typeof AuthenticatedTaskPluginsIndexRoute
   '/usage-logs': typeof AuthenticatedUsageLogsIndexRoute
   '/users': typeof AuthenticatedUsersIndexRoute
+  '/user-cleanup': typeof AuthenticatedUserCleanupIndexRoute
   '/wallet': typeof AuthenticatedWalletIndexRoute
   '/pricing/$modelId': typeof PricingModelIdIndexRoute
   '/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
@@ -606,6 +615,7 @@ export interface FileRoutesById {
   '/_authenticated/task-plugins/': typeof AuthenticatedTaskPluginsIndexRoute
   '/_authenticated/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
+  '/_authenticated/user-cleanup/': typeof AuthenticatedUserCleanupIndexRoute
   '/_authenticated/wallet/': typeof AuthenticatedWalletIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
   '/_authenticated/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
@@ -672,6 +682,7 @@ export interface FileRouteTypes {
     | '/task-plugins/'
     | '/usage-logs/'
     | '/users/'
+    | '/user-cleanup/'
     | '/wallet/'
     | '/pricing/$modelId/'
     | '/system-settings/auth/$section'
@@ -735,6 +746,7 @@ export interface FileRouteTypes {
     | '/task-plugins'
     | '/usage-logs'
     | '/users'
+    | '/user-cleanup'
     | '/wallet'
     | '/pricing/$modelId'
     | '/system-settings/auth/$section'
@@ -801,6 +813,7 @@ export interface FileRouteTypes {
     | '/_authenticated/task-plugins/'
     | '/_authenticated/usage-logs/'
     | '/_authenticated/users/'
+    | '/_authenticated/user-cleanup/'
     | '/_authenticated/wallet/'
     | '/pricing/$modelId/'
     | '/_authenticated/system-settings/auth/$section'
@@ -1176,6 +1189,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedUsersIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/user-cleanup/': {
+      id: '/_authenticated/user-cleanup/'
+      path: '/user-cleanup'
+      fullPath: '/user-cleanup/'
+      preLoaderRoute: typeof AuthenticatedUserCleanupIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/wallet/': {
       id: '/_authenticated/wallet/'
       path: '/wallet'
@@ -1399,6 +1419,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedTaskPluginsIndexRoute: typeof AuthenticatedTaskPluginsIndexRoute
   AuthenticatedUsageLogsIndexRoute: typeof AuthenticatedUsageLogsIndexRoute
   AuthenticatedUsersIndexRoute: typeof AuthenticatedUsersIndexRoute
+  AuthenticatedUserCleanupIndexRoute: typeof AuthenticatedUserCleanupIndexRoute
   AuthenticatedWalletIndexRoute: typeof AuthenticatedWalletIndexRoute
 }
 
@@ -1431,6 +1452,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedTaskPluginsIndexRoute: AuthenticatedTaskPluginsIndexRoute,
   AuthenticatedUsageLogsIndexRoute: AuthenticatedUsageLogsIndexRoute,
   AuthenticatedUsersIndexRoute: AuthenticatedUsersIndexRoute,
+  AuthenticatedUserCleanupIndexRoute: AuthenticatedUserCleanupIndexRoute,
   AuthenticatedWalletIndexRoute: AuthenticatedWalletIndexRoute,
 }
 
