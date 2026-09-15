@@ -1114,6 +1114,7 @@
     "Clean up inactive cache": "清理不活躍緩存",
     "Clean Up Log Files": "清理日誌檔案",
     "Cleaned up {{count}} log files, freed {{size}}": "已清理 {{count}} 個日誌檔案，釋放 {{size}}",
+    "Cleaned users will appear here.": "被清理的使用者會顯示在這裡。",
     "Cleaning...": "正在清理...",
     "Cleanup failed": "清理失敗",
     "Cleanup history": "歷史清理紀錄",

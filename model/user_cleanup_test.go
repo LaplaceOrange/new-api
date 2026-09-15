@@ -135,3 +135,22 @@ func TestListUserCleanupCandidateUsersPages(t *testing.T) {
 	require.Len(t, page, 1)
 	assert.Equal(t, ids[1], page[0].Id)
 }
+
+func TestListUserCleanupRecordsPages(t *testing.T) {
+	db := setupUserCleanupTestDB(t)
+	now := int64(1_700_000_000)
+	for i := range 3 {
+		require.NoError(t, db.Create(&UserCleanupRecord{
+			UserId:    i + 1,
+			Username:  "hist-user",
+			Status:    common.UserStatusDisabled,
+			Group:     "default",
+			CleanedAt: now + int64(i),
+		}).Error)
+	}
+	page, total, err := ListUserCleanupRecords(1, 1)
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, total)
+	require.Len(t, page, 1)
+	assert.Equal(t, int64(now+1), page[0].CleanedAt)
+}

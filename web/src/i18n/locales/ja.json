@@ -1114,6 +1114,7 @@
     "Clean up inactive cache": "非アクティブキャッシュをクリーンアップ",
     "Clean Up Log Files": "ログファイルをクリーンアップ",
     "Cleaned up {{count}} log files, freed {{size}}": "{{count}}個のログファイルをクリーンアップし、{{size}}を解放しました",
+    "Cleaned users will appear here.": "クリーンアップされたユーザーがここに表示されます。",
     "Cleaning...": "クリア中...",
     "Cleanup failed": "クリーンアップ失敗",
     "Cleanup history": "クリーンアップ履歴",

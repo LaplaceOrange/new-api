@@ -1114,6 +1114,7 @@
     "Clean up inactive cache": "Clean up inactive cache",
     "Clean Up Log Files": "Clean Up Log Files",
     "Cleaned up {{count}} log files, freed {{size}}": "Cleaned up {{count}} log files, freed {{size}}",
+    "Cleaned users will appear here.": "Cleaned users will appear here.",
     "Cleaning...": "Cleaning...",
     "Cleanup failed": "Cleanup failed",
     "Cleanup history": "Cleanup history",

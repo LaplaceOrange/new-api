@@ -18,7 +18,11 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { PaginationState, RowSelectionState } from '@tanstack/react-table'
+import type {
+  ColumnDef,
+  PaginationState,
+  RowSelectionState,
+} from '@tanstack/react-table'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -93,6 +97,10 @@ export function UserCleanupPage() {
   )
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [candidatePage, setCandidatePage] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 20,
+  })
+  const [historyPage, setHistoryPage] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: 20,
   })
@@ -183,11 +191,11 @@ export function UserCleanupPage() {
   const allCandidateIds = candidateIdsQuery.data?.data ?? []
 
   const historyQuery = useQuery({
-    queryKey: HISTORY_QUERY,
+    queryKey: [...HISTORY_QUERY, historyPage.pageIndex, historyPage.pageSize],
     queryFn: async () => {
       const result = await getUserCleanupHistory({
-        p: 1,
-        page_size: 50,
+        p: historyPage.pageIndex + 1,
+        page_size: historyPage.pageSize,
       })
       if (!result.success) {
         throw createServerError(result, t('Failed to load cleanup history'))
@@ -223,6 +231,7 @@ export function UserCleanupPage() {
     onSuccess: async () => {
       toast.success(t('Users disabled successfully'))
       setRowSelection({})
+      setHistoryPage((page) => ({ ...page, pageIndex: 0 }))
       setConfirmOpen(false)
       await queryClient.invalidateQueries({ queryKey: CANDIDATES_QUERY })
       await queryClient.invalidateQueries({ queryKey: CANDIDATE_IDS_QUERY })
@@ -256,6 +265,20 @@ export function UserCleanupPage() {
     },
     manualPagination: true,
     totalCount: candidatesQuery.data?.total ?? 0,
+  })
+  const historyColumns = useCleanupHistoryColumns()
+  const { table: historyTable } = useDataTable({
+    data: historyQuery.data?.items ?? [],
+    columns: historyColumns,
+    getRowId: (record) => String(record.id),
+    pagination: historyPage,
+    onPaginationChange: (updater) => {
+      setHistoryPage((previous) =>
+        typeof updater === 'function' ? updater(previous) : updater
+      )
+    },
+    manualPagination: true,
+    totalCount: historyQuery.data?.total ?? 0,
   })
 
   const progress = Math.min(100, Math.max(0, scanTask?.state?.progress ?? 0))
@@ -598,10 +621,20 @@ export function UserCleanupPage() {
 
             <section className='space-y-3'>
               <h3 className='text-sm font-medium'>{t('Cleanup history')}</h3>
-              <div className='h-[280px] overflow-auto rounded-lg border'>
-                <CleanupHistoryTable
-                  records={historyQuery.data?.items ?? []}
+              <div className='flex h-[320px] flex-col overflow-hidden rounded-lg border'>
+                <DataTablePage
+                  table={historyTable}
+                  columns={historyColumns}
                   isLoading={historyQuery.isLoading}
+                  isFetching={historyQuery.isFetching}
+                  emptyTitle={t('No cleanup history')}
+                  emptyDescription={t('Cleaned users will appear here.')}
+                  toolbarProps={null}
+                  paginationInFooter={false}
+                  compactPagination
+                  fixedHeight
+                  applyHeaderSize
+                  hideMobile
                 />
               </div>
             </section>
@@ -624,76 +657,72 @@ export function UserCleanupPage() {
   )
 }
 
-function CleanupHistoryTable(props: {
-  records: UserCleanupRecord[]
-  isLoading: boolean
-}) {
+function useCleanupHistoryColumns(): ColumnDef<UserCleanupRecord>[] {
   const { t } = useTranslation()
-  if (props.isLoading) {
-    return (
-      <p className='text-muted-foreground p-4 text-sm'>{t('Loading...')}</p>
-    )
-  }
-  if (props.records.length === 0) {
-    return (
-      <p className='text-muted-foreground p-4 text-sm'>
-        {t('No cleanup history')}
-      </p>
-    )
-  }
-  return (
-    <table className='w-full text-sm'>
-      <thead className='bg-muted/40 sticky top-0'>
-        <tr className='text-left'>
-          <th className='p-2 font-medium'>{t('ID')}</th>
-          <th className='p-2 font-medium'>{t('Username')}</th>
-          <th className='p-2 font-medium'>{t('Status')}</th>
-          <th className='p-2 font-medium'>{t('User Group')}</th>
-          <th className='p-2 font-medium'>{t('Available Balance')}</th>
-          <th className='p-2 font-medium'>{t('Cleanup time')}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {props.records.map((record) => {
-          const status =
-            USER_STATUSES[record.status as keyof typeof USER_STATUSES]
-          return (
-            <tr key={record.id} className='border-t'>
-              <td className='p-2'>
-                <TableId
-                  value={record.user_id}
-                  className='[font-family:inherit]'
-                />
-              </td>
-              <td className='p-2'>
-                <div>{record.username}</div>
-                {record.display_name &&
-                  record.display_name !== record.username && (
-                    <div className='text-muted-foreground text-xs'>
-                      {record.display_name}
-                    </div>
-                  )}
-              </td>
-              <td className='p-2'>
-                {status ? (
-                  <StatusBadge
-                    label={t(status.labelKey)}
-                    variant={status.variant}
-                    copyable={false}
-                  />
-                ) : (
-                  '-'
-                )}
-              </td>
-              <td className='p-2'>
-                <GroupBadge group={record.group} />
-              </td>
-              <td className='p-2 tabular-nums'>{formatQuota(record.quota)}</td>
-              <td className='p-2'>{formatTimestamp(record.cleaned_at)}</td>
-            </tr>
-          )
-        })}
-      </tbody>
-    </table>
-  )
+  return [
+    {
+      accessorKey: 'user_id',
+      header: t('ID'),
+      cell: ({ row }) => (
+        <TableId
+          value={row.original.user_id}
+          className='[font-family:inherit]'
+        />
+      ),
+      size: 80,
+    },
+    {
+      accessorKey: 'username',
+      header: t('Username'),
+      cell: ({ row }) => (
+        <div>
+          <div>{row.original.username}</div>
+          {row.original.display_name &&
+            row.original.display_name !== row.original.username && (
+              <div className='text-muted-foreground text-xs'>
+                {row.original.display_name}
+              </div>
+            )}
+        </div>
+      ),
+      size: 180,
+    },
+    {
+      accessorKey: 'status',
+      header: t('Status'),
+      cell: ({ row }) => {
+        const status =
+          USER_STATUSES[row.original.status as keyof typeof USER_STATUSES]
+        if (!status) return '-'
+        return (
+          <StatusBadge
+            label={t(status.labelKey)}
+            variant={status.variant}
+            copyable={false}
+          />
+        )
+      },
+      size: 120,
+    },
+    {
+      accessorKey: 'group',
+      header: t('User Group'),
+      cell: ({ row }) => <GroupBadge group={row.original.group} />,
+      size: 140,
+    },
+    {
+      accessorKey: 'quota',
+      header: t('Available Balance'),
+      cell: ({ row }) => (
+        <span className='tabular-nums'>{formatQuota(row.original.quota)}</span>
+      ),
+      size: 160,
+    },
+    {
+      accessorKey: 'cleaned_at',
+      header: t('Cleanup time'),
+      cell: ({ row }) => formatTimestamp(row.original.cleaned_at),
+      size: 180,
+    },
+  ]
 }

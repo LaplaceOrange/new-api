@@ -1114,6 +1114,7 @@
     "Clean up inactive cache": "Очистить неактивный кэш",
     "Clean Up Log Files": "Очистить файлы журналов",
     "Cleaned up {{count}} log files, freed {{size}}": "Очищено {{count}} файлов журналов, освобождено {{size}}",
+    "Cleaned users will appear here.": "Очищенные пользователи появятся здесь.",
     "Cleaning...": "Очистка...",
     "Cleanup failed": "Ошибка очистки",
     "Cleanup history": "История очистки",

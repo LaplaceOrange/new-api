@@ -1114,6 +1114,7 @@
     "Clean up inactive cache": "Nettoyer le cache inactif",
     "Clean Up Log Files": "Nettoyer les fichiers journaux",
     "Cleaned up {{count}} log files, freed {{size}}": "{{count}} fichiers journaux nettoyés, {{size}} libérés",
+    "Cleaned users will appear here.": "Les utilisateurs nettoyés apparaîtront ici.",
     "Cleaning...": "Nettoyage en cours...",
     "Cleanup failed": "Échec du nettoyage",
     "Cleanup history": "Historique de nettoyage",
