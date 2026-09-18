@@ -18,32 +18,266 @@ For commercial licensing, please contact support@quantumnous.com
 */
 /**
  * Home page constants
- * All hardcoded data for home page sections
+ * All structured data for home page sections
  */
-import { type TFunction } from 'i18next'
+import type { TFunction } from 'i18next'
 
-// Layout - Main base classes
 export const MAIN_BASE_CLASSES = 'bg-background text-foreground w-full'
 
-// Hero section - AI Applications (Left side)
-export const AI_APPLICATIONS = [
-  'LobeHub.Color',
-  'Dify.Color',
-  'OpenWebUI',
-  'Cline',
+// Supported Upstream AI Providers
+export interface UpstreamProviderItem {
+  id: string
+  name: string
+  icon: string
+  highlightModel: string
+  tags?: string[]
+}
+
+export const UPSTREAM_PROVIDERS: readonly UpstreamProviderItem[] = [
+  { id: 'openai', name: 'OpenAI', icon: 'OpenAI', highlightModel: 'GPT-4.5 / o3-mini' },
+  { id: 'claude', name: 'Anthropic', icon: 'Claude.Color', highlightModel: 'Claude 3.7 Sonnet' },
+  { id: 'gemini', name: 'Google', icon: 'Gemini.Color', highlightModel: 'Gemini 2.5 Pro' },
+  { id: 'deepseek', name: 'DeepSeek', icon: 'DeepSeek.Color', highlightModel: 'DeepSeek V3 / R1' },
+  { id: 'qwen', name: 'Alibaba Qwen', icon: 'Qwen.Color', highlightModel: 'Qwen 2.5 Max' },
+  { id: 'meta', name: 'Meta AI', icon: 'Meta.Color', highlightModel: 'Llama 3.3 70B' },
+  { id: 'mistral', name: 'Mistral AI', icon: 'Mistral.Color', highlightModel: 'Mistral Large 2' },
+  { id: 'grok', name: 'xAI Grok', icon: 'Grok.Color', highlightModel: 'Grok 3 Beta' },
+  { id: 'ollama', name: 'Ollama', icon: 'Ollama', highlightModel: 'Local & Self-Hosted' },
+  { id: 'midjourney', name: 'Midjourney', icon: 'Midjourney', highlightModel: 'Imagine / Fast' },
 ] as const
 
-// Hero section - AI Models (Right side)
-export const AI_MODELS = [
-  'Qwen.Color',
-  'DeepSeek.Color',
-  'Doubao.Color',
-  'OpenAI',
-  'Claude.Color',
-  'Gemini.Color',
+// Supported Downstream Applications
+export interface SupportedAppItem {
+  name: string
+  icon?: string
+  badge: string
+  url?: string
+}
+
+export const SUPPORTED_APPS: readonly SupportedAppItem[] = [
+  { name: 'Cherry Studio', icon: 'CherryStudio.Color', badge: 'Desktop Chat', url: 'https://cherry-ai.com' },
+  { name: 'CC Switch', badge: 'Multi-Protocol Hub', url: 'https://ccswitch.io' },
+  { name: 'Open WebUI', icon: 'OpenWebUI.Color', badge: 'Self-Hosted WebUI' },
+  { name: 'Dify', icon: 'Dify.Color', badge: 'AI Agent & Workflow' },
+  { name: 'Cursor / Cline', badge: 'AI IDE & Agent' },
+  { name: 'NextChat', badge: 'Cross-Platform Chat' },
+  { name: 'LibreChat', badge: 'Enterprise AI UI' },
 ] as const
 
-// Hero section - Gateway Features
+// Hero API Protocol Demos
+export type AccentTone = 'emerald' | 'amber' | 'blue' | 'violet'
+
+export interface ApiDemoConfig {
+  id: string
+  label: string
+  protocolBadge: string
+  method: 'POST' | 'GET'
+  endpoint: string
+  headers: string[]
+  request: string[]
+  responseStream: string[]
+  tokens: number
+  latency: number
+  costEstimate: string
+  accent: AccentTone
+}
+
+export const API_DEMOS: ApiDemoConfig[] = [
+  {
+    id: 'openai-chat',
+    label: 'OpenAI Chat',
+    protocolBadge: 'OpenAI Protocol',
+    method: 'POST',
+    endpoint: '/v1/chat/completions',
+    headers: ['"Authorization: Bearer sk-gateway-••••"'],
+    request: [
+      '"model": "gpt-4.5-preview",',
+      '"stream": true,',
+      '"messages": [',
+      '  { "role": "user", "content": "Explain AI gateway benefits." }',
+      ']',
+    ],
+    responseStream: [
+      'A unified AI gateway simplifies integrations, prevents vendor lock-in,',
+      'and provides high-availability failover with token-exact billing.',
+    ],
+    tokens: 42,
+    latency: 84,
+    costEstimate: '$0.00012',
+    accent: 'emerald',
+  },
+  {
+    id: 'claude-messages',
+    label: 'Claude Messages',
+    protocolBadge: 'Anthropic Protocol',
+    method: 'POST',
+    endpoint: '/v1/messages',
+    headers: ['"x-api-key: sk-gateway-••••"', '"anthropic-version: 2023-06-01"'],
+    request: [
+      '"model": "claude-3-7-sonnet",',
+      '"max_tokens": 1024,',
+      '"messages": [',
+      '  { "role": "user", "content": "Deploy smart load balancing." }',
+      ']',
+    ],
+    responseStream: [
+      'Traffic dynamically routes across active upstream endpoints.',
+      'Circuit breakers prevent cascade outages with automatic health recovery.',
+    ],
+    tokens: 38,
+    latency: 96,
+    costEstimate: '$0.00011',
+    accent: 'blue',
+  },
+  {
+    id: 'gemini-content',
+    label: 'Gemini Content',
+    protocolBadge: 'Google GenAI Protocol',
+    method: 'POST',
+    endpoint: '/v1beta/models/gemini-2.5-pro:streamGenerateContent',
+    headers: ['"x-goog-api-key: sk-gateway-••••"'],
+    request: [
+      '"contents": [',
+      '  { "role": "user",',
+      '    "parts": [{ "text": "Analyze gateway throughput." }] }',
+      ']',
+    ],
+    responseStream: [
+      'Sub-5ms proxy latency with zero-copy stream chunking.',
+      'Supports high-concurrency SSE connections under heavy workloads.',
+    ],
+    tokens: 35,
+    latency: 78,
+    costEstimate: '$0.00007',
+    accent: 'violet',
+  },
+  {
+    id: 'deepseek-r1',
+    label: 'DeepSeek R1',
+    protocolBadge: 'Reasoning Protocol',
+    method: 'POST',
+    endpoint: '/v1/chat/completions',
+    headers: ['"Authorization: Bearer sk-gateway-••••"'],
+    request: [
+      '"model": "deepseek-reasoner",',
+      '"stream": true,',
+      '"messages": [',
+      '  { "role": "user", "content": "Evaluate multi-channel failover." }',
+      ']',
+    ],
+    responseStream: [
+      '<think>Evaluating channel weights, health latency, and error quotas.</think>',
+      'Optimal route selected: 100% success rate across distributed regions.',
+    ],
+    tokens: 64,
+    latency: 110,
+    costEstimate: '$0.00009',
+    accent: 'amber',
+  },
+]
+
+// Stats Section Data
+export interface StatMetric {
+  value: number
+  prefix?: string
+  suffix?: string
+  decimals?: number
+  labelKey: string
+  sublabelKey: string
+}
+
+export const STAT_METRICS: readonly StatMetric[] = [
+  {
+    value: 50,
+    suffix: '+',
+    labelKey: 'upstream services integrated',
+    sublabelKey: 'Full coverage of leading global AI models',
+  },
+  {
+    value: 5,
+    prefix: '< ',
+    suffix: 'ms',
+    labelKey: 'proxy gateway overhead',
+    sublabelKey: 'Optimized Go core with zero-copy streaming',
+  },
+  {
+    value: 99.99,
+    suffix: '%',
+    decimals: 2,
+    labelKey: 'system availability',
+    sublabelKey: 'Automatic channel health detection & failover',
+  },
+  {
+    value: 100,
+    suffix: '%',
+    labelKey: 'protocol compatibility',
+    sublabelKey: 'Drop-in replacement with zero client code rewrite',
+  },
+] as const
+
+// Quickstart Code Snippets
+export interface QuickstartSnippet {
+  id: string
+  label: string
+  language: string
+  code: string
+}
+
+export const QUICKSTART_SNIPPETS: QuickstartSnippet[] = [
+  {
+    id: 'curl',
+    label: 'cURL',
+    language: 'bash',
+    code: `curl https://api.yourdomain.com/v1/chat/completions \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer sk-your-gateway-key" \\
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Hello from New API!"}]
+  }'`,
+  },
+  {
+    id: 'python',
+    label: 'Python (OpenAI SDK)',
+    language: 'python',
+    code: `from openai import OpenAI
+
+# Simply redirect baseURL to your New API instance
+client = OpenAI(
+    api_key="sk-your-gateway-key",
+    base_url="https://api.yourdomain.com/v1"
+)
+
+response = client.chat.completions.create(
+    model="claude-3-7-sonnet", # Works with any provider!
+    messages=[{"role": "user", "content": "Hello AI Gateway!"}]
+)
+print(response.choices[0].message.content)`,
+  },
+  {
+    id: 'typescript',
+    label: 'TypeScript / Node.js',
+    language: 'typescript',
+    code: `import OpenAI from 'openai';
+
+// Compatible with official OpenAI SDK
+const openai = new OpenAI({
+  apiKey: process.env.NEW_API_KEY,
+  baseURL: 'https://api.yourdomain.com/v1',
+});
+
+const stream = await openai.chat.completions.create({
+  model: 'deepseek-chat',
+  messages: [{ role: 'user', content: 'Streaming test' }],
+  stream: true,
+});
+
+for await (const chunk of stream) {
+  process.stdout.write(chunk.choices[0]?.delta?.content || '');
+}`,
+  },
+]
+
 export const GATEWAY_FEATURES = [
   'Cost Tracking',
   'Model Access',
@@ -57,91 +291,14 @@ export const GATEWAY_FEATURES = [
   'Pass-Through',
 ] as const
 
-// Stats section - Default statistics
-export const DEFAULT_STATS = [
-  {
-    value: '50',
-    suffix: '+',
-    description: 'upstream services integrated',
-  },
-  {
-    value: '100',
-    suffix: '+',
-    description: 'model billing support',
-  },
-  {
-    value: '50',
-    suffix: '+',
-    description: 'compatible API routes',
-  },
-  {
-    value: '10',
-    suffix: '+',
-    description: 'scheduling controls',
-  },
-] as const
-
-// Features section - Default features
-export const DEFAULT_FEATURES = [
-  {
-    title: 'Lightning Fast',
-    description:
-      'Optimized network architecture ensures millisecond response times',
-    iconName: 'Zap',
-  },
-  {
-    title: 'Secure & Reliable',
-    description:
-      'Enterprise-grade security with comprehensive permission management',
-    iconName: 'Shield',
-  },
-  {
-    title: 'Global Coverage',
-    description: 'Multi-region deployment for stable global access',
-    iconName: 'Globe',
-  },
-  {
-    title: 'Developer Friendly',
-    description: 'Compatible API routes for common AI application workflows',
-    iconName: 'Code',
-  },
-  {
-    title: 'High Performance',
-    description: 'Support for high concurrency with automatic load balancing',
-    iconName: 'Gauge',
-  },
-  {
-    title: 'Transparent Billing',
-    description: 'Pay-as-you-go with real-time usage monitoring',
-    iconName: 'DollarSign',
-  },
-  {
-    title: 'Team Collaboration',
-    description: 'Multi-user management with flexible permission allocation',
-    iconName: 'Users',
-  },
-  {
-    title: 'Open Source',
-    description: 'Community driven, self-hosted, and extensible',
-    iconName: 'HeartHandshake',
-  },
-] as const
-
-export function getGatewayFeatures(t: TFunction) {
+export function getGatewayFeatures(t: TFunction): string[] {
   return GATEWAY_FEATURES.map((feature) => t(feature))
 }
 
-export function getDefaultStats(t: TFunction) {
-  return DEFAULT_STATS.map((stat) => ({
+export function getStatsWithTranslation(t: TFunction) {
+  return STAT_METRICS.map((stat) => ({
     ...stat,
-    description: stat.description ? t(stat.description) : undefined,
-  }))
-}
-
-export function getDefaultFeatures(t: TFunction) {
-  return DEFAULT_FEATURES.map((feature) => ({
-    ...feature,
-    title: t(feature.title),
-    description: t(feature.description),
+    label: t(stat.labelKey),
+    sublabel: t(stat.sublabelKey),
   }))
 }

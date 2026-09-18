@@ -19,6 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import { useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { AnimateInView } from '@/components/animate-in-view'
+
+import { STAT_METRICS } from '../../constants'
+
 interface CounterProps {
   end: number
   suffix?: string
@@ -28,7 +32,7 @@ interface CounterProps {
 }
 
 function Counter(props: CounterProps) {
-  const { end, suffix = '', prefix = '', duration = 1600, decimals = 0 } = props
+  const { end, suffix = '', prefix = '', duration = 1400, decimals = 0 } = props
   const ref = useRef<HTMLSpanElement>(null)
   const startedRef = useRef(false)
 
@@ -44,9 +48,12 @@ function Counter(props: CounterProps) {
     const start = performance.now()
     const step = (now: number) => {
       const progress = Math.min((now - start) / duration, 1)
+      // Ease out cubic
       const eased = 1 - Math.pow(1 - progress, 3)
       el.textContent = `${prefix}${formatValue(eased * end)}${suffix}`
-      if (progress < 1) requestAnimationFrame(step)
+      if (progress < 1) {
+        requestAnimationFrame(step)
+      }
     }
     requestAnimationFrame(step)
   }, [end, duration, prefix, suffix, formatValue])
@@ -69,7 +76,7 @@ function Counter(props: CounterProps) {
           observer.unobserve(el)
         }
       },
-      { threshold: 0.5 }
+      { threshold: 0.3 }
     )
 
     observer.observe(el)
@@ -83,46 +90,40 @@ function Counter(props: CounterProps) {
   )
 }
 
-interface StatsProps {
-  className?: string
-}
-
-interface StatItem {
-  end: number
-  suffix: string
-  label: string
-  decimals?: number
-}
-
-export function Stats(_props: StatsProps) {
+export function Stats() {
   const { t } = useTranslation()
 
-  const stats: StatItem[] = [
-    { end: 50, suffix: '+', label: t('upstream services integrated') },
-    { end: 100, suffix: '+', label: t('model billing support') },
-    { end: 50, suffix: '+', label: t('compatible API routes') },
-    { end: 10, suffix: '+', label: t('scheduling controls') },
-  ]
-
   return (
-    <div className='border-border/40 bg-muted/10 relative z-10 border-y'>
-      <div className='mx-auto max-w-6xl px-6 py-10 md:py-12'>
-        <div className='grid grid-cols-2 gap-8 md:grid-cols-4 md:gap-12'>
-          {stats.map((s) => (
-            <div
-              key={s.label}
-              className='flex flex-col items-center text-center'
+    <section className='relative z-10 border-y border-border/50 bg-muted/20 py-12 md:py-16'>
+      <div className='mx-auto max-w-6xl px-4 sm:px-6'>
+        <div className='grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4'>
+          {STAT_METRICS.map((stat, idx) => (
+            <AnimateInView
+              key={stat.labelKey}
+              delay={idx * 80}
+              animation='fade-up'
+              className='group border-border/60 bg-card/60 hover:border-border hover:bg-card/90 relative flex flex-col justify-between rounded-2xl border p-5 sm:p-6 backdrop-blur-xs transition-all duration-300'
             >
-              <span className='text-2xl font-bold tracking-tight md:text-3xl'>
-                <Counter end={s.end} suffix={s.suffix} decimals={s.decimals} />
-              </span>
-              <span className='text-muted-foreground mt-1.5 text-xs'>
-                {s.label}
-              </span>
-            </div>
+              <div>
+                <div className='text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground'>
+                  <Counter
+                    end={stat.value}
+                    prefix={stat.prefix}
+                    suffix={stat.suffix}
+                    decimals={stat.decimals}
+                  />
+                </div>
+                <div className='text-foreground/90 mt-2 text-sm font-semibold'>
+                  {t(stat.labelKey)}
+                </div>
+              </div>
+              <div className='text-muted-foreground/75 mt-2 text-xs leading-relaxed'>
+                {t(stat.sublabelKey)}
+              </div>
+            </AnimateInView>
           ))}
         </div>
       </div>
-    </div>
+    </section>
   )
 }

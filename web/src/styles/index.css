@@ -428,6 +428,78 @@ For commercial licensing, please contact support@quantumnous.com
   .scroll-container:hover .animate-scroll-down {
     animation-play-state: paused;
   }
+
+  /* Horizontal marquee animations */
+  @keyframes marquee-left {
+    0% {
+      transform: translateX(0);
+    }
+    100% {
+      transform: translateX(-50%);
+    }
+  }
+
+  @keyframes marquee-right {
+    0% {
+      transform: translateX(-50%);
+    }
+    100% {
+      transform: translateX(0);
+    }
+  }
+
+  .animate-marquee-left {
+    animation: marquee-left 36s linear infinite;
+    will-change: transform;
+  }
+
+  .animate-marquee-right {
+    animation: marquee-right 36s linear infinite;
+    will-change: transform;
+  }
+
+  .marquee-container:hover .animate-marquee-left,
+  .marquee-container:hover .animate-marquee-right {
+    animation-play-state: paused;
+  }
+
+  /* Traveling signal beam animation for architecture pipelines */
+  @keyframes beam-dash {
+    to {
+      stroke-dashoffset: -40;
+    }
+  }
+
+  .animate-beam-dash {
+    animation: beam-dash 1.6s linear infinite;
+  }
+
+  /* Crisp cross-browser gradient text utilities */
+  .landing-gradient-text {
+    background-image: linear-gradient(135deg, #2563eb 0%, #4f46e5 50%, #7c3aed 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    display: inline-block;
+  }
+
+  .dark .landing-gradient-text {
+    background-image: linear-gradient(135deg, #60a5fa 0%, #818cf8 50%, #c084fc 100%);
+  }
+
+  .landing-gradient-teal-text {
+    background-image: linear-gradient(135deg, #2563eb 0%, #0d9488 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    display: inline-block;
+  }
+
+  .dark .landing-gradient-teal-text {
+    background-image: linear-gradient(135deg, #60a5fa 0%, #2dd4bf 100%);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -435,6 +507,9 @@ For commercial licensing, please contact support@quantumnous.com
   .animate-appear-zoom,
   .animate-scroll-up,
   .animate-scroll-down,
+  .animate-marquee-left,
+  .animate-marquee-right,
+  .animate-beam-dash,
   [data-slot='table'] tbody tr {
     animation: none !important;
     opacity: 1;

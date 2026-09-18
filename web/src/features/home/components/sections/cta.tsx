@@ -17,11 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, BookOpen, Sparkles } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { AnimateInView } from '@/components/animate-in-view'
 import { Button } from '@/components/ui/button'
+import { useStatus } from '@/hooks/use-status'
 
 interface CTAProps {
   className?: string
@@ -30,55 +31,100 @@ interface CTAProps {
 
 export function CTA(props: CTAProps) {
   const { t } = useTranslation()
-
-  if (props.isAuthenticated) {
-    return null
-  }
+  const { status } = useStatus()
+  const docsUrl =
+    (status?.docs_link as string | undefined) || 'https://docs.newapi.pro'
 
   return (
-    <section className='relative z-10 overflow-hidden px-6 py-24 md:py-32'>
-      {/* Gradient mesh background */}
+    <section className='relative z-10 overflow-hidden px-4 py-20 sm:px-6 md:py-28'>
+      {/* Background radial glow */}
       <div
         aria-hidden
-        className='absolute inset-0 -z-10 opacity-20 dark:opacity-[0.08]'
+        className='pointer-events-none absolute inset-0 -z-10 opacity-25 dark:opacity-15'
         style={{
           background: [
-            'radial-gradient(ellipse 50% 50% at 30% 50%, oklch(0.7 0.15 250 / 70%) 0%, transparent 70%)',
-            'radial-gradient(ellipse 40% 40% at 70% 40%, oklch(0.65 0.12 200 / 50%) 0%, transparent 70%)',
+            'radial-gradient(ellipse 60% 60% at 50% 50%, oklch(0.65 0.16 250 / 60%) 0%, transparent 70%)',
           ].join(', '),
         }}
       />
 
-      <AnimateInView
-        className='mx-auto max-w-2xl text-center'
-        animation='scale-in'
-      >
-        <h2 className='text-2xl leading-tight font-bold tracking-tight md:text-4xl'>
-          {t('Ready to simplify')}
-          <br />
-          <span className='bg-gradient-to-r from-blue-400 via-violet-400 to-purple-500 bg-clip-text text-transparent'>
-            {t('your AI integration?')}
-          </span>
-        </h2>
-        <p className='text-muted-foreground/80 mx-auto mt-5 max-w-md text-sm leading-relaxed md:text-base'>
-          {t(
-            'Deploy your own gateway and start routing requests through your configured upstream services.'
-          )}
-        </p>
-        <div className='mt-8 flex items-center justify-center gap-3'>
-          <Button className='group rounded-lg' render={<Link to='/sign-up' />}>
-            {t('Get Started')}
-            <ArrowRight className='ml-1 size-3.5 transition-transform duration-200 group-hover:translate-x-0.5' />
-          </Button>
-          <Button
-            variant='outline'
-            className='border-border/50 hover:border-border hover:bg-muted/50 rounded-lg'
-            render={<Link to='/pricing' />}
-          >
-            {t('View Pricing')}
-          </Button>
-        </div>
-      </AnimateInView>
+      <div className='mx-auto max-w-4xl'>
+        <AnimateInView
+          animation='scale-in'
+          className='relative overflow-hidden rounded-3xl border border-border/70 bg-linear-to-b from-card/90 to-card/60 p-8 sm:p-12 md:p-16 text-center shadow-xl backdrop-blur-md dark:border-white/[0.08] dark:from-[#0c1017] dark:to-[#080b11]'
+        >
+          {/* Subtle top badge */}
+          <div className='mb-4 inline-flex items-center gap-1.5 rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-600 dark:text-blue-400'>
+            <Sparkles className='size-3' />
+            <span>{t('Production-Ready AI Gateway')}</span>
+          </div>
+
+          <h2 className='text-2xl sm:text-3xl md:text-5xl font-extrabold tracking-tight text-foreground leading-[1.15]'>
+            <span>{t('Ready to simplify')}</span>
+            <br />
+            <span className='landing-gradient-text'>
+              {t('your AI integration?')}
+            </span>
+          </h2>
+
+          <p className='text-muted-foreground mx-auto mt-4 max-w-xl text-sm sm:text-base leading-relaxed'>
+            {t(
+              'Deploy your own gateway and start routing requests through your configured upstream services.'
+            )}
+          </p>
+
+          <div className='mt-8 flex flex-wrap items-center justify-center gap-3.5'>
+            {props.isAuthenticated ? (
+              <Button
+                className='h-11 rounded-xl px-6 text-sm font-semibold shadow-md shadow-primary/15'
+                render={<Link to='/dashboard' />}
+              >
+                <span>{t('Go to Dashboard')}</span>
+                <ArrowRight className='ml-2 size-4' />
+              </Button>
+            ) : (
+              <>
+                <Button
+                  className='group h-11 rounded-xl px-6 text-sm font-semibold shadow-md shadow-primary/15'
+                  render={<Link to='/sign-up' />}
+                >
+                  <span>{t('Get Started')}</span>
+                  <ArrowRight className='ml-2 size-4 transition-transform duration-200 group-hover:translate-x-1' />
+                </Button>
+                <Button
+                  variant='outline'
+                  className='border-border/60 hover:border-border hover:bg-muted/50 h-11 rounded-xl px-5 text-sm font-medium'
+                  render={<Link to='/pricing' />}
+                >
+                  <span>{t('View Pricing')}</span>
+                </Button>
+              </>
+            )}
+
+            {docsUrl.startsWith('http') ? (
+              <Button
+                variant='ghost'
+                className='text-muted-foreground hover:text-foreground h-11 rounded-xl px-4 text-sm font-medium'
+                render={
+                  <a href={docsUrl} target='_blank' rel='noopener noreferrer' />
+                }
+              >
+                <BookOpen className='mr-1.5 size-4' />
+                <span>{t('Docs')}</span>
+              </Button>
+            ) : (
+              <Button
+                variant='ghost'
+                className='text-muted-foreground hover:text-foreground h-11 rounded-xl px-4 text-sm font-medium'
+                render={<Link to={docsUrl} />}
+              >
+                <BookOpen className='mr-1.5 size-4' />
+                <span>{t('Docs')}</span>
+              </Button>
+            )}
+          </div>
+        </AnimateInView>
+      </div>
     </section>
   )
 }
