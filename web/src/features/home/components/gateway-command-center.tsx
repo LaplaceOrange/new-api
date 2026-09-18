@@ -61,15 +61,15 @@ interface ShowcaseModel {
 
 const SHOWCASE_MODELS: ShowcaseModel[] = [
   {
-    id: 'deepseek-r1',
-    name: 'DeepSeek R1',
+    id: 'deepseek-v4-1',
+    name: 'DeepSeek-V4.1',
     provider: 'DeepSeek',
     icon: 'DeepSeek.Color',
-    tagKey: 'Deep Reasoning & Extreme Value',
-    speed: '115 tok/s',
-    latency: '140ms',
-    context: '64K',
-    savings: '92% cheaper than official o1',
+    tagKey: 'Ultra-Deep Reasoning & Frontier Architecture',
+    speed: '145 tok/s',
+    latency: '110ms',
+    context: '128K',
+    savings: '90% cheaper than proprietary models',
     prompts: [
       {
         titleKey: 'Concurrency Worker Pool',
@@ -112,60 +112,15 @@ The optimal strategy combines latency-based weighted fair queuing (WFQ) with ins
     ],
   },
   {
-    id: 'claude-3-7-sonnet',
-    name: 'Claude 3.7 Sonnet',
-    provider: 'Anthropic',
-    icon: 'Claude.Color',
-    tagKey: 'Top-Tier Coding & Hybrid Reasoning',
-    speed: '88 tok/s',
-    latency: '175ms',
-    context: '200K',
-    savings: 'Pay-as-you-go, no $20/mo lock-in',
-    prompts: [
-      {
-        titleKey: 'Architecture Refactoring',
-        promptKey: 'Explain how to decouple monolith state machines into pure event-driven sagas.',
-        responseText: `To transition from an orchestrator monolith to an event-driven saga:
-
-1. **Define Compensating Transactions**: Every mutating step (e.g. ReserveStock, BillQuota) must have an idempotent rollback (ReleaseStock, RefundQuota).
-2. **Outbox Pattern**: Write domain events to an outbox table in the same DB transaction as local changes to guarantee at-least-once publishing.
-3. **Partitioned Event Log**: Route events by entity ID (e.g., userId) so sequential consistency is preserved without global locks.`,
-      },
-      {
-        titleKey: 'Type-Safe API Router',
-        promptKey: 'Design a type-safe RPC client wrapper with compile-time route validation.',
-        responseCode: `// Compile-time verified RPC interface
-type Endpoint<TReq, TRes> = {
-  path: string;
-  method: 'GET' | 'POST';
-  _req?: TReq;
-  _res?: TRes;
-};
-
-export async function request<TReq, TRes>(
-  ep: Endpoint<TReq, TRes>,
-  data: TReq
-): Promise<TRes> {
-  const res = await fetch(ep.path, {
-    method: ep.method,
-    body: JSON.stringify(data),
-    headers: { 'Content-Type': 'application/json' },
-  });
-  return res.json() as Promise<TRes>;
-}`,
-      },
-    ],
-  },
-  {
-    id: 'gpt-4o',
-    name: 'GPT-4o',
+    id: 'gpt-6-astra',
+    name: 'GPT 6 Astra',
     provider: 'OpenAI',
     icon: 'OpenAI',
-    tagKey: 'Omni Multimodal & Fast Vision',
-    speed: '95 tok/s',
-    latency: '155ms',
-    context: '128K',
-    savings: 'Transparent pay-per-token',
+    tagKey: 'Next-Gen Omni Flagship & Autonomous Vision',
+    speed: '120 tok/s',
+    latency: '125ms',
+    context: '256K',
+    savings: 'Pay-as-you-go, no subscription lock-in',
     prompts: [
       {
         titleKey: 'Fullstack Solution',
@@ -181,7 +136,7 @@ const client = new OpenAI({
 export async function POST(req: Request) {
   const { messages } = await req.json();
   const stream = await client.chat.completions.create({
-    model: 'gpt-4o',
+    model: 'gpt-6-astra',
     messages,
     stream: true,
   });
@@ -191,27 +146,88 @@ export async function POST(req: Request) {
   });
 }`,
       },
+      {
+        titleKey: 'Autonomous Agent Loop',
+        promptKey: 'Design a self-healing agent loop that dynamically falls back to healthy endpoints.',
+        responseText: `To achieve autonomous failover across heterogeneous endpoints:
+
+1. **State Snapshotting**: Persist task step memory and tool output before upstream dispatch.
+2. **Channel Health Metric**: Maintain decaying sliding-window error rates per provider.
+3. **Seamless Handover**: On 429 or timeout, rewrite context for secondary model and resume execution without client disruption.`,
+      },
     ],
   },
   {
-    id: 'gemini-2-5-pro',
-    name: 'Gemini 2.5 Pro',
+    id: 'gemini-3-8-flash',
+    name: 'Gemini 3.8 Flash',
     provider: 'Google',
     icon: 'Gemini.Color',
-    tagKey: '1M+ Massive Context & Reasoning',
-    speed: '90 tok/s',
-    latency: '160ms',
-    context: '1M+',
-    savings: 'Massive context with zero loss',
+    tagKey: '2M+ Superfast Context & Native Multimodal',
+    speed: '160 tok/s',
+    latency: '85ms',
+    context: '2M+',
+    savings: 'Sub-100ms ultra-fast response',
     prompts: [
       {
         titleKey: 'Repo-Wide Code Review',
         promptKey: 'Scan 50,000 lines of codebase for concurrency race conditions and memory leaks.',
-        responseText: `Gemini 2.5 Pro processes your entire repository context in a single prompt:
+        responseText: `Gemini 3.8 Flash processes your entire repository context in a single prompt:
 
 • Identified 2 data races in background goroutine closures (retaining outer loop variables).
 • Located 1 unclosed Response.Body in upstream relay proxy client.
 • Verified all SQL transaction rollback paths properly invoke tx.Rollback() on error.`,
+      },
+      {
+        titleKey: 'Multimodal Analysis',
+        promptKey: 'Parse architecture sequence diagram and extract database deadlock risks.',
+        responseText: `Analysis of distributed lock choreography:
+1. Deadlock vulnerability detected between TokenDeduct and BalanceHold transactions.
+2. Recommendation: Enforce deterministic acquisition order (UserLock -> AccountLock) to eliminate cyclic wait conditions.`,
+      },
+    ],
+  },
+  {
+    id: 'grok-4-6',
+    name: 'Grok 4.6',
+    provider: 'xAI',
+    icon: 'Grok.Color',
+    tagKey: 'Real-Time Knowledge & Frontier Reasoning',
+    speed: '130 tok/s',
+    latency: '105ms',
+    context: '128K',
+    savings: 'Direct access to live frontier intelligence',
+    prompts: [
+      {
+        titleKey: 'Live Telemetry Analysis',
+        promptKey: 'Correlate real-time edge telemetry with global BGP route flap incidents.',
+        responseText: `Real-time cross-correlation indicates:
+• Packet drop spike (+14.2%) aligns with AS13335 transit re-routing at 14:22:08 UTC.
+• Synthetic canary probes automatically diverted 85% of traffic to alternate European ingress routes.
+• Zero HTTP 5xx errors returned to downstream users.`,
+      },
+      {
+        titleKey: 'High-Concurrency Pipeline',
+        promptKey: 'Implement zero-copy payload streaming with backpressure control.',
+        responseCode: `// Zero-copy stream pipeline with dynamic backpressure
+func PipeStream(w http.ResponseWriter, src io.Reader, bufPool *sync.Pool) error {
+    buf := bufPool.Get().([]byte)
+    defer bufPool.Put(buf)
+
+    flusher, ok := w.(http.Flusher)
+    for {
+        n, err := src.Read(buf)
+        if n > 0 {
+            if _, wErr := w.Write(buf[:n]); wErr != nil {
+                return wErr
+            }
+            if ok { flusher.Flush() }
+        }
+        if err != nil {
+            if err == io.EOF { return nil }
+            return err
+        }
+    }
+}`,
       },
     ],
   },
@@ -224,7 +240,7 @@ export function GatewayCommandCenter({ className }: GatewayCommandCenterProps) {
   const [selectedPromptIndex, setSelectedPromptIndex] = useState(0)
   const [selectedApp, setSelectedApp] = useState<'cursor' | 'cherry' | 'nextchat' | 'python'>('cursor')
   const [calcDailyMessages, setCalcDailyMessages] = useState(50)
-  const [calcModelTier, setCalcModelTier] = useState<'deepseek' | 'claude' | 'gpt4o'>('claude')
+  const [calcModelTier, setCalcModelTier] = useState<'deepseek' | 'gpt6' | 'grok'>('gpt6')
 
   const baseUrl = useMemo(() => {
     if (typeof window !== 'undefined' && window.location.origin) {
@@ -241,8 +257,8 @@ export function GatewayCommandCenter({ className }: GatewayCommandCenterProps) {
     // Average tokens per message ~ 800 tokens (300 in, 500 out)
     const monthlyCalls = calcDailyMessages * 30
     let perThousandCost = 0.0008 // default deepseek
-    if (calcModelTier === 'claude') perThousandCost = 0.004
-    if (calcModelTier === 'gpt4o') perThousandCost = 0.003
+    if (calcModelTier === 'gpt6') perThousandCost = 0.003
+    if (calcModelTier === 'grok') perThousandCost = 0.0025
 
     const estimatedSpend = (monthlyCalls * perThousandCost).toFixed(2)
     const officialSpend = (20.0).toFixed(2)
@@ -509,7 +525,7 @@ export function GatewayCommandCenter({ className }: GatewayCommandCenterProps) {
                   </h3>
                   <p className='text-xs text-muted-foreground leading-relaxed'>
                     {t(
-                      'Supercharge your Cursor editor with Claude 3.7 Sonnet, DeepSeek R1, or GPT-4o without paying $20/month separate subscriptions.'
+                      'Supercharge your Cursor editor with GPT 6 Astra, DeepSeek-V4.1, Gemini 3.8 Flash, or Grok 4.6 without paying $20/month separate subscriptions.'
                     )}
                   </p>
 
@@ -546,7 +562,7 @@ export function GatewayCommandCenter({ className }: GatewayCommandCenterProps) {
                         3. Add Model Names in Cursor:
                       </label>
                       <div className='flex flex-wrap gap-1.5 pt-1'>
-                        {['claude-3-7-sonnet', 'deepseek-reasoner', 'deepseek-chat', 'gpt-4o'].map((m) => (
+                        {['deepseek-v4-1', 'gpt-6-astra', 'gemini-3-8-flash', 'grok-4-6'].map((m) => (
                           <span
                             key={m}
                             className='rounded-md border border-border/60 bg-card px-2 py-1 text-[11px] text-foreground/90 font-mono'
@@ -685,7 +701,7 @@ export function GatewayCommandCenter({ className }: GatewayCommandCenterProps) {
                     {t('Drop-in replacement for OpenAI Python & Node.js SDKs with zero codebase refactoring.')}
                   </div>
                   <CopyButton
-                    value={`from openai import OpenAI\n\nclient = OpenAI(\n    base_url="${baseUrl}",\n    api_key="sk-your-key-here",\n)\n\nresponse = client.chat.completions.create(\n    model="claude-3-7-sonnet",\n    messages=[{"role": "user", "content": "Hello!"}],\n)\nprint(response.choices[0].message.content)`}
+                    value={`from openai import OpenAI\n\nclient = OpenAI(\n    base_url="${baseUrl}",\n    api_key="sk-your-key-here",\n)\n\nresponse = client.chat.completions.create(\n    model="gpt-6-astra",\n    messages=[{"role": "user", "content": "Hello!"}],\n)\nprint(response.choices[0].message.content)`}
                     size='sm'
                     variant='outline'
                     className='h-7 text-xs rounded-md'
@@ -701,9 +717,9 @@ client = OpenAI(
     api_key="sk-your-key-here", # Grab from dashboard
 )
 
-# 2. Call any model (Claude 3.7, DeepSeek R1, GPT-4o, Gemini 2.5) seamlessly
+# 2. Call any model (GPT 6 Astra, DeepSeek-V4.1, Gemini 3.8 Flash, Grok 4.6) seamlessly
 response = client.chat.completions.create(
-    model="claude-3-7-sonnet",
+    model="gpt-6-astra",
     messages=[{"role": "user", "content": "Hello from unified API!"}],
 )
 print(response.choices[0].message.content)`}</code>
@@ -763,9 +779,9 @@ print(response.choices[0].message.content)`}</code>
                   <div className='grid grid-cols-3 gap-2'>
                     {(
                       [
-                        { id: 'deepseek', label: 'DeepSeek V3/R1', desc: 'Ultra Value' },
-                        { id: 'claude', label: 'Claude 3.7', desc: 'Top Coding' },
-                        { id: 'gpt4o', label: 'GPT-4o', desc: 'Flagship Omni' },
+                        { id: 'deepseek', label: 'DeepSeek-V4.1', desc: 'Ultra Value' },
+                        { id: 'gpt6', label: 'GPT 6 Astra', desc: 'Flagship Omni' },
+                        { id: 'grok', label: 'Grok 4.6', desc: 'Real-Time Frontier' },
                       ] as const
                     ).map((m) => (
                       <button

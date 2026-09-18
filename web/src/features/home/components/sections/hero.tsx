@@ -116,14 +116,14 @@ export function Hero(props: HeroProps) {
             </span>
             <br />
             <span className='text-muted-foreground/90 font-bold'>
-              {t('Drop-In Access to GPT-4o, Claude 3.7 & DeepSeek')}
+              {t('Drop-In Access to GPT 6 Astra, DeepSeek-V4.1 & Grok 4.6')}
             </span>
           </h1>
 
           {/* Centered Subtitle */}
           <p className='landing-animate-fade-up text-muted-foreground mx-auto mt-5 max-w-2xl text-base leading-relaxed sm:text-[16.5px]'>
             {t(
-              'No overseas credit cards required. One unified API key connects you to GPT-4o, Claude 3.7, DeepSeek-V3/R1, Gemini 2.5, and more. 100% compatible with OpenAI SDK, Cursor, Cherry Studio, and NextChat with transparent pay-as-you-go billing.'
+              'No overseas credit cards required. One unified API key connects you to GPT 6 Astra, DeepSeek-V4.1, Gemini 3.8 Flash, Grok 4.6, and more. 100% compatible with OpenAI SDK, Cursor, Cherry Studio, and NextChat with transparent pay-as-you-go billing.'
             )}
           </p>
 

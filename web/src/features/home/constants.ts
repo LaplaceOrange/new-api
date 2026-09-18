@@ -34,14 +34,13 @@ export interface UpstreamProviderItem {
 }
 
 export const UPSTREAM_PROVIDERS: readonly UpstreamProviderItem[] = [
-  { id: 'openai', name: 'OpenAI', icon: 'OpenAI', highlightModel: 'GPT-4.5 / o3-mini' },
-  { id: 'claude', name: 'Anthropic', icon: 'Claude.Color', highlightModel: 'Claude 3.7 Sonnet' },
-  { id: 'gemini', name: 'Google', icon: 'Gemini.Color', highlightModel: 'Gemini 2.5 Pro' },
-  { id: 'deepseek', name: 'DeepSeek', icon: 'DeepSeek.Color', highlightModel: 'DeepSeek V3 / R1' },
+  { id: 'openai', name: 'OpenAI', icon: 'OpenAI', highlightModel: 'GPT 6 Astra' },
+  { id: 'deepseek', name: 'DeepSeek', icon: 'DeepSeek.Color', highlightModel: 'DeepSeek-V4.1' },
+  { id: 'gemini', name: 'Google', icon: 'Gemini.Color', highlightModel: 'Gemini 3.8 Flash' },
+  { id: 'grok', name: 'xAI Grok', icon: 'Grok.Color', highlightModel: 'Grok 4.6' },
   { id: 'qwen', name: 'Alibaba Qwen', icon: 'Qwen.Color', highlightModel: 'Qwen 2.5 Max' },
   { id: 'meta', name: 'Meta AI', icon: 'Meta.Color', highlightModel: 'Llama 3.3 70B' },
   { id: 'mistral', name: 'Mistral AI', icon: 'Mistral.Color', highlightModel: 'Mistral Large 2' },
-  { id: 'grok', name: 'xAI Grok', icon: 'Grok.Color', highlightModel: 'Grok 3 Beta' },
   { id: 'ollama', name: 'Ollama', icon: 'Ollama', highlightModel: 'Local & Self-Hosted' },
   { id: 'midjourney', name: 'Midjourney', icon: 'Midjourney', highlightModel: 'Imagine / Fast' },
 ] as const
@@ -91,7 +90,7 @@ export const API_DEMOS: ApiDemoConfig[] = [
     endpoint: '/v1/chat/completions',
     headers: ['"Authorization: Bearer sk-gateway-••••"'],
     request: [
-      '"model": "gpt-4.5-preview",',
+      '"model": "gpt-6-astra",',
       '"stream": true,',
       '"messages": [',
       '  { "role": "user", "content": "Explain AI gateway benefits." }',
@@ -107,26 +106,26 @@ export const API_DEMOS: ApiDemoConfig[] = [
     accent: 'emerald',
   },
   {
-    id: 'claude-messages',
-    label: 'Claude Messages',
-    protocolBadge: 'Anthropic Protocol',
+    id: 'grok-chat',
+    label: 'xAI Grok',
+    protocolBadge: 'xAI Protocol',
     method: 'POST',
-    endpoint: '/v1/messages',
-    headers: ['"x-api-key: sk-gateway-••••"', '"anthropic-version: 2023-06-01"'],
+    endpoint: '/v1/chat/completions',
+    headers: ['"Authorization: Bearer sk-gateway-••••"'],
     request: [
-      '"model": "claude-3-7-sonnet",',
-      '"max_tokens": 1024,',
+      '"model": "grok-4-6",',
+      '"stream": true,',
       '"messages": [',
-      '  { "role": "user", "content": "Deploy smart load balancing." }',
+      '  { "role": "user", "content": "Analyze real-time distributed telemetry." }',
       ']',
     ],
     responseStream: [
-      'Traffic dynamically routes across active upstream endpoints.',
-      'Circuit breakers prevent cascade outages with automatic health recovery.',
+      'Live stream telemetry synchronized across edge nodes.',
+      'Anomalies detected and mitigated in real-time with sub-millisecond precision.',
     ],
-    tokens: 38,
-    latency: 96,
-    costEstimate: '$0.00011',
+    tokens: 45,
+    latency: 90,
+    costEstimate: '$0.00014',
     accent: 'blue',
   },
   {
@@ -134,7 +133,7 @@ export const API_DEMOS: ApiDemoConfig[] = [
     label: 'Gemini Content',
     protocolBadge: 'Google GenAI Protocol',
     method: 'POST',
-    endpoint: '/v1beta/models/gemini-2.5-pro:streamGenerateContent',
+    endpoint: '/v1beta/models/gemini-3.8-flash:streamGenerateContent',
     headers: ['"x-goog-api-key: sk-gateway-••••"'],
     request: [
       '"contents": [',
@@ -152,14 +151,14 @@ export const API_DEMOS: ApiDemoConfig[] = [
     accent: 'violet',
   },
   {
-    id: 'deepseek-r1',
-    label: 'DeepSeek R1',
+    id: 'deepseek-v4-1',
+    label: 'DeepSeek-V4.1',
     protocolBadge: 'Reasoning Protocol',
     method: 'POST',
     endpoint: '/v1/chat/completions',
     headers: ['"Authorization: Bearer sk-gateway-••••"'],
     request: [
-      '"model": "deepseek-reasoner",',
+      '"model": "deepseek-v4-1",',
       '"stream": true,',
       '"messages": [',
       '  { "role": "user", "content": "Evaluate multi-channel failover." }',
@@ -191,7 +190,7 @@ export const STAT_METRICS: readonly StatMetric[] = [
     value: 50,
     suffix: '+',
     labelKey: 'Frontier AI Models Supported',
-    sublabelKey: 'Covering GPT-4o, Claude 3.7, DeepSeek & Gemini',
+    sublabelKey: 'Covering GPT 6 Astra, DeepSeek-V4.1, Gemini & Grok',
   },
   {
     value: 99.99,
@@ -233,7 +232,7 @@ export const QUICKSTART_SNIPPETS: QuickstartSnippet[] = [
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer sk-your-gateway-key" \\
   -d '{
-    "model": "gpt-4o",
+    "model": "gpt-6-astra",
     "messages": [{"role": "user", "content": "Hello from New API!"}]
   }'`,
   },
@@ -250,7 +249,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="claude-3-7-sonnet", # Works with any provider!
+    model="deepseek-v4-1", # Works with any provider!
     messages=[{"role": "user", "content": "Hello AI Gateway!"}]
 )
 print(response.choices[0].message.content)`,
@@ -268,7 +267,7 @@ const openai = new OpenAI({
 });
 
 const stream = await openai.chat.completions.create({
-  model: 'deepseek-chat',
+  model: 'gpt-6-astra',
   messages: [{ role: 'user', content: 'Streaming test' }],
   stream: true,
 });

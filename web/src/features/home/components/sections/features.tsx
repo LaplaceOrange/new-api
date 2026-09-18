@@ -82,16 +82,16 @@ export function Features() {
                 {t('All-in-One Frontier Model Access')}
               </h3>
               <p className='text-muted-foreground text-xs sm:text-sm leading-relaxed max-w-xl'>
-                {t('Access GPT-4o, Claude 3.7 Sonnet, DeepSeek V3/R1, and Gemini 2.5 with a single API key. No need to manage multiple international subscriptions or credit cards.')}
+                {t('Access GPT 6 Astra, DeepSeek-V4.1, Gemini 3.8 Flash, and Grok 4.6 with a single API key. No need to manage multiple international subscriptions or credit cards.')}
               </p>
 
               {/* Visual Model Matrix */}
               <div className='mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono'>
                 {[
-                  { name: 'Claude 3.7 Sonnet', icon: 'Claude.Color', tag: 'Hybrid Thinking', status: 'Optimal' },
-                  { name: 'DeepSeek R1 / V3', icon: 'DeepSeek.Color', tag: 'Deep Reasoning', status: 'Optimal' },
-                  { name: 'OpenAI GPT-4o', icon: 'OpenAI', tag: 'Multimodal Flagship', status: 'Optimal' },
-                  { name: 'Gemini 2.5 Pro', icon: 'Gemini.Color', tag: '1M+ Context', status: 'Optimal' },
+                  { name: 'DeepSeek-V4.1', icon: 'DeepSeek.Color', tag: 'Deep Reasoning', status: 'Optimal' },
+                  { name: 'GPT 6 Astra', icon: 'OpenAI', tag: 'Next-Gen Omni', status: 'Optimal' },
+                  { name: 'Gemini 3.8 Flash', icon: 'Gemini.Color', tag: '2M+ Context', status: 'Optimal' },
+                  { name: 'Grok 4.6', icon: 'Grok.Color', tag: 'Real-Time Insight', status: 'Optimal' },
                 ].map((model) => (
                   <div
                     key={model.name}
