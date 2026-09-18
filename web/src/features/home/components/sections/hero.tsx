@@ -18,11 +18,11 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
 import {
-  Activity,
   ArrowRight,
   BookOpen,
   Code2,
   ShieldCheck,
+  Sparkles,
   Zap,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -94,36 +94,36 @@ export function Hero(props: HeroProps) {
       <div className='mx-auto max-w-6xl'>
         {/* Top Centered Header & Value Proposition */}
         <div className='mx-auto max-w-4xl text-center'>
-          {/* Top Status Badge: sleek terminal-inspired status indicator with live emerald pulse */}
+          {/* Top Status Badge: sleek status indicator with live emerald pulse */}
           <div className='landing-animate-fade-up mb-6 inline-flex items-center gap-2.5 rounded-full border border-border/80 bg-muted/40 px-3.5 py-1.5 text-xs font-medium text-muted-foreground backdrop-blur-sm shadow-xs transition-colors hover:border-border hover:bg-muted/60'>
             <span className='relative flex size-2'>
               <span className='absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75' />
               <span className='relative inline-flex size-2 rounded-full bg-emerald-500' />
             </span>
-            <span className='font-mono font-medium text-foreground/90'>
-              {t('AI Gateway Engine v1.0')}
+            <span className='font-medium text-foreground/90'>
+              {t('All-in-One AI Models API Platform')}
             </span>
             <span className='h-3 w-px bg-border/80' />
             <span className='text-muted-foreground'>
-              {t('40+ Upstream Providers Active')}
+              {t('50+ Frontier Models Ready')}
             </span>
           </div>
 
           {/* Centered High-Impact Headline: Zero blue-purple gradient */}
           <h1 className='landing-animate-fade-up text-[clamp(2.35rem,4.6vw,3.85rem)] font-extrabold tracking-tight leading-[1.12]'>
             <span className='text-foreground'>
-              {t('Unified AI Routing & Gateway Mesh')}
+              {t('One API Key for Every Frontier Model')}
             </span>
             <br />
             <span className='text-muted-foreground/90 font-bold'>
-              {t('One Endpoint. 40+ Providers. Zero Lock-In.')}
+              {t('Drop-In Access to GPT-4o, Claude 3.7 & DeepSeek')}
             </span>
           </h1>
 
           {/* Centered Subtitle */}
           <p className='landing-animate-fade-up text-muted-foreground mx-auto mt-5 max-w-2xl text-base leading-relaxed sm:text-[16.5px]'>
             {t(
-              'Enterprise-grade AI gateway proxy connecting every application to 40+ upstream LLMs. Sub-5ms routing overhead, dynamic weighted load balancing, token-level billing, and instant circuit-breaker failover.'
+              'No overseas credit cards required. One unified API key connects you to GPT-4o, Claude 3.7, DeepSeek-V3/R1, Gemini 2.5, and more. 100% compatible with OpenAI SDK, Cursor, Cherry Studio, and NextChat with transparent pay-as-you-go billing.'
             )}
           </p>
 
@@ -161,23 +161,23 @@ export function Hero(props: HeroProps) {
             )}
           </div>
 
-          {/* Highlights developer micro-chips */}
+          {/* Highlights user-value micro-chips */}
           <div className='landing-animate-fade-up mt-7 flex flex-wrap items-center justify-center gap-2'>
-            <div className='inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-2.5 py-1 text-xs font-medium text-foreground/80 font-mono shadow-xs backdrop-blur-xs'>
-              <Zap className='size-3.5 text-amber-500' />
-              <span>{t('<5ms Overhead')}</span>
+            <div className='inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-2.5 py-1 text-xs font-medium text-foreground/80 shadow-xs backdrop-blur-xs'>
+              <Sparkles className='size-3.5 text-amber-500' />
+              <span>{t('Free Starter Quota')}</span>
             </div>
-            <div className='inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-2.5 py-1 text-xs font-medium text-foreground/80 font-mono shadow-xs backdrop-blur-xs'>
-              <ShieldCheck className='size-3.5 text-emerald-500' />
-              <span>{t('OWASP ASVS Ready')}</span>
+            <div className='inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-2.5 py-1 text-xs font-medium text-foreground/80 shadow-xs backdrop-blur-xs'>
+              <Zap className='size-3.5 text-emerald-500' />
+              <span>{t('<200ms Fast Response')}</span>
             </div>
-            <div className='inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-2.5 py-1 text-xs font-medium text-foreground/80 font-mono shadow-xs backdrop-blur-xs'>
-              <Activity className='size-3.5 text-emerald-500' />
-              <span>{t('Auto Health Failover')}</span>
-            </div>
-            <div className='inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-2.5 py-1 text-xs font-medium text-foreground/80 font-mono shadow-xs backdrop-blur-xs'>
+            <div className='inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-2.5 py-1 text-xs font-medium text-foreground/80 shadow-xs backdrop-blur-xs'>
               <Code2 className='size-3.5 text-foreground/70' />
-              <span>{t('OpenAI Drop-In')}</span>
+              <span>{t('100% OpenAI Compatible')}</span>
+            </div>
+            <div className='inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-2.5 py-1 text-xs font-medium text-foreground/80 shadow-xs backdrop-blur-xs'>
+              <ShieldCheck className='size-3.5 text-blue-500' />
+              <span>{t('Pay As You Go')}</span>
             </div>
           </div>
         </div>

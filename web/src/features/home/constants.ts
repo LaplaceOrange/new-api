@@ -190,30 +190,31 @@ export const STAT_METRICS: readonly StatMetric[] = [
   {
     value: 50,
     suffix: '+',
-    labelKey: 'upstream services integrated',
-    sublabelKey: 'Full coverage of leading global AI models',
-  },
-  {
-    value: 5,
-    prefix: '< ',
-    suffix: 'ms',
-    labelKey: 'proxy gateway overhead',
-    sublabelKey: 'Optimized Go core with zero-copy streaming',
+    labelKey: 'Frontier AI Models Supported',
+    sublabelKey: 'Covering GPT-4o, Claude 3.7, DeepSeek & Gemini',
   },
   {
     value: 99.99,
     suffix: '%',
     decimals: 2,
-    labelKey: 'system availability',
-    sublabelKey: 'Automatic channel health detection & failover',
+    labelKey: 'Service Availability SLA',
+    sublabelKey: 'Multi-region redundancy & zero-downtime routing',
+  },
+  {
+    value: 200,
+    prefix: '< ',
+    suffix: 'ms',
+    labelKey: 'Lightning TTFT Latency',
+    sublabelKey: 'Direct accelerated lines with minimal wait time',
   },
   {
     value: 100,
     suffix: '%',
-    labelKey: 'protocol compatibility',
-    sublabelKey: 'Drop-in replacement with zero client code rewrite',
+    labelKey: 'OpenAI Protocol Compatible',
+    sublabelKey: 'Drop-in integration for Cursor, Cherry Studio & more',
   },
 ] as const
+
 
 // Quickstart Code Snippets
 export interface QuickstartSnippet {

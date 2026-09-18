@@ -17,18 +17,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import {
-  Network,
+  Sparkles,
   Zap,
-  Calculator,
+  Coins,
   ShieldCheck,
   Code2,
-  Puzzle,
+  Palette,
   CheckCircle2,
-  Lock,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { AnimateInView } from '@/components/animate-in-view'
+import { getLobeIcon } from '@/lib/lobe-icon'
 
 export function Features() {
   const { t } = useTranslation()
@@ -38,25 +38,25 @@ export function Features() {
       <div className='mx-auto max-w-6xl'>
         {/* Section Header */}
         <AnimateInView className='mb-14 max-w-2xl'>
-          <div className='mb-3 inline-flex items-center gap-1.5 rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-600 dark:text-blue-400'>
-            <Zap className='size-3' />
-            <span>{t('Core Features')}</span>
+          <div className='mb-3 inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-muted/40 px-3 py-1 text-xs font-semibold text-foreground/85'>
+            <Sparkles className='size-3 text-amber-500' />
+            <span>{t('Core Platform Advantages')}</span>
           </div>
           <h2 className='text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight text-foreground leading-[1.18]'>
-            {t('Built for developers,')}
+            {t('Built for ultimate productivity,')}
             <br />
-            <span className='landing-gradient-teal-text'>
-              {t('designed for scale')}
+            <span className='text-muted-foreground'>
+              {t('designed for everyone')}
             </span>
           </h2>
           <p className='text-muted-foreground mt-3 text-sm sm:text-base leading-relaxed'>
-            {t('Enterprise-grade routing, billing, and security primitives designed to power mission-critical AI workloads.')}
+            {t('Everything you need to accelerate your AI workflow: frontier model access, ultra-low latency, zero subscription waste, and total privacy.')}
           </p>
         </AnimateInView>
 
         {/* Bento Grid */}
         <div className='grid grid-cols-1 gap-6 md:grid-cols-3'>
-          {/* Card 1: Multi-Channel Load Balancing (Span 2) */}
+          {/* Card 1: All-in-One Frontier Model Access (Span 2) */}
           <AnimateInView
             delay={50}
             animation='fade-up'
@@ -66,7 +66,7 @@ export function Features() {
               <div className='flex items-center justify-between mb-4'>
                 <div className='flex items-center gap-2.5'>
                   <div className='border-border/60 bg-blue-500/10 text-blue-600 dark:text-blue-400 flex size-9 items-center justify-center rounded-xl border'>
-                    <Network className='size-5' />
+                    <Sparkles className='size-5' />
                   </div>
                   <span className='font-mono text-xs font-semibold text-muted-foreground/60 border border-border/40 rounded-full px-2 py-0.5'>
                     01
@@ -74,48 +74,45 @@ export function Features() {
                 </div>
                 <div className='flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full'>
                   <span className='size-1.5 rounded-full bg-emerald-500 animate-ping' />
-                  <span>{t('Auto-Routing Active')}</span>
+                  <span>{t('All Models Online')}</span>
                 </div>
               </div>
 
               <h3 className='text-base sm:text-lg font-bold text-foreground mb-1.5'>
-                {t('Intelligent Multi-Channel Load Balancing')}
+                {t('All-in-One Frontier Model Access')}
               </h3>
               <p className='text-muted-foreground text-xs sm:text-sm leading-relaxed max-w-xl'>
-                {t('Distribute traffic across multiple API keys, regions, and cloud providers with automatic failover, weighted routing, and dynamic retry.')}
+                {t('Access GPT-4o, Claude 3.7 Sonnet, DeepSeek V3/R1, and Gemini 2.5 with a single API key. No need to manage multiple international subscriptions or credit cards.')}
               </p>
 
-              {/* Visual Micro-Component: Channel Health Monitor */}
-              <div className='mt-6 space-y-2 rounded-xl border border-border/50 bg-muted/30 p-3 sm:p-4 text-xs font-mono'>
+              {/* Visual Model Matrix */}
+              <div className='mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono'>
                 {[
-                  { name: 'OpenAI Direct (US-East)', latency: '42ms', weight: '50%', health: '100%' },
-                  { name: 'Azure OpenAI (HK Regional)', latency: '68ms', weight: '30%', health: '100%' },
-                  { name: 'Claude Sonnet (AWS Bedrock)', latency: '85ms', weight: '20%', health: '99.8%' },
-                ].map((channel) => (
+                  { name: 'Claude 3.7 Sonnet', icon: 'Claude.Color', tag: 'Hybrid Thinking', status: 'Optimal' },
+                  { name: 'DeepSeek R1 / V3', icon: 'DeepSeek.Color', tag: 'Deep Reasoning', status: 'Optimal' },
+                  { name: 'OpenAI GPT-4o', icon: 'OpenAI', tag: 'Multimodal Flagship', status: 'Optimal' },
+                  { name: 'Gemini 2.5 Pro', icon: 'Gemini.Color', tag: '1M+ Context', status: 'Optimal' },
+                ].map((model) => (
                   <div
-                    key={channel.name}
+                    key={model.name}
                     className='flex items-center justify-between rounded-lg border border-border/40 bg-background/70 px-3 py-2 text-foreground/85 transition-colors group-hover:border-border/80'
                   >
-                    <div className='flex items-center gap-2.5'>
-                      <span className='size-2 rounded-full bg-emerald-500' />
-                      <span className='font-medium'>{channel.name}</span>
+                    <div className='flex items-center gap-2'>
+                      <div className='flex size-4 items-center justify-center'>
+                        {getLobeIcon(model.icon, 16)}
+                      </div>
+                      <span className='font-medium text-[11.5px]'>{model.name}</span>
                     </div>
-                    <div className='flex items-center gap-3 text-muted-foreground text-[11px] tabular-nums'>
-                      <span>{channel.latency}</span>
-                      <span className='border-border/60 bg-muted/60 rounded px-1.5 py-0.5 text-[10px] text-foreground/75 font-semibold'>
-                        wt {channel.weight}
-                      </span>
-                      <span className='text-emerald-600 dark:text-emerald-400 font-semibold'>
-                        {channel.health}
-                      </span>
-                    </div>
+                    <span className='text-[10px] text-muted-foreground border border-border/50 bg-muted/40 rounded px-1.5 py-0.5'>
+                      {model.tag}
+                    </span>
                   </div>
                 ))}
               </div>
             </div>
           </AnimateInView>
 
-          {/* Card 2: Sub-Millisecond Engine (Span 1) */}
+          {/* Card 2: Sub-200ms Lightning Response (Span 1) */}
           <AnimateInView
             delay={100}
             animation='fade-up'
@@ -134,28 +131,28 @@ export function Features() {
               </div>
 
               <h3 className='text-base sm:text-lg font-bold text-foreground mb-1.5'>
-                {t('Sub-Millisecond Engine')}
+                {t('Lightning Fast Response')}
               </h3>
               <p className='text-muted-foreground text-xs sm:text-sm leading-relaxed mb-6'>
-                {t('High-throughput Go proxy core with zero-copy stream pass-through.')}
+                {t('Direct high-speed network routing with zero-copy stream chunking for ultra-smooth typing generation.')}
               </p>
 
-              {/* Visual: Latency comparison bar */}
+              {/* Visual: Latency comparison */}
               <div className='rounded-xl border border-border/50 bg-muted/30 p-4 space-y-3 font-mono text-xs'>
                 <div>
                   <div className='flex justify-between text-[11px] mb-1'>
-                    <span className='text-muted-foreground'>{t('Gateway Overhead')}</span>
-                    <span className='text-emerald-600 dark:text-emerald-400 font-bold'>&lt; 3.2 ms</span>
+                    <span className='text-muted-foreground'>{t('First Token Response')}</span>
+                    <span className='text-emerald-600 dark:text-emerald-400 font-bold'>&lt; 180 ms</span>
                   </div>
                   <div className='h-2 rounded-full bg-muted/80 overflow-hidden'>
-                    <div className='h-full bg-emerald-500 rounded-full w-[8%]' />
+                    <div className='h-full bg-emerald-500 rounded-full w-[25%]' />
                   </div>
                 </div>
 
                 <div>
                   <div className='flex justify-between text-[11px] mb-1'>
-                    <span className='text-muted-foreground'>{t('Model Inference Time')}</span>
-                    <span className='text-foreground/75 font-semibold'>160 ms</span>
+                    <span className='text-muted-foreground'>{t('Average Streaming Speed')}</span>
+                    <span className='text-foreground/80 font-semibold'>90~120 tok/s</span>
                   </div>
                   <div className='h-2 rounded-full bg-muted/80 overflow-hidden'>
                     <div className='h-full bg-blue-500/60 rounded-full w-[85%]' />
@@ -166,11 +163,11 @@ export function Features() {
 
             <div className='mt-4 flex items-center gap-1.5 text-xs text-muted-foreground'>
               <CheckCircle2 className='size-3.5 text-emerald-500' />
-              <span>{t('Zero-copy streaming pipeline')}</span>
+              <span>{t('Zero-lag streaming experience')}</span>
             </div>
           </AnimateInView>
 
-          {/* Card 3: Dynamic Billing & Pricing Expressions (Span 1) */}
+          {/* Card 3: Transparent Pay-as-you-go (Span 1) */}
           <AnimateInView
             delay={150}
             animation='fade-up'
@@ -180,7 +177,7 @@ export function Features() {
               <div className='flex items-center justify-between mb-4'>
                 <div className='flex items-center gap-2.5'>
                   <div className='border-border/60 bg-purple-500/10 text-purple-600 dark:text-purple-400 flex size-9 items-center justify-center rounded-xl border'>
-                    <Calculator className='size-5' />
+                    <Coins className='size-5' />
                   </div>
                   <span className='font-mono text-xs font-semibold text-muted-foreground/60 border border-border/40 rounded-full px-2 py-0.5'>
                     03
@@ -189,35 +186,31 @@ export function Features() {
               </div>
 
               <h3 className='text-base sm:text-lg font-bold text-foreground mb-1.5'>
-                {t('Precision Billing Expressions')}
+                {t('Pay As You Go, No Lock-In')}
               </h3>
               <p className='text-muted-foreground text-xs sm:text-sm leading-relaxed mb-5'>
-                {t('Dynamic pricing expressions with tiered thresholds and zero negative-billing saturation guards.')}
+                {t('Pay only for tokens actually consumed. No mandatory monthly subscriptions and top-up balance never expires.')}
               </p>
 
-              {/* Visual: Billing formula */}
+              {/* Visual: Cost clarity card */}
               <div className='rounded-xl border border-border/50 bg-muted/30 p-3.5 space-y-2 font-mono text-[11px]'>
-                <div className='text-muted-foreground/75 flex justify-between text-[10px] uppercase font-sans font-semibold'>
-                  <span>{t('Pricing Formula')}</span>
-                  <span className='text-purple-600 dark:text-purple-400'>v1 Engine</span>
+                <div className='flex justify-between text-[11px] text-foreground font-semibold'>
+                  <span>{t('Real-Time Deduction')}</span>
+                  <span className='text-emerald-600 dark:text-emerald-400'>100% Transparent</span>
                 </div>
-                <code className='block bg-background/80 border border-border/40 rounded p-2 text-foreground/90 text-[11px] leading-tight break-all'>
-                  tokens * model_ratio * group_ratio
-                </code>
-                <div className='text-muted-foreground text-[10px] flex items-center gap-1.5 pt-1'>
-                  <span className='size-1.5 rounded-full bg-purple-500' />
-                  <span>{t('Pre-consume & Settle Invariants Guard')}</span>
+                <div className='text-muted-foreground text-[10px] leading-relaxed'>
+                  {t('Exact token accounting for prompts and completions with live detailed logs in your personal dashboard.')}
                 </div>
               </div>
             </div>
 
             <div className='mt-4 flex items-center gap-1.5 text-xs text-muted-foreground'>
               <CheckCircle2 className='size-3.5 text-emerald-500' />
-              <span>{t('Token-accurate settlement')}</span>
+              <span>{t('Top-up credits never expire')}</span>
             </div>
           </AnimateInView>
 
-          {/* Card 4: OWASP ASVS Enterprise Security (Span 2) */}
+          {/* Card 4: Enterprise Privacy & Zero Retention (Span 2) */}
           <AnimateInView
             delay={200}
             animation='fade-up'
@@ -234,49 +227,47 @@ export function Features() {
                   </span>
                 </div>
                 <span className='border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[11px] font-semibold px-2.5 py-0.5 rounded-full'>
-                  OWASP ASVS Compliant
+                  {t('Zero Data Retention')}
                 </span>
               </div>
 
               <h3 className='text-base sm:text-lg font-bold text-foreground mb-1.5'>
-                {t('Enterprise Security & Granular Access')}
+                {t('Enterprise Privacy & Security')}
               </h3>
               <p className='text-muted-foreground text-xs sm:text-sm leading-relaxed max-w-xl'>
-                {t('Scoped API keys, IP allowlists, TOTP/WebAuthn Passkeys, session rotation, and non-secret audit logs.')}
+                {t('Your conversations and prompts are never stored or used to train upstream models. Full TLS 1.3 encryption and scoped API token security.')}
               </p>
 
-              {/* Visual: Scoped Permission Matrix */}
+              {/* Visual: Security Highlights */}
               <div className='mt-5 grid grid-cols-1 sm:grid-cols-3 gap-2.5 font-mono text-xs'>
                 <div className='rounded-lg border border-border/50 bg-background/70 p-2.5'>
                   <div className='flex items-center justify-between text-[11px] mb-1'>
-                    <span className='text-foreground font-semibold'>chat:write</span>
-                    <span className='text-emerald-600 dark:text-emerald-400 font-bold'>✓ Allowed</span>
+                    <span className='text-foreground font-semibold'>TLS 1.3</span>
+                    <span className='text-emerald-600 dark:text-emerald-400 font-bold'>Encrypted</span>
                   </div>
-                  <div className='text-[10px] text-muted-foreground'>Standard completions</div>
+                  <div className='text-[10px] text-muted-foreground'>End-to-end transport</div>
                 </div>
 
                 <div className='rounded-lg border border-border/50 bg-background/70 p-2.5'>
                   <div className='flex items-center justify-between text-[11px] mb-1'>
-                    <span className='text-foreground font-semibold'>models:read</span>
-                    <span className='text-emerald-600 dark:text-emerald-400 font-bold'>✓ Allowed</span>
+                    <span className='text-foreground font-semibold'>Zero Training</span>
+                    <span className='text-emerald-600 dark:text-emerald-400 font-bold'>Guaranteed</span>
                   </div>
-                  <div className='text-[10px] text-muted-foreground'>List accessible models</div>
+                  <div className='text-[10px] text-muted-foreground'>Prompts never persisted</div>
                 </div>
 
                 <div className='rounded-lg border border-border/50 bg-background/70 p-2.5'>
                   <div className='flex items-center justify-between text-[11px] mb-1'>
-                    <span className='text-foreground font-semibold'>admin:settings</span>
-                    <span className='text-rose-500 font-bold flex items-center gap-0.5'>
-                      <Lock className='size-2.5' /> Denied
-                    </span>
+                    <span className='text-foreground font-semibold'>Key Isolation</span>
+                    <span className='text-emerald-600 dark:text-emerald-400 font-bold'>Active</span>
                   </div>
-                  <div className='text-[10px] text-muted-foreground'>Strictly isolated</div>
+                  <div className='text-[10px] text-muted-foreground'>Custom rate & quota limits</div>
                 </div>
               </div>
             </div>
           </AnimateInView>
 
-          {/* Card 5: 100% SDK Compatibility (Span 1) */}
+          {/* Card 5: 100% Drop-In OpenAI SDK Compatibility (Span 1) */}
           <AnimateInView
             delay={250}
             animation='fade-up'
@@ -295,10 +286,10 @@ export function Features() {
               </div>
 
               <h3 className='text-base sm:text-lg font-bold text-foreground mb-1.5'>
-                {t('100% Drop-In SDK Support')}
+                {t('Universal Tool Compatibility')}
               </h3>
               <p className='text-muted-foreground text-xs sm:text-sm leading-relaxed mb-4'>
-                {t('Zero code changes. Simply modify baseURL to unlock multi-model switching.')}
+                {t('100% OpenAI-standard compatible. Connect Cursor, Cherry Studio, NextChat, Dify, or official SDKs with zero code rewrite.')}
               </p>
 
               <div className='rounded-xl border border-border/50 bg-muted/30 p-3 font-mono text-[11px] text-foreground/80 space-y-1'>
@@ -306,21 +297,21 @@ export function Features() {
                   {t('1-Line Integration')}
                 </div>
                 <div className='text-emerald-600 dark:text-emerald-400'>
-                  client.base_url = &quot;.../v1&quot;
+                  base_url = &quot;https://.../v1&quot;
                 </div>
                 <div className='text-blue-600 dark:text-blue-400'>
-                  client.api_key = &quot;sk-newapi...&quot;
+                  api_key = &quot;sk-••••••••••••&quot;
                 </div>
               </div>
             </div>
 
             <div className='mt-4 flex items-center gap-1.5 text-xs text-muted-foreground'>
               <CheckCircle2 className='size-3.5 text-emerald-500' />
-              <span>{t('Compatible with all OpenAI SDKs')}</span>
+              <span>{t('Compatible with 100+ AI clients')}</span>
             </div>
           </AnimateInView>
 
-          {/* Card 6: Task Plugins & Extensions (Span 2 on mobile, or 2 on desktop) */}
+          {/* Card 6: Multimodal & Creative Tasks (Span 2) */}
           <AnimateInView
             delay={300}
             animation='fade-up'
@@ -330,26 +321,26 @@ export function Features() {
               <div className='flex items-center justify-between mb-4'>
                 <div className='flex items-center gap-2.5'>
                   <div className='border-border/60 bg-rose-500/10 text-rose-600 dark:text-rose-400 flex size-9 items-center justify-center rounded-xl border'>
-                    <Puzzle className='size-5' />
+                    <Palette className='size-5' />
                   </div>
                   <span className='font-mono text-xs font-semibold text-muted-foreground/60 border border-border/40 rounded-full px-2 py-0.5'>
                     06
                   </span>
                 </div>
                 <span className='border border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[11px] font-semibold px-2.5 py-0.5 rounded-full'>
-                  Sobek JS Sandbox
+                  {t('Multimodal Ready')}
                 </span>
               </div>
 
               <h3 className='text-base sm:text-lg font-bold text-foreground mb-1.5'>
-                {t('Extensible Task Plugin Engine')}
+                {t('Multimodal & Creative Generation')}
               </h3>
               <p className='text-muted-foreground text-xs sm:text-sm leading-relaxed max-w-xl'>
-                {t('Execute media generation and complex asynchronous jobs (Midjourney, Suno Music, Kling Video) via sandboxed JavaScript plugins with automatic polling and settlement.')}
+                {t('Beyond text chat and code generation: full support for Midjourney imaging, Flux art, audio transcription, and video creation in a single unified account.')}
               </p>
 
               <div className='mt-4 flex flex-wrap gap-2'>
-                {['Midjourney Plus', 'Suno AI Music', 'Kling Video', 'Async Polling', 'Unit Price Settlement'].map((item) => (
+                {['Midjourney Imagine', 'Flux.1 Schnell', 'DALL-E 3', 'Whisper Audio', 'Suno AI Music'].map((item) => (
                   <span
                     key={item}
                     className='border-border/50 bg-background/70 text-foreground/80 rounded-md border px-2.5 py-1 text-xs font-mono font-medium'

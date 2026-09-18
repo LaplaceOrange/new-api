@@ -35,8 +35,8 @@ export function Quickstart() {
     <section className='relative z-10 border-t border-border/50 bg-muted/15 px-4 py-20 sm:px-6 md:py-28'>
       <div className='mx-auto max-w-5xl'>
         <AnimateInView className='mb-12 text-center'>
-          <div className='mb-3 inline-flex items-center gap-1.5 rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-600 dark:text-blue-400'>
-            <Terminal className='size-3' />
+          <div className='mb-3 inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-muted/40 px-3 py-1 text-xs font-semibold text-foreground/80'>
+            <Terminal className='size-3 text-emerald-500' />
             <span>{t('Developer Quickstart')}</span>
           </div>
           <h2 className='text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight text-foreground'>
