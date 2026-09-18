@@ -31,6 +31,7 @@ import {
 
 function ProviderCard(props: { item: UpstreamProviderItem }) {
   const { item } = props
+  const { t } = useTranslation()
   return (
     <div className='group border-border/50 bg-background/80 hover:border-border hover:bg-muted/40 flex shrink-0 items-center gap-3 rounded-full border px-4 py-2 text-xs font-medium shadow-xs backdrop-blur-xs transition-all duration-200 hover:scale-[1.02]'>
       <div className='flex size-6 shrink-0 items-center justify-center'>
@@ -38,7 +39,7 @@ function ProviderCard(props: { item: UpstreamProviderItem }) {
       </div>
       <span className='text-foreground font-semibold'>{item.name}</span>
       <span className='text-muted-foreground/75 border-border/60 bg-muted/60 hidden rounded-full border px-2 py-0.5 text-[10px] font-normal sm:inline-block'>
-        {item.highlightModel}
+        {t(item.highlightModel)}
       </span>
     </div>
   )
@@ -46,6 +47,7 @@ function ProviderCard(props: { item: UpstreamProviderItem }) {
 
 function AppCard(props: { item: SupportedAppItem }) {
   const { item } = props
+  const { t } = useTranslation()
   const content = (
     <div className='group border-border/50 bg-background/80 hover:border-border hover:bg-muted/40 flex shrink-0 items-center gap-2.5 rounded-full border px-4 py-2 text-xs font-medium shadow-xs backdrop-blur-xs transition-all duration-200 hover:scale-[1.02]'>
       <div className='flex size-5 shrink-0 items-center justify-center text-blue-500 dark:text-blue-400'>
@@ -57,7 +59,7 @@ function AppCard(props: { item: SupportedAppItem }) {
       </div>
       <span className='text-foreground font-medium'>{item.name}</span>
       <span className='text-muted-foreground/75 border-border/50 bg-muted/40 rounded-full border px-1.5 py-0.5 text-[9.5px]'>
-        {item.badge}
+        {t(item.badge)}
       </span>
     </div>
   )

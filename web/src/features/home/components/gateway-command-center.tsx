@@ -292,7 +292,7 @@ export function GatewayCommandCenter({ className }: GatewayCommandCenterProps) {
             <span className='size-3 rounded-full bg-emerald-500/80' />
           </div>
           <div className='flex items-center gap-1.5 rounded-lg border border-border/50 bg-muted/40 px-2.5 py-1 text-xs font-mono text-muted-foreground'>
-            <span className='text-foreground/75 font-semibold'>API Base:</span>
+            <span className='text-foreground/75 font-semibold'>{t('API Base:')}</span>
             <span className='text-foreground font-mono select-all'>{baseUrl}</span>
             <CopyButton
               value={baseUrl}
@@ -446,7 +446,7 @@ export function GatewayCommandCenter({ className }: GatewayCommandCenterProps) {
               {/* User Prompt Box */}
               <div className='border-b border-border/40 bg-muted/10 p-3.5 sm:p-4 text-xs font-medium text-foreground flex items-start gap-2.5'>
                 <div className='mt-0.5 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground uppercase'>
-                  User
+                  {t('User')}
                 </div>
                 <div className='flex-1 leading-relaxed'>{t(currentPrompt.promptKey)}</div>
               </div>
@@ -459,7 +459,7 @@ export function GatewayCommandCenter({ className }: GatewayCommandCenterProps) {
                   </pre>
                 ) : (
                   <div className='whitespace-pre-wrap text-foreground/85 font-sans leading-relaxed'>
-                    {currentPrompt.responseText}
+                    {currentPrompt.responseText ? t(currentPrompt.responseText) : ''}
                   </div>
                 )}
               </div>
@@ -508,9 +508,9 @@ export function GatewayCommandCenter({ className }: GatewayCommandCenterProps) {
                       : 'border-border/60 bg-card/40 text-muted-foreground hover:border-border hover:bg-muted/30'
                   )}
                 >
-                  <span>{app.label}</span>
+                  <span>{t(app.label)}</span>
                   <span className='rounded bg-muted px-1.5 py-0.5 text-[9.5px] font-mono text-muted-foreground'>
-                    {app.badge}
+                    {t(app.badge)}
                   </span>
                 </button>
               ))}
@@ -532,7 +532,7 @@ export function GatewayCommandCenter({ className }: GatewayCommandCenterProps) {
                   <div className='space-y-3 font-mono text-xs'>
                     <div className='space-y-1.5'>
                       <label className='text-muted-foreground font-sans font-medium text-[11px]'>
-                        1. Override OpenAI Base URL:
+                        {t('1. Override OpenAI Base URL:')}
                       </label>
                       <div className='flex items-center justify-between rounded-lg border border-border/70 bg-muted/40 px-3 py-2 text-foreground font-mono'>
                         <span>{baseUrl}</span>
@@ -542,7 +542,7 @@ export function GatewayCommandCenter({ className }: GatewayCommandCenterProps) {
 
                     <div className='space-y-1.5'>
                       <label className='text-muted-foreground font-sans font-medium text-[11px]'>
-                        2. OpenAI API Key:
+                        {t('2. OpenAI API Key:')}
                       </label>
                       <div className='flex items-center justify-between rounded-lg border border-border/70 bg-muted/40 px-3 py-2 text-foreground font-mono'>
                         <span className='text-muted-foreground'>sk-••••••••••••••••••••••••••••••••</span>
@@ -559,7 +559,7 @@ export function GatewayCommandCenter({ className }: GatewayCommandCenterProps) {
 
                     <div className='space-y-1.5'>
                       <label className='text-muted-foreground font-sans font-medium text-[11px]'>
-                        3. Add Model Names in Cursor:
+                        {t('3. Add Model Names in Cursor:')}
                       </label>
                       <div className='flex flex-wrap gap-1.5 pt-1'>
                         {['deepseek-v4-1', 'gpt-6-astra', 'gemini-3-8-flash', 'grok-4-6'].map((m) => (
@@ -609,7 +609,7 @@ export function GatewayCommandCenter({ className }: GatewayCommandCenterProps) {
                   <div className='space-y-3 font-mono text-xs'>
                     <div className='space-y-1.5'>
                       <label className='text-muted-foreground font-sans font-medium text-[11px]'>
-                        API Base URL:
+                        {t('API Base URL:')}
                       </label>
                       <div className='flex items-center justify-between rounded-lg border border-border/70 bg-muted/40 px-3 py-2 text-foreground font-mono'>
                         <span>{baseUrl}</span>
@@ -619,10 +619,10 @@ export function GatewayCommandCenter({ className }: GatewayCommandCenterProps) {
 
                     <div className='space-y-1.5'>
                       <label className='text-muted-foreground font-sans font-medium text-[11px]'>
-                        Provider Type:
+                        {t('Provider Type:')}
                       </label>
                       <div className='rounded-lg border border-border/70 bg-muted/40 px-3 py-2 text-foreground font-sans text-xs'>
-                        OpenAI (or Custom OpenAI Format)
+                        {t('OpenAI (or Custom OpenAI Format)')}
                       </div>
                     </div>
                   </div>
@@ -670,7 +670,7 @@ export function GatewayCommandCenter({ className }: GatewayCommandCenterProps) {
                   <div className='space-y-3 font-mono text-xs'>
                     <div className='space-y-1.5'>
                       <label className='text-muted-foreground font-sans font-medium text-[11px]'>
-                        Endpoint URL:
+                        {t('Endpoint URL:')}
                       </label>
                       <div className='flex items-center justify-between rounded-lg border border-border/70 bg-muted/40 px-3 py-2 text-foreground font-mono'>
                         <span>{baseUrl}</span>
@@ -765,9 +765,9 @@ print(response.choices[0].message.content)`}</code>
                     className='w-full accent-foreground cursor-pointer'
                   />
                   <div className='flex justify-between text-[10px] text-muted-foreground font-mono'>
-                    <span>10 (Casual)</span>
-                    <span>100 (Power User)</span>
-                    <span>300+ (Coding & Heavy Dev)</span>
+                    <span>{t('10 (Casual)')}</span>
+                    <span>{t('100 (Power User)')}</span>
+                    <span>{t('300+ (Coding & Heavy Dev)')}</span>
                   </div>
                 </div>
 
@@ -796,7 +796,7 @@ print(response.choices[0].message.content)`}</code>
                         )}
                       >
                         <div className='font-semibold'>{m.label}</div>
-                        <div className='text-[10px] text-muted-foreground'>{m.desc}</div>
+                        <div className='text-[10px] text-muted-foreground'>{t(m.desc)}</div>
                       </button>
                     ))}
                   </div>

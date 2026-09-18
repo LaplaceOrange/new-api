@@ -104,7 +104,7 @@ export function Features() {
                       <span className='font-medium text-[11.5px]'>{model.name}</span>
                     </div>
                     <span className='text-[10px] text-muted-foreground border border-border/50 bg-muted/40 rounded px-1.5 py-0.5'>
-                      {model.tag}
+                      {t(model.tag)}
                     </span>
                   </div>
                 ))}
@@ -196,7 +196,7 @@ export function Features() {
               <div className='rounded-xl border border-border/50 bg-muted/30 p-3.5 space-y-2 font-mono text-[11px]'>
                 <div className='flex justify-between text-[11px] text-foreground font-semibold'>
                   <span>{t('Real-Time Deduction')}</span>
-                  <span className='text-emerald-600 dark:text-emerald-400'>100% Transparent</span>
+                  <span className='text-emerald-600 dark:text-emerald-400'>{t('100% Transparent')}</span>
                 </div>
                 <div className='text-muted-foreground text-[10px] leading-relaxed'>
                   {t('Exact token accounting for prompts and completions with live detailed logs in your personal dashboard.')}
@@ -243,25 +243,25 @@ export function Features() {
                 <div className='rounded-lg border border-border/50 bg-background/70 p-2.5'>
                   <div className='flex items-center justify-between text-[11px] mb-1'>
                     <span className='text-foreground font-semibold'>TLS 1.3</span>
-                    <span className='text-emerald-600 dark:text-emerald-400 font-bold'>Encrypted</span>
+                    <span className='text-emerald-600 dark:text-emerald-400 font-bold'>{t('Encrypted')}</span>
                   </div>
-                  <div className='text-[10px] text-muted-foreground'>End-to-end transport</div>
+                  <div className='text-[10px] text-muted-foreground'>{t('End-to-end transport')}</div>
                 </div>
 
                 <div className='rounded-lg border border-border/50 bg-background/70 p-2.5'>
                   <div className='flex items-center justify-between text-[11px] mb-1'>
-                    <span className='text-foreground font-semibold'>Zero Training</span>
-                    <span className='text-emerald-600 dark:text-emerald-400 font-bold'>Guaranteed</span>
+                    <span className='text-foreground font-semibold'>{t('Zero Training')}</span>
+                    <span className='text-emerald-600 dark:text-emerald-400 font-bold'>{t('Guaranteed')}</span>
                   </div>
-                  <div className='text-[10px] text-muted-foreground'>Prompts never persisted</div>
+                  <div className='text-[10px] text-muted-foreground'>{t('Prompts never persisted')}</div>
                 </div>
 
                 <div className='rounded-lg border border-border/50 bg-background/70 p-2.5'>
                   <div className='flex items-center justify-between text-[11px] mb-1'>
-                    <span className='text-foreground font-semibold'>Key Isolation</span>
-                    <span className='text-emerald-600 dark:text-emerald-400 font-bold'>Active</span>
+                    <span className='text-foreground font-semibold'>{t('Key Isolation')}</span>
+                    <span className='text-emerald-600 dark:text-emerald-400 font-bold'>{t('Active')}</span>
                   </div>
-                  <div className='text-[10px] text-muted-foreground'>Custom rate & quota limits</div>
+                  <div className='text-[10px] text-muted-foreground'>{t('Custom rate & quota limits')}</div>
                 </div>
               </div>
             </div>

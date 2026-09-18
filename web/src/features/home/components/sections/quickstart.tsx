@@ -69,7 +69,7 @@ export function Quickstart() {
                         : 'text-muted-foreground hover:text-foreground'
                     )}
                   >
-                    {snippet.label}
+                    {t(snippet.label)}
                   </button>
                 )
               })}
