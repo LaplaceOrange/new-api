@@ -114,16 +114,12 @@ export function Hero(props: HeroProps) {
             <span className='text-foreground'>
               {t('One API Key for Every Frontier Model')}
             </span>
-            <br />
-            <span className='text-muted-foreground/90 font-bold'>
-              {t('Drop-In Access to GPT 6 Astra, DeepSeek-V4.1 & Grok 4.6')}
-            </span>
           </h1>
 
           {/* Centered Subtitle */}
           <p className='landing-animate-fade-up text-muted-foreground mx-auto mt-5 max-w-2xl text-base leading-relaxed sm:text-[16.5px]'>
             {t(
-              'No overseas credit cards required. One unified API key connects you to GPT 6 Astra, DeepSeek-V4.1, Gemini 3.8 Flash, Grok 4.6, and more. 100% compatible with OpenAI SDK, Cursor, Cherry Studio, and NextChat with transparent pay-as-you-go billing.'
+              'No overseas credit cards required. One unified API key connects you to GPT 6 Astra, DeepSeek V4.1 Flash, Gemini 3.8 Flash, Grok 4.6, and more. 100% compatible with OpenAI SDK, Codex, Cursor, Cherry Studio, and more with transparent pay-as-you-go billing.'
             )}
           </p>
 
@@ -169,7 +165,7 @@ export function Hero(props: HeroProps) {
             </div>
             <div className='inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-2.5 py-1 text-xs font-medium text-foreground/80 shadow-xs backdrop-blur-xs'>
               <Zap className='size-3.5 text-emerald-500' />
-              <span>{t('<200ms Fast Response')}</span>
+              <span>{t('Lightning Response')}</span>
             </div>
             <div className='inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-2.5 py-1 text-xs font-medium text-foreground/80 shadow-xs backdrop-blur-xs'>
               <Code2 className='size-3.5 text-foreground/70' />

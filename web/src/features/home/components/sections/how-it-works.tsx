@@ -53,9 +53,9 @@ export function HowItWorks() {
       num: '03',
       title: t('Connect to Your Apps'),
       subtitle: t('100% OpenAI Compatible'),
-      desc: t('Paste your API base URL and token into Cursor, Cherry Studio, NextChat, or your code. Zero learning curve.'),
+      desc: t('Paste your API base URL and token into Codex, Cursor, Cherry Studio, or your code. Zero learning curve.'),
       icon: <Laptop className='size-5 text-blue-500' />,
-      badges: ['Cursor / Cline', 'Cherry Studio', 'NextChat', 'OpenAI SDK'],
+      badges: ['Codex', 'Cursor / Cline', 'Cherry Studio', 'OpenAI SDK'],
     },
     {
       num: '04',

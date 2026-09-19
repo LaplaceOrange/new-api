@@ -35,14 +35,12 @@ export interface UpstreamProviderItem {
 
 export const UPSTREAM_PROVIDERS: readonly UpstreamProviderItem[] = [
   { id: 'openai', name: 'OpenAI', icon: 'OpenAI', highlightModel: 'GPT 6 Astra' },
-  { id: 'deepseek', name: 'DeepSeek', icon: 'DeepSeek.Color', highlightModel: 'DeepSeek-V4.1' },
+  { id: 'deepseek', name: 'DeepSeek', icon: 'DeepSeek.Color', highlightModel: 'DeepSeek V4.1 Flash' },
   { id: 'gemini', name: 'Google', icon: 'Gemini.Color', highlightModel: 'Gemini 3.8 Flash' },
   { id: 'grok', name: 'xAI Grok', icon: 'Grok.Color', highlightModel: 'Grok 4.6' },
-  { id: 'qwen', name: 'Alibaba Qwen', icon: 'Qwen.Color', highlightModel: 'Qwen 2.5 Max' },
-  { id: 'meta', name: 'Meta AI', icon: 'Meta.Color', highlightModel: 'Llama 3.3 70B' },
-  { id: 'mistral', name: 'Mistral AI', icon: 'Mistral.Color', highlightModel: 'Mistral Large 2' },
-  { id: 'ollama', name: 'Ollama', icon: 'Ollama', highlightModel: 'Local & Self-Hosted' },
-  { id: 'midjourney', name: 'Midjourney', icon: 'Midjourney', highlightModel: 'Imagine / Fast' },
+  { id: 'qwen', name: 'Alibaba Qwen', icon: 'Qwen.Color', highlightModel: 'Qwen 3.8 Max' },
+  { id: 'mimo', name: 'Xiaomi MiMo', icon: 'XiaomiMiMo', highlightModel: 'MiMo V2.5 Pro' },
+  { id: 'glm', name: 'Zhipu GLM', icon: 'Zhipu.Color', highlightModel: 'GLM 5.3 Flash' },
 ] as const
 
 // Supported Downstream Applications
@@ -55,12 +53,11 @@ export interface SupportedAppItem {
 
 export const SUPPORTED_APPS: readonly SupportedAppItem[] = [
   { name: 'Cherry Studio', icon: 'CherryStudio.Color', badge: 'Desktop Chat', url: 'https://cherry-ai.com' },
+  { name: 'Codex', icon: 'Codex.Color', badge: 'AI Coding Agent', url: 'https://openai.com/codex' },
   { name: 'CC Switch', badge: 'Multi-Protocol Hub', url: 'https://ccswitch.io' },
   { name: 'Open WebUI', icon: 'OpenWebUI.Color', badge: 'Self-Hosted WebUI' },
   { name: 'Dify', icon: 'Dify.Color', badge: 'AI Agent & Workflow' },
   { name: 'Cursor / Cline', badge: 'AI IDE & Agent' },
-  { name: 'NextChat', badge: 'Cross-Platform Chat' },
-  { name: 'LibreChat', badge: 'Enterprise AI UI' },
 ] as const
 
 // Hero API Protocol Demos
@@ -152,7 +149,7 @@ export const API_DEMOS: ApiDemoConfig[] = [
   },
   {
     id: 'deepseek-v4-1',
-    label: 'DeepSeek-V4.1',
+    label: 'DeepSeek V4.1 Flash',
     protocolBadge: 'Reasoning Protocol',
     method: 'POST',
     endpoint: '/v1/chat/completions',
@@ -190,7 +187,7 @@ export const STAT_METRICS: readonly StatMetric[] = [
     value: 50,
     suffix: '+',
     labelKey: 'Frontier AI Models Supported',
-    sublabelKey: 'Covering GPT 6 Astra, DeepSeek-V4.1, Gemini & Grok',
+    sublabelKey: 'Covering GPT 6 Astra, DeepSeek V4.1 Flash, Gemini & Grok',
   },
   {
     value: 99.99,
@@ -223,29 +220,30 @@ export interface QuickstartSnippet {
   code: string
 }
 
-export const QUICKSTART_SNIPPETS: QuickstartSnippet[] = [
-  {
-    id: 'curl',
-    label: 'cURL',
-    language: 'bash',
-    code: `curl https://api.yourdomain.com/v1/chat/completions \\
+export function getQuickstartSnippets(baseUrl: string): QuickstartSnippet[] {
+  return [
+    {
+      id: 'curl',
+      label: 'cURL',
+      language: 'bash',
+      code: `curl ${baseUrl}/chat/completions \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer sk-your-gateway-key" \\
   -d '{
     "model": "gpt-6-astra",
     "messages": [{"role": "user", "content": "Hello from New API!"}]
   }'`,
-  },
-  {
-    id: 'python',
-    label: 'Python (OpenAI SDK)',
-    language: 'python',
-    code: `from openai import OpenAI
+    },
+    {
+      id: 'python',
+      label: 'Python (OpenAI SDK)',
+      language: 'python',
+      code: `from openai import OpenAI
 
 # Simply redirect baseURL to your New API instance
 client = OpenAI(
     api_key="sk-your-gateway-key",
-    base_url="https://api.yourdomain.com/v1"
+    base_url="${baseUrl}"
 )
 
 response = client.chat.completions.create(
@@ -253,17 +251,17 @@ response = client.chat.completions.create(
     messages=[{"role": "user", "content": "Hello AI Gateway!"}]
 )
 print(response.choices[0].message.content)`,
-  },
-  {
-    id: 'typescript',
-    label: 'TypeScript / Node.js',
-    language: 'typescript',
-    code: `import OpenAI from 'openai';
+    },
+    {
+      id: 'typescript',
+      label: 'TypeScript / Node.js',
+      language: 'typescript',
+      code: `import OpenAI from 'openai';
 
 // Compatible with official OpenAI SDK
 const openai = new OpenAI({
   apiKey: process.env.NEW_API_KEY,
-  baseURL: 'https://api.yourdomain.com/v1',
+  baseURL: '${baseUrl}',
 });
 
 const stream = await openai.chat.completions.create({
@@ -275,8 +273,9 @@ const stream = await openai.chat.completions.create({
 for await (const chunk of stream) {
   process.stdout.write(chunk.choices[0]?.delta?.content || '');
 }`,
-  },
-]
+    },
+  ]
+}
 
 export const GATEWAY_FEATURES = [
   'Cost Tracking',

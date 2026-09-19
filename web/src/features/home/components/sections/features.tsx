@@ -82,15 +82,15 @@ export function Features() {
                 {t('All-in-One Frontier Model Access')}
               </h3>
               <p className='text-muted-foreground text-xs sm:text-sm leading-relaxed max-w-xl'>
-                {t('Access GPT 6 Astra, DeepSeek-V4.1, Gemini 3.8 Flash, and Grok 4.6 with a single API key. No need to manage multiple international subscriptions or credit cards.')}
+                {t('Access GPT 6 Astra, DeepSeek V4.1 Flash, Gemini 3.8 Flash, and Grok 4.6 with a single API key. No need to manage multiple international subscriptions or credit cards.')}
               </p>
 
               {/* Visual Model Matrix */}
               <div className='mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono'>
                 {[
-                  { name: 'DeepSeek-V4.1', icon: 'DeepSeek.Color', tag: 'Deep Reasoning', status: 'Optimal' },
+                  { name: 'DeepSeek V4.1 Flash', icon: 'DeepSeek.Color', tag: 'Deep Reasoning', status: 'Optimal' },
                   { name: 'GPT 6 Astra', icon: 'OpenAI', tag: 'Next-Gen Omni', status: 'Optimal' },
-                  { name: 'Gemini 3.8 Flash', icon: 'Gemini.Color', tag: '2M+ Context', status: 'Optimal' },
+                  { name: 'Gemini 3.8 Flash', icon: 'Gemini.Color', tag: '1M Context', status: 'Optimal' },
                   { name: 'Grok 4.6', icon: 'Grok.Color', tag: 'Real-Time Insight', status: 'Optimal' },
                 ].map((model) => (
                   <div
@@ -289,7 +289,7 @@ export function Features() {
                 {t('Universal Tool Compatibility')}
               </h3>
               <p className='text-muted-foreground text-xs sm:text-sm leading-relaxed mb-4'>
-                {t('100% OpenAI-standard compatible. Connect Cursor, Cherry Studio, NextChat, Dify, or official SDKs with zero code rewrite.')}
+                {t('100% OpenAI-standard compatible. Connect Codex, Cursor, Cherry Studio, Dify, or official SDKs with zero code rewrite.')}
               </p>
 
               <div className='rounded-xl border border-border/50 bg-muted/30 p-3 font-mono text-[11px] text-foreground/80 space-y-1'>

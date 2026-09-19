@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Terminal } from 'lucide-react'
 
@@ -24,12 +24,19 @@ import { AnimateInView } from '@/components/animate-in-view'
 import { CopyButton } from '@/components/copy-button'
 import { cn } from '@/lib/utils'
 
-import { QUICKSTART_SNIPPETS } from '../../constants'
+import { getQuickstartSnippets } from '../../constants'
 
 export function Quickstart() {
   const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState(0)
-  const currentSnippet = QUICKSTART_SNIPPETS[activeTab]
+  const baseUrl = useMemo(() => {
+    if (typeof window !== 'undefined' && window.location.origin) {
+      return `${window.location.origin}/v1`
+    }
+    return 'https://api.yourdomain.com/v1'
+  }, [])
+  const snippets = useMemo(() => getQuickstartSnippets(baseUrl), [baseUrl])
+  const currentSnippet = snippets[activeTab]
 
   return (
     <section className='relative z-10 border-t border-border/50 bg-muted/15 px-4 py-20 sm:px-6 md:py-28'>
@@ -55,7 +62,7 @@ export function Quickstart() {
           {/* Top Bar with Language Tabs and Copy Button */}
           <div className='flex items-center justify-between border-b border-border/60 bg-muted/40 px-4 py-2.5 dark:border-white/[0.06] dark:bg-white/[0.02]'>
             <div className='flex items-center gap-1 sm:gap-2'>
-              {QUICKSTART_SNIPPETS.map((snippet, idx) => {
+              {snippets.map((snippet, idx) => {
                 const isActive = idx === activeTab
                 return (
                   <button
