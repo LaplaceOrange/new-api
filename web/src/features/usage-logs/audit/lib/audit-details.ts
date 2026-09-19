@@ -89,6 +89,10 @@ export function auditFieldLabel(key: string, t: TFunction): string {
       return t('Total')
     case 'requested_redemption_ids':
       return t('Requested redemption code IDs')
+    case 'max_uses':
+      return t('Total uses')
+    case 'max_uses_per_user':
+      return t('Uses per user')
     case 'requested_ids':
       return t('Requested token IDs')
     case 'returned_ids':

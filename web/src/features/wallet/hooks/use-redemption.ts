@@ -25,6 +25,22 @@ import { formatQuota } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 
 import { redeemTopupCode } from '../api'
+import type { RedeemResult } from '../types'
+
+export function parseRedeemResult(data: unknown): RedeemResult {
+  if (typeof data === 'number') {
+    return { quota: data, plan_id: 0 }
+  }
+  if (data && typeof data === 'object') {
+    const value = data as Record<string, unknown>
+    return {
+      quota: Number(value.quota) || 0,
+      plan_id: Number(value.plan_id) || 0,
+      plan_title: typeof value.plan_title === 'string' ? value.plan_title : '',
+    }
+  }
+  return { quota: 0, plan_id: 0 }
+}
 
 // ============================================================================
 // Redemption Hook
@@ -43,13 +59,21 @@ export function useRedemption() {
       setRedeeming(true)
       const response = await redeemTopupCode({ key: code })
 
-      if (response.success && response.data) {
-        const quotaAdded = response.data
-        toast.success(
-          i18next.t('Redemption successful! Added: {{quota}}', {
-            quota: formatQuota(quotaAdded),
-          })
-        )
+      if (response.success && response.data !== undefined && response.data !== null) {
+        const redeemed = parseRedeemResult(response.data)
+        if (redeemed.plan_id > 0) {
+          toast.success(
+            i18next.t('Redemption successful! Subscription: {{title}}', {
+              title: redeemed.plan_title || `#${redeemed.plan_id}`,
+            })
+          )
+        } else {
+          toast.success(
+            i18next.t('Redemption successful! Added: {{quota}}', {
+              quota: formatQuota(redeemed.quota),
+            })
+          )
+        }
         await getSelf()
         return true
       }

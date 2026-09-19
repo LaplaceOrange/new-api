@@ -35,7 +35,7 @@ import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { REDEMPTION_STATUS, REDEMPTION_STATUSES } from '../constants'
-import { isRedemptionExpired } from '../lib'
+import { formatRedemptionUses, isRedemptionExpired } from '../lib'
 import type { Redemption } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
 
@@ -162,9 +162,21 @@ export function RedemptionsMobileList(props: RedemptionsMobileListProps) {
             </div>
 
             <div className='flex items-center justify-between gap-2 text-xs'>
-              <span className='text-muted-foreground'>{t('Quota')}</span>
+              <span className='text-muted-foreground'>{t('Reward')}</span>
               <span className='font-medium tabular-nums'>
-                {formatQuota(redemption.quota)}
+                {redemption.plan_id > 0
+                  ? redemption.plan_title ||
+                    t('Plan #{{id}}', { id: redemption.plan_id })
+                  : formatQuota(redemption.quota)}
+              </span>
+            </div>
+            <div className='flex items-center justify-between gap-2 text-xs'>
+              <span className='text-muted-foreground'>{t('Uses')}</span>
+              <span className='font-medium tabular-nums'>
+                {formatRedemptionUses(
+                  redemption.used_count,
+                  redemption.max_uses
+                )}
               </span>
             </div>
           </div>

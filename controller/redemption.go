@@ -15,6 +15,50 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type redemptionUpsertRequest struct {
+	Id             int    `json:"id"`
+	Name           string `json:"name"`
+	Quota          int    `json:"quota"`
+	Count          int    `json:"count"`
+	ExpiredTime    int64  `json:"expired_time"`
+	Status         int    `json:"status"`
+	PlanId         int    `json:"plan_id"`
+	MaxUses        *int   `json:"max_uses"`
+	MaxUsesPerUser *int   `json:"max_uses_per_user"`
+}
+
+func (req redemptionUpsertRequest) usageLimits(defaultMaxUses, defaultMaxPerUser int) (int, int) {
+	maxUses := defaultMaxUses
+	if req.MaxUses != nil {
+		maxUses = *req.MaxUses
+	}
+	maxPerUser := defaultMaxPerUser
+	if req.MaxUsesPerUser != nil {
+		maxPerUser = *req.MaxUsesPerUser
+	}
+	return maxUses, maxPerUser
+}
+
+func redemptionConfigError(c *gin.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, model.ErrRedemptionRewardInvalid) {
+		common.ApiErrorI18n(c, i18n.MsgRedemptionRewardInvalid)
+		return true
+	}
+	if errors.Is(err, model.ErrRedemptionInvalidPlan) {
+		common.ApiErrorI18n(c, i18n.MsgRedemptionInvalidPlan)
+		return true
+	}
+	if errors.Is(err, model.ErrRedemptionUsageLimitInvalid) {
+		common.ApiErrorI18n(c, i18n.MsgRedemptionUsageLimitInvalid)
+		return true
+	}
+	common.ApiError(c, err)
+	return true
+}
+
 func GetAllRedemptions(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	redemptions, total, err := model.GetAllRedemptions(pageInfo.GetStartIdx(), pageInfo.GetPageSize())
@@ -68,46 +112,54 @@ func AddRedemption(c *gin.Context) {
 		return
 	}
 
-	redemption := model.Redemption{}
-	err := c.ShouldBindJSON(&redemption)
+	req := redemptionUpsertRequest{}
+	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if utf8.RuneCountInString(redemption.Name) == 0 || utf8.RuneCountInString(redemption.Name) > 20 {
+	if utf8.RuneCountInString(req.Name) == 0 || utf8.RuneCountInString(req.Name) > 20 {
 		common.ApiErrorI18n(c, i18n.MsgRedemptionNameLength)
 		return
 	}
-	if redemption.Count <= 0 {
+	if req.Count <= 0 {
 		common.ApiErrorI18n(c, i18n.MsgRedemptionCountPositive)
 		return
 	}
-	if redemption.Count > 100 {
+	if req.Count > 100 {
 		common.ApiErrorI18n(c, i18n.MsgRedemptionCountMax)
 		return
 	}
-	if redemption.Quota <= 0 {
-		common.ApiError(c, errors.New("redemption quota must be positive"))
+	maxUses, maxUsesPerUser := req.usageLimits(1, 1)
+	template := model.Redemption{
+		Name:           req.Name,
+		Quota:          req.Quota,
+		ExpiredTime:    req.ExpiredTime,
+		PlanId:         req.PlanId,
+		MaxUses:        maxUses,
+		MaxUsesPerUser: maxUsesPerUser,
+	}
+	if err := template.ValidateConfig(); err != nil {
+		redemptionConfigError(c, err)
 		return
 	}
-	if err := common.ValidateWalletQuota(redemption.Quota); err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if valid, msg := validateExpiredTime(c, redemption.ExpiredTime); !valid {
+	if valid, msg := validateExpiredTime(c, req.ExpiredTime); !valid {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": msg})
 		return
 	}
 	var keys []string
-	for i := 0; i < redemption.Count; i++ {
+	for range req.Count {
 		key := common.GetUUID()
 		cleanRedemption := model.Redemption{
-			UserId:      c.GetInt("id"),
-			Name:        redemption.Name,
-			Key:         key,
-			CreatedTime: common.GetTimestamp(),
-			Quota:       redemption.Quota,
-			ExpiredTime: redemption.ExpiredTime,
+			UserId:         c.GetInt("id"),
+			Name:           req.Name,
+			Key:            key,
+			CreatedTime:    common.GetTimestamp(),
+			Quota:          req.Quota,
+			ExpiredTime:    req.ExpiredTime,
+			PlanId:         req.PlanId,
+			MaxUses:        maxUses,
+			MaxUsesPerUser: maxUsesPerUser,
 		}
 		err = cleanRedemption.Insert()
 		if err != nil {
@@ -122,9 +174,12 @@ func AddRedemption(c *gin.Context) {
 		keys = append(keys, key)
 	}
 	recordManageAudit(c, "redemption.create", map[string]any{
-		"name":  redemption.Name,
-		"count": redemption.Count,
-		"quota": logger.LogQuota(redemption.Quota),
+		"name":              req.Name,
+		"count":             req.Count,
+		"quota":             logger.LogQuota(req.Quota),
+		"plan_id":           req.PlanId,
+		"max_uses":          maxUses,
+		"max_uses_per_user": maxUsesPerUser,
 	})
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -150,41 +205,37 @@ func DeleteRedemption(c *gin.Context) {
 
 func UpdateRedemption(c *gin.Context) {
 	statusOnly := c.Query("status_only")
-	redemption := model.Redemption{}
-	err := c.ShouldBindJSON(&redemption)
+	req := redemptionUpsertRequest{}
+	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	cleanRedemption, err := model.GetRedemptionById(redemption.Id)
+	cleanRedemption, err := model.GetRedemptionById(req.Id)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	if statusOnly == "" {
-		if redemption.Quota <= 0 {
-			common.ApiError(c, errors.New("redemption quota must be positive"))
-			return
-		}
-		if err := common.ValidateWalletQuota(redemption.Quota); err != nil {
-			common.ApiError(c, err)
-			return
-		}
-		if valid, msg := validateExpiredTime(c, redemption.ExpiredTime); !valid {
+		maxUses, maxUsesPerUser := req.usageLimits(cleanRedemption.MaxUses, cleanRedemption.MaxUsesPerUser)
+		if valid, msg := validateExpiredTime(c, req.ExpiredTime); !valid {
 			c.JSON(http.StatusOK, gin.H{"success": false, "message": msg})
 			return
 		}
 		// If you add more fields, please also update redemption.Update()
-		cleanRedemption.Name = redemption.Name
-		cleanRedemption.Quota = redemption.Quota
-		cleanRedemption.ExpiredTime = redemption.ExpiredTime
+		cleanRedemption.Name = req.Name
+		cleanRedemption.Quota = req.Quota
+		cleanRedemption.ExpiredTime = req.ExpiredTime
+		cleanRedemption.PlanId = req.PlanId
+		cleanRedemption.MaxUses = maxUses
+		cleanRedemption.MaxUsesPerUser = maxUsesPerUser
 	}
 	if statusOnly != "" {
-		cleanRedemption.Status = redemption.Status
+		cleanRedemption.Status = req.Status
 	}
 	err = cleanRedemption.Update()
 	if err != nil {
-		common.ApiError(c, err)
+		redemptionConfigError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{

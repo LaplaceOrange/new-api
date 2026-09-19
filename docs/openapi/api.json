@@ -5431,6 +5431,27 @@
           },
           "redeemed_time": {
             "type": "integer"
+          },
+          "expired_time": {
+            "type": "integer"
+          },
+          "used_user_id": {
+            "type": "integer"
+          },
+          "plan_id": {
+            "type": "integer"
+          },
+          "plan_title": {
+            "type": "string"
+          },
+          "max_uses": {
+            "type": "integer"
+          },
+          "max_uses_per_user": {
+            "type": "integer"
+          },
+          "used_count": {
+            "type": "integer"
           }
         }
       }

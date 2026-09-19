@@ -66,6 +66,9 @@ redemption.expired: "该兑换码已过期"
 redemption.failed: "兑换失败，请稍后重试"
 redemption.not_provided: "未提供兑换码"
 redemption.expire_time_invalid: "过期时间不能早于当前时间"
+redemption.reward_invalid: "兑换码必须兑换额度或订阅套餐之一"
+redemption.invalid_plan: "无效的订阅套餐"
+redemption.usage_limit_invalid: "使用次数不能为负数"
 
 # User messages
 user.password_login_disabled: "管理员关闭了密码登录"

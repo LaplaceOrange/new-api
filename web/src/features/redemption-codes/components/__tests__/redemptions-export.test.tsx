@@ -91,30 +91,30 @@ afterEach(() => {
 test.each([
   {
     name: true,
-    quota: true,
+    reward: true,
     txt: 'launch\tcodeA\t$10.00\nlaunch\tcodeB\t$10.00\n',
-    md: '| Name | Code | Quota |\n| --- | --- | --- |\n| launch | codeA | $10.00 |\n| launch | codeB | $10.00 |\n',
+    md: '| Name | Code | Reward |\n| --- | --- | --- |\n| launch | codeA | $10.00 |\n| launch | codeB | $10.00 |\n',
   },
   {
     name: true,
-    quota: false,
+    reward: false,
     txt: 'launch\tcodeA\nlaunch\tcodeB\n',
     md: '| Name | Code |\n| --- | --- |\n| launch | codeA |\n| launch | codeB |\n',
   },
   {
     name: false,
-    quota: true,
+    reward: true,
     txt: 'codeA\t$10.00\ncodeB\t$10.00\n',
-    md: '| Code | Quota |\n| --- | --- |\n| codeA | $10.00 |\n| codeB | $10.00 |\n',
+    md: '| Code | Reward |\n| --- | --- |\n| codeA | $10.00 |\n| codeB | $10.00 |\n',
   },
   {
     name: false,
-    quota: false,
+    reward: false,
     txt: 'codeA\ncodeB\n',
     md: '| Code |\n| --- |\n| codeA |\n| codeB |\n',
   },
 ])(
-  'exports TXT and Markdown with name=$name and quota=$quota',
+  'exports TXT and Markdown with name=$name and reward=$reward',
   async (options) => {
     const downloads = captureDownloads()
     const user = userEvent.setup()
@@ -122,7 +122,7 @@ test.each([
       const onClose = vi.fn()
       const view = render(
         <RedemptionsExportDialog
-          data={{ keys: ['codeA', 'codeB'], name: 'launch', quota: '$10.00' }}
+          data={{ keys: ['codeA', 'codeB'], name: 'launch', reward: '$10.00' }}
           onClose={onClose}
         />
       )
@@ -133,13 +133,13 @@ test.each([
         })
       )
       const name = screen.getByRole('checkbox', { name: 'Include name' })
-      const quota = screen.getByRole('checkbox', { name: 'Include quota' })
+      const quota = screen.getByRole('checkbox', { name: 'Include reward' })
       expect(name).not.toHaveAttribute('aria-disabled', 'true')
       expect(quota).not.toHaveAttribute('aria-disabled', 'true')
       expect(name).toBeChecked()
       expect(quota).toBeChecked()
       if (!options.name) await user.click(name)
-      if (!options.quota) {
+      if (!options.reward) {
         quota.focus()
         await user.keyboard(' ')
       }
@@ -166,7 +166,7 @@ test('keeps names containing table delimiters and markup inside one Markdown cel
   const user = userEvent.setup()
   render(
     <RedemptionsExportDialog
-      data={{ keys: ['codeA'], name: 'A | [B]\n<x>', quota: '$10' }}
+      data={{ keys: ['codeA'], name: 'A | [B]\n<x>', reward: '$10' }}
       onClose={() => undefined}
     />
   )
@@ -174,7 +174,7 @@ test('keeps names containing table delimiters and markup inside one Markdown cel
   await user.click(screen.getByRole('radio', { name: 'Save as Markdown' }))
   await user.click(screen.getByRole('button', { name: 'Done' }))
   expect(await readDownload(downloads[0])).toBe(
-    '| Name | Code | Quota |\n| --- | --- | --- |\n| A \\| \\[B\\] \\<x\\> | codeA | $10 |\n'
+    '| Name | Code | Reward |\n| --- | --- | --- |\n| A \\| \\[B\\] \\<x\\> | codeA | $10 |\n'
   )
 })
 
@@ -190,6 +190,9 @@ test('successful batch creation opens export with returned codes and the configu
   })
   vi.spyOn(api, 'post').mockResolvedValue({
     data: { success: true, data: ['createdA', 'createdB'] },
+  })
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: { success: true, data: [] },
   })
   render(<CreateDrawer />)
   const createDialog = screen.getByRole('dialog', {
@@ -241,6 +244,9 @@ test('failed creation does not open a success export dialog', async () => {
   vi.spyOn(api, 'post').mockResolvedValue({
     data: { success: false, message: 'Creation failed' },
   })
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: { success: true, data: [] },
+  })
   render(<CreateDrawer />)
   fireEvent.change(screen.getByLabelText('Name'), {
     target: { value: 'batch' },
@@ -263,7 +269,7 @@ test('completion defaults to no file and closes without downloading', async () =
   const onClose = vi.fn()
   render(
     <RedemptionsExportDialog
-      data={{ keys: ['codeA'], name: 'launch', quota: '$10' }}
+      data={{ keys: ['codeA'], name: 'launch', reward: '$10' }}
       onClose={onClose}
     />
   )
@@ -275,7 +281,7 @@ test('completion defaults to no file and closes without downloading', async () =
     screen.queryByRole('checkbox', { name: 'Include name' })
   ).not.toBeInTheDocument()
   expect(
-    screen.queryByRole('checkbox', { name: 'Include quota' })
+    screen.queryByRole('checkbox', { name: 'Include reward' })
   ).not.toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: 'Done' }))
   expect(downloads).toEqual([])
@@ -288,7 +294,7 @@ test('unchecking save as a file hides export settings and completes without down
   const onClose = vi.fn()
   render(
     <RedemptionsExportDialog
-      data={{ keys: ['codeA'], name: 'launch', quota: '$10' }}
+      data={{ keys: ['codeA'], name: 'launch', reward: '$10' }}
       onClose={onClose}
     />
   )
@@ -303,7 +309,7 @@ test('unchecking save as a file hides export settings and completes without down
     screen.queryByRole('checkbox', { name: 'Include name' })
   ).not.toBeInTheDocument()
   expect(
-    screen.queryByRole('checkbox', { name: 'Include quota' })
+    screen.queryByRole('checkbox', { name: 'Include reward' })
   ).not.toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: 'Done' }))
   expect(downloads).toEqual([])

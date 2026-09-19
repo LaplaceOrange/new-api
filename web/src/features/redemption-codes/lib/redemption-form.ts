@@ -36,26 +36,57 @@ import type { RedemptionFormData, Redemption } from '../types'
 
 export function getRedemptionFormSchema(t: TFunction) {
   const msg = getRedemptionFormErrorMessages(t)
-  return z.object({
-    name: z
-      .string()
-      .min(REDEMPTION_VALIDATION.NAME_MIN_LENGTH, msg.NAME_LENGTH_INVALID)
-      .max(REDEMPTION_VALIDATION.NAME_MAX_LENGTH, msg.NAME_LENGTH_INVALID),
-    quota_dollars: z.number().min(0, t('Quota must be a positive number')),
-    expired_time: z.date().optional(),
-    count: z
-      .number()
-      .min(REDEMPTION_VALIDATION.COUNT_MIN, msg.COUNT_INVALID)
-      .max(REDEMPTION_VALIDATION.COUNT_MAX, msg.COUNT_INVALID)
-      .optional(),
-  })
+  return z
+    .object({
+      name: z
+        .string()
+        .min(REDEMPTION_VALIDATION.NAME_MIN_LENGTH, msg.NAME_LENGTH_INVALID)
+        .max(REDEMPTION_VALIDATION.NAME_MAX_LENGTH, msg.NAME_LENGTH_INVALID),
+      reward_type: z.enum(['quota', 'subscription']),
+      quota_dollars: z.number().min(0, t('Quota must be a positive number')),
+      plan_id: z.number().optional(),
+      expired_time: z.date().optional(),
+      count: z
+        .number()
+        .min(REDEMPTION_VALIDATION.COUNT_MIN, msg.COUNT_INVALID)
+        .max(REDEMPTION_VALIDATION.COUNT_MAX, msg.COUNT_INVALID)
+        .optional(),
+      max_uses: z
+        .number()
+        .int()
+        .min(0, t('Usage limits cannot be negative')),
+      max_uses_per_user: z
+        .number()
+        .int()
+        .min(0, t('Usage limits cannot be negative')),
+    })
+    .superRefine((data, ctx) => {
+      if (data.reward_type === 'quota' && data.quota_dollars <= 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['quota_dollars'],
+          message: t('Quota must be a positive number'),
+        })
+      }
+      if (data.reward_type === 'subscription' && !data.plan_id) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['plan_id'],
+          message: t('Please select a subscription plan'),
+        })
+      }
+    })
 }
 
 export type RedemptionFormValues = {
   name: string
+  reward_type: 'quota' | 'subscription'
   quota_dollars: number
+  plan_id?: number
   expired_time?: Date
   count?: number
+  max_uses: number
+  max_uses_per_user: number
 }
 
 // ============================================================================
@@ -64,9 +95,13 @@ export type RedemptionFormValues = {
 
 export const REDEMPTION_FORM_DEFAULT_VALUES: RedemptionFormValues = {
   name: '',
+  reward_type: 'quota',
   quota_dollars: 10,
+  plan_id: undefined,
   expired_time: undefined,
   count: 1,
+  max_uses: 1,
+  max_uses_per_user: 1,
 }
 
 // ============================================================================
@@ -79,13 +114,17 @@ export const REDEMPTION_FORM_DEFAULT_VALUES: RedemptionFormValues = {
 export function transformFormDataToPayload(
   data: RedemptionFormValues
 ): RedemptionFormData {
+  const isSubscription = data.reward_type === 'subscription'
   return {
     name: data.name,
-    quota: parseQuotaFromDollars(data.quota_dollars),
+    quota: isSubscription ? 0 : parseQuotaFromDollars(data.quota_dollars),
     expired_time: data.expired_time
       ? Math.floor(data.expired_time.getTime() / 1000)
       : 0,
     count: data.count || 1,
+    plan_id: isSubscription ? data.plan_id || 0 : 0,
+    max_uses: data.max_uses,
+    max_uses_per_user: data.max_uses_per_user,
   }
 }
 
@@ -97,11 +136,15 @@ export function transformRedemptionToFormDefaults(
 ): RedemptionFormValues {
   return {
     name: redemption.name,
+    reward_type: redemption.plan_id > 0 ? 'subscription' : 'quota',
     quota_dollars: quotaUnitsToEditableAmount(redemption.quota),
+    plan_id: redemption.plan_id > 0 ? redemption.plan_id : undefined,
     expired_time:
       redemption.expired_time > 0
         ? new Date(redemption.expired_time * 1000)
         : undefined,
     count: 1,
+    max_uses: redemption.max_uses,
+    max_uses_per_user: redemption.max_uses_per_user,
   }
 }

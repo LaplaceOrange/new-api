@@ -66,6 +66,9 @@ redemption.expired: "該兌換碼已過期"
 redemption.failed: "兌換失敗，請稍後重試"
 redemption.not_provided: "未提供兌換碼"
 redemption.expire_time_invalid: "過期時間不能早於當前時間"
+redemption.reward_invalid: "兌換碼必須兌換額度或訂閱套餐之一"
+redemption.invalid_plan: "無效的訂閱套餐"
+redemption.usage_limit_invalid: "使用次數不能為負數"
 
 # User messages
 user.password_login_disabled: "管理員關閉了密碼登錄"

@@ -43,3 +43,10 @@ export function isRedemptionExpired(
 ): boolean {
   return status === 1 && isTimestampExpired(expired_time)
 }
+
+export function formatRedemptionUses(usedCount: number, maxUses: number): string {
+  if (maxUses === 0) {
+    return `${usedCount}/∞`
+  }
+  return `${usedCount}/${maxUses}`
+}

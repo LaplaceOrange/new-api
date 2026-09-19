@@ -353,6 +353,7 @@ func migrateDB() error {
 		&Option{},
 		&LoginEncryptionKey{},
 		&Redemption{},
+		&RedemptionUsage{},
 		&Ability{},
 		&Log{},
 		&Midjourney{},
@@ -403,7 +404,7 @@ func migrateDB() error {
 			return err
 		}
 	}
-	return nil
+	return backfillRedemptionUsedCount()
 }
 
 func migrateDBFast() error {
@@ -431,6 +432,7 @@ func migrateDBFast() error {
 		{&PasskeyCredential{}, "PasskeyCredential"},
 		{&Option{}, "Option"},
 		{&Redemption{}, "Redemption"},
+		{&RedemptionUsage{}, "RedemptionUsage"},
 		{&Ability{}, "Ability"},
 		{&Log{}, "Log"},
 		{&Midjourney{}, "Midjourney"},
@@ -499,7 +501,7 @@ func migrateDBFast() error {
 		}
 	}
 	common.SysLog("database migrated")
-	return nil
+	return backfillRedemptionUsedCount()
 }
 func migrateLOGDB() error {
 	if err := MigrateAuditLogs(); err != nil {

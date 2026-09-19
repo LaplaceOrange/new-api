@@ -80,6 +80,11 @@ function redemption(id: number, quota = 500001): Redemption {
     redeemed_time: 0,
     expired_time: 0,
     used_user_id: 0,
+    plan_id: 0,
+    plan_title: '',
+    max_uses: 1,
+    max_uses_per_user: 1,
+    used_count: 0,
   }
 }
 
@@ -91,6 +96,17 @@ function deferred<T>() {
     reject = promiseReject
   })
   return { promise, reject, resolve }
+}
+
+function mockGet(
+  handler: (url: string) => Promise<{ data: unknown }>
+): void {
+  apiClient.get = async (url: string) => {
+    if (String(url).includes('/api/subscription/admin/plans')) {
+      return { data: { success: true, data: [] } }
+    }
+    return handler(url)
+  }
 }
 
 function drawerTree(currentRow: Redemption) {
@@ -189,7 +205,7 @@ afterEach(() => {
 describe('redemption drawer', () => {
   test('shows the reported CNY quota without floating-point noise', async () => {
     const original = redemption(1, 13888889)
-    apiClient.get = async () => ({ data: { success: true, data: original } })
+    mockGet(async () => ({ data: { success: true, data: original } }))
 
     await renderDrawer(original, {
       quotaDisplayType: 'CNY',
@@ -203,9 +219,9 @@ describe('redemption drawer', () => {
   test('blocks updates and reports an error when loading rejects', async () => {
     const updates: unknown[] = []
     Reflect.set(console, 'log', () => undefined)
-    apiClient.get = async () => {
+    mockGet(async () => {
       throw new Error('network failure')
-    }
+    })
     apiClient.put = async (_url, data) => {
       updates.push(data)
       return { data: { success: true } }
@@ -230,9 +246,9 @@ describe('redemption drawer', () => {
   ])(
     'blocks updates and reports the server reason or localized fallback: $expected',
     async ({ message, expected }) => {
-      apiClient.get = async () => ({
+      mockGet(async () => ({
         data: { success: false, message },
-      })
+      }))
       await renderDrawer(redemption(1))
       await waitFor(() => expect(document.body).toHaveTextContent(expected))
       expect(getSaveButton()).toBeDisabled()
@@ -242,7 +258,7 @@ describe('redemption drawer', () => {
   test('keeps the original quota when another field changes', async () => {
     const original = redemption(1)
     const updates: Array<Record<string, unknown>> = []
-    apiClient.get = async () => ({ data: { success: true, data: original } })
+    mockGet(async () => ({ data: { success: true, data: original } }))
     apiClient.put = async (_url, data) => {
       expect(data && typeof data === 'object').toBeTruthy()
       updates.push(data as Record<string, unknown>)
@@ -264,7 +280,7 @@ describe('redemption drawer', () => {
   test('recalculates quota when the quota field changes', async () => {
     const original = redemption(1)
     const updates: Array<Record<string, unknown>> = []
-    apiClient.get = async () => ({ data: { success: true, data: original } })
+    mockGet(async () => ({ data: { success: true, data: original } }))
     apiClient.put = async (_url, data) => {
       expect(data && typeof data === 'object').toBeTruthy()
       updates.push(data as Record<string, unknown>)
@@ -288,6 +304,9 @@ describe('redemption drawer', () => {
     const requestedUrls: string[] = []
     const updates: Array<Record<string, unknown>> = []
     apiClient.get = (url) => {
+      if (String(url).includes('/api/subscription/admin/plans')) {
+        return Promise.resolve({ data: { success: true, data: [] } })
+      }
       requestedUrls.push(url)
       if (url === '/api/redemption/1') return firstRequest.promise
       if (url === '/api/redemption/2') return secondRequest.promise

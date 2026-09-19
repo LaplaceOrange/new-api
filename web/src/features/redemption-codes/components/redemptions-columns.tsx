@@ -31,7 +31,11 @@ import {
 import { formatQuota, formatTimestampToDate } from '@/lib/format'
 
 import { REDEMPTION_FILTER_EXPIRED, REDEMPTION_STATUSES } from '../constants'
-import { isRedemptionExpired, isTimestampExpired } from '../lib'
+import {
+  formatRedemptionUses,
+  isRedemptionExpired,
+  isTimestampExpired,
+} from '../lib'
 import type { Redemption } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
 
@@ -155,17 +159,65 @@ export function useRedemptionsColumns(): ColumnDef<Redemption>[] {
       size: 320,
     },
     {
-      accessorKey: 'quota',
-      header: t('Quota'),
+      id: 'reward',
+      header: t('Reward'),
       cell: ({ row }) => {
-        const quota = row.getValue('quota') as number
+        const redemption = row.original
+        if (redemption.plan_id > 0) {
+          return (
+            <StatusBadge
+              label={
+                redemption.plan_title ||
+                t('Plan #{{id}}', { id: redemption.plan_id })
+              }
+              variant='neutral'
+              copyable={false}
+              className='-ml-1.5'
+            />
+          )
+        }
         return (
           <StatusBadge
-            label={formatQuota(quota)}
+            label={formatQuota(redemption.quota)}
             variant='neutral'
             copyable={false}
             className='-ml-1.5'
           />
+        )
+      },
+      size: 120,
+    },
+    {
+      id: 'uses',
+      header: t('Uses'),
+      cell: ({ row }) => {
+        const redemption = row.original
+        return (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <StatusBadge
+                  label={formatRedemptionUses(
+                    redemption.used_count,
+                    redemption.max_uses
+                  )}
+                  variant='neutral'
+                  copyable={false}
+                  className='cursor-help'
+                />
+              }
+            />
+            <TooltipContent>
+              <div className='space-y-1 text-xs'>
+                <div>
+                  {t('Uses per user')}:{' '}
+                  {redemption.max_uses_per_user === 0
+                    ? t('Unlimited')
+                    : redemption.max_uses_per_user}
+                </div>
+              </div>
+            </TooltipContent>
+          </Tooltip>
         )
       },
       size: 120,

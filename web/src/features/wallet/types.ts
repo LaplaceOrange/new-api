@@ -33,7 +33,12 @@ export interface ApiResponse<T = unknown> {
  * Standard API response types
  */
 export type TopupInfoResponse = ApiResponse<TopupInfo>
-export type RedemptionResponse = ApiResponse<number>
+export interface RedeemResult {
+  quota: number
+  plan_id: number
+  plan_title?: string
+}
+export type RedemptionResponse = ApiResponse<RedeemResult | number>
 export interface PaymentQuote {
   subtotal: string
   fee: string

@@ -31,6 +31,7 @@ import {
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
 import { Button } from '@/components/ui/button'
+import { Combobox } from '@/components/ui/combobox'
 import {
   Form,
   FormControl,
@@ -41,6 +42,8 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import {
   Sheet,
   SheetClose,
@@ -62,6 +65,8 @@ import {
 } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { addTimeToDate } from '@/lib/time'
+import { getAdminPlans } from '@/features/subscriptions/api'
+import type { PlanRecord } from '@/features/subscriptions/types'
 
 import { createRedemption, updateRedemption, getRedemption } from '../api'
 import { SUCCESS_MESSAGES } from '../constants'
@@ -104,6 +109,7 @@ export function RedemptionsMutateDrawer({
   const [loadedRedemption, setLoadedRedemption] = useState<Redemption | null>(
     null
   )
+  const [plans, setPlans] = useState<PlanRecord[]>([])
 
   const form = useForm<RedemptionFormValues>({
     resolver: zodResolver(getRedemptionFormSchema(t)),
@@ -161,6 +167,29 @@ export function RedemptionsMutateDrawer({
     }
   }, [open, isUpdate, redemptionId, form, t])
 
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    let ignoreResult = false
+    void getAdminPlans()
+      .then((result) => {
+        if (ignoreResult) return
+        if (result.success) {
+          setPlans(result.data || [])
+          return
+        }
+        handleServerError(result)
+      })
+      .catch((error: unknown) => {
+        if (ignoreResult) return
+        handleServerError(error)
+      })
+    return () => {
+      ignoreResult = true
+    }
+  }, [open])
+
   const isUpdateReady =
     !isUpdate ||
     (redemptionLoadState === 'ready' && loadedRedemption?.id === redemptionId)
@@ -176,12 +205,17 @@ export function RedemptionsMutateDrawer({
       const basePayload = transformFormDataToPayload(data)
 
       if (isUpdate && currentRow && loadedRedemption) {
-        const quota = form.getFieldState('quota_dollars').isDirty
-          ? basePayload.quota
-          : loadedRedemption.quota
+        const isSubscription = data.reward_type === 'subscription'
+        let quota = basePayload.quota
+        if (isSubscription) {
+          quota = 0
+        } else if (!form.getFieldState('quota_dollars').isDirty) {
+          quota = loadedRedemption.quota
+        }
         const result = await updateRedemption({
           ...basePayload,
           quota,
+          plan_id: isSubscription ? basePayload.plan_id : 0,
           id: currentRow.id,
         })
         if (result.success) {
@@ -204,12 +238,19 @@ export function RedemptionsMutateDrawer({
               : t(SUCCESS_MESSAGES.REDEMPTION_CREATED)
           )
           if (result.data?.length) {
+            const selectedPlan = plans.find(
+              (item) => item.plan.id === basePayload.plan_id
+            )
             setCreatedCodes({
               keys: result.data,
               name: basePayload.name,
-              quota: formatQuotaWithCurrency(basePayload.quota, {
-                abbreviate: false,
-              }),
+              reward:
+                data.reward_type === 'subscription'
+                  ? selectedPlan?.plan.title ||
+                    t('Plan #{{id}}', { id: basePayload.plan_id })
+                  : formatQuotaWithCurrency(basePayload.quota, {
+                      abbreviate: false,
+                    }),
             })
           }
           onOpenChange(false)
@@ -228,7 +269,7 @@ export function RedemptionsMutateDrawer({
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     if (!isUpdate) {
       const name = form.getValues('name')
-      if (!name?.trim()) {
+      if (!name?.trim() && form.getValues('reward_type') === 'quota') {
         const quota = parseQuotaFromDollars(form.getValues('quota_dollars'))
         form.setValue('name', formatQuota(quota), { shouldValidate: true })
       }
@@ -247,6 +288,13 @@ export function RedemptionsMutateDrawer({
   const tokensOnly = currencyMeta.kind === 'tokens'
   const quotaStep = getEditableQuotaStep()
   const quotaLabel = t('Quota ({{currency}})', { currency: currencyLabel })
+  const rewardType = form.watch('reward_type')
+  const planOptions = plans.map((item) => ({
+    value: String(item.plan.id),
+    label: item.plan.enabled
+      ? item.plan.title
+      : `${item.plan.title} (${t('Disabled')})`,
+  }))
   const quotaPlaceholder = tokensOnly
     ? t('Enter quota in tokens')
     : t('Enter quota in {{currency}}', { currency: currencyLabel })
@@ -317,7 +365,55 @@ export function RedemptionsMutateDrawer({
 
                   <FormField
                     control={form.control}
-                    name='quota_dollars'
+                    name='reward_type'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Reward Type')}</FormLabel>
+                        <FormControl>
+                          <RadioGroup
+                            value={field.value}
+                            onValueChange={field.onChange}
+                            className='grid grid-cols-2 gap-3'
+                          >
+                            {[
+                              { value: 'quota', label: t('Quota') },
+                              {
+                                value: 'subscription',
+                                label: t('Subscription'),
+                              },
+                            ].map((option) => (
+                              <div
+                                key={option.value}
+                                className='flex items-center gap-2'
+                              >
+                                <RadioGroupItem
+                                  value={option.value}
+                                  id={`reward-${option.value}`}
+                                />
+                                <Label
+                                  htmlFor={`reward-${option.value}`}
+                                  className='cursor-pointer font-normal'
+                                >
+                                  {option.label}
+                                </Label>
+                              </div>
+                            ))}
+                          </RadioGroup>
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Each redemption code grants either quota or a subscription plan'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {rewardType === 'quota' && (
+                    <FormField
+                      control={form.control}
+                      name='quota_dollars'
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>{quotaLabel}</FormLabel>
@@ -344,7 +440,38 @@ export function RedemptionsMutateDrawer({
                         <FormMessage />
                       </FormItem>
                     )}
-                  />
+                    />
+                  )}
+
+                  {rewardType === 'subscription' && (
+                    <FormField
+                      control={form.control}
+                      name='plan_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Subscription Plan')}</FormLabel>
+                          <FormControl>
+                            <Combobox
+                              options={planOptions}
+                              value={field.value ? String(field.value) : ''}
+                              onValueChange={(value) =>
+                                field.onChange(
+                                  value ? Number.parseInt(value, 10) : undefined
+                                )
+                              }
+                              placeholder={t('Select subscription plan')}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Users receive this plan when they redeem the code'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
 
                   <FormField
                     control={form.control}
@@ -397,6 +524,64 @@ export function RedemptionsMutateDrawer({
                         </div>
                         <FormDescription>
                           {t('Leave empty for never expires')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='max_uses'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Total uses')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type='number'
+                            min='0'
+                            placeholder={t('0 means unlimited')}
+                            onChange={(e) =>
+                              field.onChange(
+                                Number.parseInt(e.target.value, 10) || 0
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'How many times this code can be redeemed in total. 0 means unlimited.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='max_uses_per_user'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Uses per user')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type='number'
+                            min='0'
+                            placeholder={t('0 means unlimited')}
+                            onChange={(e) =>
+                              field.onChange(
+                                Number.parseInt(e.target.value, 10) || 0
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'How many times each user can redeem this code. 0 means unlimited.'
+                          )}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
