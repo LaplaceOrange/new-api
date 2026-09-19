@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
@@ -25,11 +25,13 @@ import * as z from 'zod'
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
+import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 
 import { SettingsForm } from '../components/settings-form-layout'
@@ -37,39 +39,73 @@ import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 
-const noticeSchema = z.object({
-  Notice: z.string().optional(),
-})
-
-type NoticeFormValues = z.infer<typeof noticeSchema>
-
-type NoticeSectionProps = {
-  defaultValue: string
+function isHttpUrl(value: string) {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
 }
 
-export function NoticeSection({ defaultValue }: NoticeSectionProps) {
+const noticeShape = z.object({
+  Notice: z.string().optional(),
+  GroupChatLink: z.string().trim().optional(),
+})
+
+type NoticeFormValues = z.infer<typeof noticeShape>
+
+type NoticeSectionProps = {
+  defaultNotice: string
+  defaultGroupChatLink: string
+}
+
+export function NoticeSection(props: NoticeSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
+  const noticeSchema = useMemo(
+    () =>
+      noticeShape.extend({
+        GroupChatLink: z
+          .string()
+          .trim()
+          .refine((value) => value === '' || isHttpUrl(value), {
+            message: t('Enter an http(s) group chat URL'),
+          })
+          .optional(),
+      }),
+    [t]
+  )
   const form = useForm<NoticeFormValues>({
     resolver: zodResolver(noticeSchema),
     defaultValues: {
-      Notice: defaultValue ?? '',
+      Notice: props.defaultNotice ?? '',
+      GroupChatLink: props.defaultGroupChatLink ?? '',
     },
   })
 
   useEffect(() => {
-    form.reset({ Notice: defaultValue ?? '' })
-  }, [defaultValue, form])
+    form.reset({
+      Notice: props.defaultNotice ?? '',
+      GroupChatLink: props.defaultGroupChatLink ?? '',
+    })
+  }, [props.defaultNotice, props.defaultGroupChatLink, form])
 
   const onSubmit = async (values: NoticeFormValues) => {
-    const normalized = values.Notice ?? ''
-    if (normalized === (defaultValue ?? '')) {
-      return
+    const notice = values.Notice ?? ''
+    const groupChatLink = (values.GroupChatLink ?? '').trim()
+    if (notice !== (props.defaultNotice ?? '')) {
+      await updateOption.mutateAsync({
+        key: 'Notice',
+        value: notice,
+      })
     }
-    await updateOption.mutateAsync({
-      key: 'Notice',
-      value: normalized,
-    })
+    if (groupChatLink !== (props.defaultGroupChatLink ?? '').trim()) {
+      await updateOption.mutateAsync({
+        key: 'GroupChatLink',
+        value: groupChatLink,
+      })
+    }
   }
 
   return (
@@ -80,6 +116,27 @@ export function NoticeSection({ defaultValue }: NoticeSectionProps) {
             onSave={form.handleSubmit(onSubmit)}
             isSaving={updateOption.isPending}
             saveLabel='Save notice'
+          />
+          <FormField
+            control={form.control}
+            name='GroupChatLink'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Official group chat link')}</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder='https://t.me/your-group'
+                    {...field}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Used by the homepage Official Group Chat button. Leave empty to hide the button.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
           />
           <FormField
             control={form.control}

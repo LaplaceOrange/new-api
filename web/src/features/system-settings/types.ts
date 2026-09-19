@@ -134,6 +134,7 @@ export type SystemTaskListResponse = {
 
 export type SiteSettings = {
   Notice: string
+  GroupChatLink: string
   SystemName: string
   Logo: string
   Footer: string

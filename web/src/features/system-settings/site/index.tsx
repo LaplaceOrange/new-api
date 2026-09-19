@@ -26,6 +26,7 @@ import {
 
 const defaultSiteSettings: SiteSettings = {
   Notice: '',
+  GroupChatLink: '',
   SystemName: 'New API',
   Logo: '',
   Footer: '',

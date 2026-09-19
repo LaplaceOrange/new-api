@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"maps"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -84,6 +85,7 @@ func InitOptionMap() {
 	common.OptionMap["SMTPInsecureSkipVerify"] = strconv.FormatBool(common.SMTPInsecureSkipVerify)
 	common.OptionMap["SMTPForceAuthLogin"] = strconv.FormatBool(common.SMTPForceAuthLogin)
 	common.OptionMap["Notice"] = ""
+	common.OptionMap["GroupChatLink"] = ""
 	common.OptionMap["About"] = ""
 	common.OptionMap["HomePageContent"] = ""
 	common.OptionMap["Footer"] = common.Footer
@@ -277,6 +279,16 @@ func validateOptionValue(key string, value string) error {
 		threshold, err := strconv.Atoi(strings.TrimSpace(value))
 		if err != nil || threshold < 1 || threshold > setting.SensitiveWordBanThresholdMax {
 			return fmt.Errorf("%s must be an integer between 1 and %d", key, setting.SensitiveWordBanThresholdMax)
+		}
+	}
+	if key == "GroupChatLink" {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return nil
+		}
+		parsed, err := url.Parse(trimmed)
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return fmt.Errorf("group chat link must be an http or https URL")
 		}
 	}
 	return nil

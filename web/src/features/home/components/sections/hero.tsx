@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { Link } from '@tanstack/react-router'
 import {
   ArrowRight,
-  BookOpen,
+  MessagesSquare,
   Code2,
   ShieldCheck,
   Sparkles,
@@ -41,33 +41,24 @@ interface HeroProps {
 export function Hero(props: HeroProps) {
   const { t } = useTranslation()
   const { status } = useStatus()
-  const docsUrl =
-    (status?.docs_link as string | undefined) || 'https://docs.newapi.pro'
+  const groupChatUrl = (
+    (status?.group_chat_link as string | undefined) || ''
+  ).trim()
 
-  const renderDocsButton = () => {
-    const isExternal = docsUrl.startsWith('http')
-    if (isExternal) {
-      return (
-        <Button
-          variant='outline'
-          className='border-border/60 hover:border-border hover:bg-muted/50 inline-flex h-11 items-center gap-1.5 rounded-xl px-5 text-sm font-medium transition-colors'
-          render={
-            <a href={docsUrl} target='_blank' rel='noopener noreferrer' />
-          }
-        >
-          <BookOpen className='text-muted-foreground size-4' />
-          <span>{t('Docs')}</span>
-        </Button>
-      )
+  const renderGroupChatButton = () => {
+    if (!groupChatUrl.startsWith('http')) {
+      return null
     }
     return (
       <Button
         variant='outline'
         className='border-border/60 hover:border-border hover:bg-muted/50 inline-flex h-11 items-center gap-1.5 rounded-xl px-5 text-sm font-medium transition-colors'
-        render={<Link to={docsUrl} />}
+        render={
+          <a href={groupChatUrl} target='_blank' rel='noopener noreferrer' />
+        }
       >
-        <BookOpen className='text-muted-foreground size-4' />
-        <span>{t('Docs')}</span>
+        <MessagesSquare className='text-muted-foreground size-4' />
+        <span>{t('Official Group Chat')}</span>
       </Button>
     )
   }
@@ -134,7 +125,7 @@ export function Hero(props: HeroProps) {
                   <span>{t('Go to Dashboard')}</span>
                   <ArrowRight className='ml-2 size-4 transition-transform duration-200 group-hover:translate-x-1' />
                 </Button>
-                {renderDocsButton()}
+                {renderGroupChatButton()}
               </>
             ) : (
               <>
@@ -152,7 +143,7 @@ export function Hero(props: HeroProps) {
                 >
                   <span>{t('View Pricing')}</span>
                 </Button>
-                {renderDocsButton()}
+                {renderGroupChatButton()}
               </>
             )}
           </div>

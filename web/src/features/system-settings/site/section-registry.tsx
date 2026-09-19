@@ -55,7 +55,10 @@ const SITE_SECTIONS = [
     id: 'notice',
     titleKey: 'System Notice',
     build: (settings: SiteSettings) => (
-      <NoticeSection defaultValue={settings.Notice ?? ''} />
+      <NoticeSection
+        defaultNotice={settings.Notice ?? ''}
+        defaultGroupChatLink={settings.GroupChatLink ?? ''}
+      />
     ),
   },
   {

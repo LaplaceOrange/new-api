@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
-import { ArrowRight, BookOpen, Sparkles } from 'lucide-react'
+import { ArrowRight, MessagesSquare, Sparkles } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { AnimateInView } from '@/components/animate-in-view'
@@ -32,8 +32,9 @@ interface CTAProps {
 export function CTA(props: CTAProps) {
   const { t } = useTranslation()
   const { status } = useStatus()
-  const docsUrl =
-    (status?.docs_link as string | undefined) || 'https://docs.newapi.pro'
+  const groupChatUrl = (
+    (status?.group_chat_link as string | undefined) || ''
+  ).trim()
 
   return (
     <section className='relative z-10 overflow-hidden px-4 py-20 sm:px-6 md:py-28'>
@@ -100,27 +101,22 @@ export function CTA(props: CTAProps) {
               </>
             )}
 
-            {docsUrl.startsWith('http') ? (
+            {groupChatUrl.startsWith('http') ? (
               <Button
                 variant='ghost'
                 className='text-muted-foreground hover:text-foreground h-11 rounded-xl px-4 text-sm font-medium'
                 render={
-                  <a href={docsUrl} target='_blank' rel='noopener noreferrer' />
+                  <a
+                    href={groupChatUrl}
+                    target='_blank'
+                    rel='noopener noreferrer'
+                  />
                 }
               >
-                <BookOpen className='mr-1.5 size-4' />
-                <span>{t('Docs')}</span>
+                <MessagesSquare className='mr-1.5 size-4' />
+                <span>{t('Official Group Chat')}</span>
               </Button>
-            ) : (
-              <Button
-                variant='ghost'
-                className='text-muted-foreground hover:text-foreground h-11 rounded-xl px-4 text-sm font-medium'
-                render={<Link to={docsUrl} />}
-              >
-                <BookOpen className='mr-1.5 size-4' />
-                <span>{t('Docs')}</span>
-              </Button>
-            )}
+            ) : null}
           </div>
         </AnimateInView>
       </div>
