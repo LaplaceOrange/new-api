@@ -53,7 +53,6 @@ import {
   hasPendingContributionRevision,
   isTestRunActive,
   parseContributionModels,
-  testRunPassed,
 } from '../lib'
 import type { ChannelContributionTestRun } from '../types'
 import {
@@ -118,8 +117,7 @@ export function AdminContributionDetail(props: {
     mutationFn: createAdminChannelContributionTestRun,
   })
   const approveMutation = useMutation({
-    mutationFn: (testRunId: number | string) =>
-      approveChannelContribution(props.id, testRunId),
+    mutationFn: () => approveChannelContribution(props.id),
   })
   const rejectMutation = useMutation({
     mutationFn: (reason: string) => rejectChannelContribution(props.id, reason),
@@ -153,10 +151,8 @@ export function AdminContributionDetail(props: {
   }
 
   const handleApprove = async () => {
-    const runId = getTestRunId(adminRun)
-    if (!runId) return
     try {
-      const response = await approveMutation.mutateAsync(runId)
+      const response = await approveMutation.mutateAsync()
       if (!response.success) {
         toast.error(response.message || t('Failed to approve contribution'))
         return
@@ -214,13 +210,12 @@ export function AdminContributionDetail(props: {
     }
   }
 
-  const busy =
-    testMutation.isPending ||
+  const testBusy = testMutation.isPending || isTestRunActive(adminRun)
+  const reviewBusy =
     approveMutation.isPending ||
     rejectMutation.isPending ||
-    deleteMutation.isPending ||
-    isTestRunActive(adminRun)
-  const approveReady = pendingReview && testRunPassed(adminRun)
+    deleteMutation.isPending
+  const approveReady = pendingReview && !reviewBusy
 
   return (
     <>
@@ -245,7 +240,7 @@ export function AdminContributionDetail(props: {
             </div>
             <DialogDescription>
               {t(
-                'Run an independent administrator test before approving this revision.'
+                'Administrator tests are optional. You can approve this revision even if a test has not been run or did not pass.'
               )}
             </DialogDescription>
           </DialogHeader>
@@ -356,7 +351,7 @@ export function AdminContributionDetail(props: {
                         </h3>
                         <p className='text-muted-foreground text-xs'>
                           {t(
-                            'Approval is bound to this administrator test run ID.'
+                            'Run an optional administrator test if you want extra verification before approving.'
                           )}
                         </p>
                       </div>
@@ -364,7 +359,7 @@ export function AdminContributionDetail(props: {
                         type='button'
                         size='sm'
                         variant='outline'
-                        disabled={busy}
+                        disabled={testBusy || reviewBusy}
                         onClick={handleTest}
                       >
                         {testMutation.isPending || isTestRunActive(adminRun) ? (
@@ -390,7 +385,7 @@ export function AdminContributionDetail(props: {
               type='button'
               variant='destructive'
               className='sm:mr-auto'
-              disabled={busy || !contribution}
+              disabled={reviewBusy || !contribution}
               onClick={() => setDeleteOpen(true)}
             >
               <Trash2 data-icon='inline-start' />
@@ -399,7 +394,7 @@ export function AdminContributionDetail(props: {
             <Button
               type='button'
               variant='outline'
-              disabled={busy || !pendingReview}
+              disabled={reviewBusy || !pendingReview}
               onClick={() => setRejectOpen(true)}
             >
               <X data-icon='inline-start' />
@@ -407,7 +402,7 @@ export function AdminContributionDetail(props: {
             </Button>
             <Button
               type='button'
-              disabled={busy || !approveReady}
+              disabled={!approveReady}
               onClick={handleApprove}
             >
               <Check data-icon='inline-start' />

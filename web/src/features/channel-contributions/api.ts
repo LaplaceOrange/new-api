@@ -213,12 +213,10 @@ export async function createAdminChannelContributionTestRun(
 }
 
 export async function approveChannelContribution(
-  id: number,
-  testRunId: number | string
+  id: number
 ): Promise<ApiResponse<ChannelContribution>> {
   const response = await api.post<ApiResponse<ChannelContribution>>(
-    `${basePath}/admin/${id}/approve`,
-    { test_run_id: testRunId }
+    `${basePath}/admin/${id}/approve`
   )
   return response.data
 }

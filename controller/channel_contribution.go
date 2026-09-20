@@ -48,8 +48,7 @@ type channelContributionSubmitInput struct {
 }
 
 type channelContributionAdminReviewInput struct {
-	TestRunId int64  `json:"test_run_id"`
-	Reason    string `json:"reason"`
+	Reason string `json:"reason"`
 }
 
 type channelContributionSettingsInput struct {
@@ -802,11 +801,6 @@ func ApproveAdminChannelContribution(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	var input channelContributionAdminReviewInput
-	if err := common.DecodeJson(c.Request.Body, &input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid request body"})
-		return
-	}
 	contribution, err := model.GetChannelContributionById(id)
 	if err != nil {
 		common.ApiError(c, err)
@@ -826,11 +820,7 @@ func ApproveAdminChannelContribution(c *gin.Context) {
 		return
 	}
 	if computedConfigHash != revision.ConfigHash {
-		common.ApiErrorMsg(c, "channel contribution configuration changed; submit and test it again")
-		return
-	}
-	if err := validateChannelContributionSubmissionRun(input.TestRunId, contribution, revision, model.ChannelContributionTestActorAdmin); err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorMsg(c, "channel contribution configuration changed; submit it again")
 		return
 	}
 	priceReady, unpriced := channelContributionPriceStatus(channelContributionModels(revision.Models))

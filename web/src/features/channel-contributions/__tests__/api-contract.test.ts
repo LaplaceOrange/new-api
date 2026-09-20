@@ -21,6 +21,7 @@ import { afterEach, assert, describe, test } from 'vitest'
 import { api } from '@/lib/http-client'
 
 import {
+  approveChannelContribution,
   getAdminChannelContributions,
   getChannelContributionRewardTransfers,
   getChannelContributionRewards,
@@ -32,11 +33,19 @@ type ApiGet = (
   config?: unknown
 ) => Promise<{ data: { success: boolean; data: unknown } }>
 
-const apiClient = api as unknown as { get: ApiGet }
+type ApiPost = (
+  url: string,
+  data?: unknown,
+  config?: unknown
+) => Promise<{ data: { success: boolean; data: unknown } }>
+
+const apiClient = api as unknown as { get: ApiGet; post: ApiPost }
 const originalGet = apiClient.get
+const originalPost = apiClient.post
 
 afterEach(() => {
   apiClient.get = originalGet
+  apiClient.post = originalPost
 })
 
 describe('channel contribution API contract', () => {
@@ -84,6 +93,23 @@ describe('channel contribution API contract', () => {
           params: { p: 6, page_size: 10 },
           disableDuplicate: true,
         },
+      },
+    ])
+  })
+
+  test('approves a contribution without sending a test run id', async () => {
+    const calls: Array<{ url: string; data?: unknown }> = []
+    apiClient.post = async (url, data) => {
+      calls.push({ url, data })
+      return { data: { success: true, data: { id: 12, status: 'approved' } } }
+    }
+
+    await approveChannelContribution(12)
+
+    assert.deepEqual(calls, [
+      {
+        url: '/api/channel-contributions/admin/12/approve',
+        data: undefined,
       },
     ])
   })
