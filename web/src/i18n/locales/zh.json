@@ -2440,6 +2440,8 @@
     "Explain how to decouple monolith state machines into pure event-driven sagas.": "解释如何将单体状态机解耦为纯事件驱动的分布式 Saga 事务。",
     "Explore Documentation": "查阅技术文档",
     "Explore Models": "热门模型体验",
+    "Export cleanup history CSV": "导出清理历史 CSV",
+    "Export selected CSV": "导出所选用户 CSV",
     "Expose ratio API": "暴露倍率接口",
     "Exposes the pricing/models catalog in the top navigation.": "在顶部导航中显示定价/模型目录。",
     "Expression": "计费表达式",

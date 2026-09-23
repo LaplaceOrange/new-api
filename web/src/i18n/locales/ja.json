@@ -2440,6 +2440,8 @@
     "Explain how to decouple monolith state machines into pure event-driven sagas.": "モノリシックなステートマシンを純粋なイベント駆動型Sagaに分離する方法を説明。",
     "Explore Documentation": "ドキュメントを見る",
     "Explore Models": "モデルを探索",
+    "Export cleanup history CSV": "クリーンアップ履歴を CSV にエクスポート",
+    "Export selected CSV": "選択したユーザーを CSV にエクスポート",
     "Expose ratio API": "倍率APIを公開",
     "Exposes the pricing/models catalog in the top navigation.": "価格/モデルカタログをトップナビゲーションに表示します。",
     "Expression": "式",

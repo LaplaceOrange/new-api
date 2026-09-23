@@ -2440,6 +2440,8 @@
     "Explain how to decouple monolith state machines into pure event-driven sagas.": "Giải thích cách phân tách các máy trạng thái nguyên khối thành các saga hướng sự kiện thuần túy.",
     "Explore Documentation": "Khám phá tài liệu",
     "Explore Models": "Khám phá mô hình",
+    "Export cleanup history CSV": "Xuất lịch sử dọn dẹp CSV",
+    "Export selected CSV": "Xuất người dùng đã chọn CSV",
     "Expose ratio API": "Cung cấp API tỷ lệ",
     "Exposes the pricing/models catalog in the top navigation.": "Hiển thị danh mục giá/mô hình trên thanh điều hướng đầu trang.",
     "Expression": "Biểu thức",

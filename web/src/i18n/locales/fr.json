@@ -2440,6 +2440,8 @@
     "Explain how to decouple monolith state machines into pure event-driven sagas.": "Expliquez comment découpler les machines à états monolithiques en sagas purement pilotées par les événements.",
     "Explore Documentation": "Explorer la documentation",
     "Explore Models": "Explorer les modèles",
+    "Export cleanup history CSV": "Exporter l'historique CSV",
+    "Export selected CSV": "Exporter la sélection CSV",
     "Expose ratio API": "Exposer l'API de ratio",
     "Exposes the pricing/models catalog in the top navigation.": "Expose le catalogue des prix/modèles dans la navigation supérieure.",
     "Expression": "Expression",

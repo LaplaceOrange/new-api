@@ -2440,6 +2440,8 @@
     "Explain how to decouple monolith state machines into pure event-driven sagas.": "Explain how to decouple monolith state machines into pure event-driven sagas.",
     "Explore Documentation": "Explore Documentation",
     "Explore Models": "Explore Models",
+    "Export cleanup history CSV": "Export cleanup history CSV",
+    "Export selected CSV": "Export selected CSV",
     "Expose ratio API": "Expose ratio API",
     "Exposes the pricing/models catalog in the top navigation.": "Exposes the pricing/models catalog in the top navigation.",
     "Expression": "Expression",

@@ -2440,6 +2440,8 @@
     "Explain how to decouple monolith state machines into pure event-driven sagas.": "Объясните, как декомпозировать монолитные конечные автоматы в чисто событийно-ориентированные саги.",
     "Explore Documentation": "Изучить документацию",
     "Explore Models": "Обзор моделей",
+    "Export cleanup history CSV": "Экспортировать историю очистки в CSV",
+    "Export selected CSV": "Экспортировать выбранных пользователей в CSV",
     "Expose ratio API": "Интерфейс экспонирования коэффициента",
     "Exposes the pricing/models catalog in the top navigation.": "Отображает каталог цен/моделей в верхней навигации.",
     "Expression": "Выражение",

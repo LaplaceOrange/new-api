@@ -19,6 +19,20 @@ For commercial licensing, please contact support@quantumnous.com
 
 import type { UserCleanupRule, UserCleanupRulesConfig } from './types'
 
+export function formatCleanupCsv(headers: string[], rows: unknown[][]): string {
+  const escapeCell = (value: unknown) => {
+    let text = String(value ?? '')
+    if (typeof value === 'string' && /^[\s]*[=+@-]/.test(text)) {
+      text = `${"'"}${text}`
+    }
+    return `"${text.replaceAll('"', '""')}"`
+  }
+
+  return `${[headers, ...rows]
+    .map((row) => row.map(escapeCell).join(','))
+    .join('\r\n')}\r\n`
+}
+
 export function createCleanupRule(): UserCleanupRule {
   return {
     id:

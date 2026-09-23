@@ -32,6 +32,13 @@ export interface ApiResponse<T = unknown> {
   data?: T
 }
 
+type CleanupPage<T> = {
+  items: T[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export async function getUserCleanupRules(): Promise<
   ApiResponse<UserCleanupRulesConfig>
 > {
@@ -70,6 +77,12 @@ export async function getUserCleanupCandidates(params: {
   return res.data
 }
 
+export function getAllUserCleanupCandidates(): Promise<GetUsersResponse> {
+  return fetchAllCleanupPages((page) =>
+    getUserCleanupCandidates({ p: page, page_size: 100 })
+  )
+}
+
 export async function getUserCleanupCandidateIds(): Promise<
   ApiResponse<number[]>
 > {
@@ -87,18 +100,47 @@ export async function applyUserCleanup(
 export async function getUserCleanupHistory(params: {
   p?: number
   page_size?: number
-}): Promise<
-  ApiResponse<{
-    items: UserCleanupRecord[]
-    total: number
-    page: number
-    page_size: number
-  }>
-> {
+}): Promise<ApiResponse<CleanupPage<UserCleanupRecord>>> {
   const res = await api.get('/api/user/cleanup/history', {
     params: { p: params.p ?? 1, page_size: params.page_size ?? 20 },
   })
   return res.data
+}
+
+export function getAllUserCleanupHistory(): Promise<
+  ApiResponse<CleanupPage<UserCleanupRecord>>
+> {
+  return fetchAllCleanupPages((page) =>
+    getUserCleanupHistory({ p: page, page_size: 100 })
+  )
+}
+
+async function fetchAllCleanupPages<T>(
+  getPage: (page: number) => Promise<ApiResponse<CleanupPage<T>>>
+): Promise<ApiResponse<CleanupPage<T>>> {
+  const firstPage = await getPage(1)
+  if (!firstPage.success || !firstPage.data) return firstPage
+
+  const pageSize = firstPage.data.page_size || 100
+  const pageCount = Math.ceil(
+    Math.max(firstPage.data.total, firstPage.data.items.length) / pageSize
+  )
+  if (pageCount <= 1) return firstPage
+
+  const items = [...firstPage.data.items]
+  for (let startPage = 2; startPage <= pageCount; startPage += 10) {
+    const batchSize = Math.min(10, pageCount - startPage + 1)
+    const pages = await Promise.all(
+      Array.from({ length: batchSize }, (_, index) =>
+        getPage(startPage + index)
+      )
+    )
+    const failedPage = pages.find((page) => !page.success || !page.data)
+    if (failedPage) return failedPage
+    items.push(...pages.flatMap((page) => page.data?.items ?? []))
+  }
+
+  return { ...firstPage, data: { ...firstPage.data, items } }
 }
 
 export type { User }
