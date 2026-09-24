@@ -24,12 +24,17 @@ type ChannelSettings struct {
 	// HTTP2ConnectionShards spreads HTTP/2 traffic across N independent transports
 	// (1-8). Zero/unset means 1. Ignored when HTTPProtocol is "http1".
 	HTTP2ConnectionShards int `json:"http2_connection_shards,omitempty"`
+	// HealthCheckMaxTokens controls the max token budget sent by channel health checks.
+	// Zero/unset means DefaultHealthCheckMaxTokens.
+	HealthCheckMaxTokens int `json:"health_check_max_tokens,omitempty"`
 }
 
 const (
-	HTTPProtocolAuto         = "auto"
-	HTTPProtocolHTTP1        = "http1"
-	MaxHTTP2ConnectionShards = 8
+	HTTPProtocolAuto            = "auto"
+	HTTPProtocolHTTP1           = "http1"
+	MaxHTTP2ConnectionShards    = 8
+	DefaultHealthCheckMaxTokens = 1
+	MaxHealthCheckTokens        = 1_000_000
 )
 
 // ValidateHTTPTransport validates save-time HTTP transport channel settings.
@@ -50,6 +55,25 @@ func (s *ChannelSettings) ValidateHTTPTransport() error {
 		return fmt.Errorf("http2_connection_shards must be 1 when http_protocol is http1")
 	}
 	return nil
+}
+
+// ValidateHealthCheckMaxTokens validates the optional health check token budget.
+func (s *ChannelSettings) ValidateHealthCheckMaxTokens() error {
+	if s == nil {
+		return nil
+	}
+	if s.HealthCheckMaxTokens < 0 || s.HealthCheckMaxTokens > MaxHealthCheckTokens {
+		return fmt.Errorf("invalid health_check_max_tokens: %d", s.HealthCheckMaxTokens)
+	}
+	return nil
+}
+
+// GetHealthCheckMaxTokens returns the configured health check budget or its safe default.
+func (s ChannelSettings) GetHealthCheckMaxTokens() uint {
+	if s.HealthCheckMaxTokens <= 0 || s.HealthCheckMaxTokens > MaxHealthCheckTokens {
+		return DefaultHealthCheckMaxTokens
+	}
+	return uint(s.HealthCheckMaxTokens)
 }
 
 type VertexKeyType string

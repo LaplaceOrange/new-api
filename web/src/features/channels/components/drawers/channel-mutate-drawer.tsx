@@ -1532,6 +1532,37 @@ export function ChannelMutateDrawer({
     />
   )
 
+  const healthCheckMaxTokensFields = (
+    <FormField
+      control={form.control}
+      name='health_check_max_tokens'
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>{t('Health Check Max Tokens')}</FormLabel>
+          <FormControl>
+            <Input
+              type='number'
+              min={1}
+              max={1_000_000}
+              placeholder={t(FIELD_PLACEHOLDERS.HEALTH_CHECK_MAX_TOKENS)}
+              value={field.value ?? ''}
+              onChange={(e) => {
+                const nextValue = e.target.value
+                field.onChange(
+                  nextValue === '' ? undefined : Number(nextValue)
+                )
+              }}
+            />
+          </FormControl>
+          <FormDescription>
+            {t(FIELD_DESCRIPTIONS.HEALTH_CHECK_MAX_TOKENS)}
+          </FormDescription>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  )
+
   const systemPromptOverrideFields = (
     <FormField
       control={form.control}
@@ -4142,6 +4173,7 @@ export function ChannelMutateDrawer({
                 {thinkingFields}
                 {passthroughFields}
                 {systemPromptFields}
+                {healthCheckMaxTokensFields}
                 {systemPromptOverrideFields}
               </fieldset>
             </div>

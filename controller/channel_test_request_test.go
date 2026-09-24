@@ -96,7 +96,7 @@ func TestChannelTestOpenAIChatCompatibility(t *testing.T) {
 				"model":      tt.upstream,
 				"messages":   []dto.Message{{Role: "user", Content: "hi"}},
 				"stream":     tt.stream,
-				tt.wantLimit: 16,
+				tt.wantLimit: dto.DefaultHealthCheckMaxTokens,
 			}
 			if tt.stream {
 				want["stream_options"] = map[string]any{"include_usage": true}
@@ -106,6 +106,18 @@ func TestChannelTestOpenAIChatCompatibility(t *testing.T) {
 			assert.JSONEq(t, string(wantJSON), string(encoded))
 		})
 	}
+}
+
+func TestBuildTestRequestUsesChannelHealthCheckMaxTokens(t *testing.T) {
+	defaultRequest, ok := buildTestRequest("gpt-4.1", string(constant.EndpointTypeOpenAI), &model.Channel{}, false).(*dto.GeneralOpenAIRequest)
+	require.True(t, ok)
+	require.Equal(t, uint(dto.DefaultHealthCheckMaxTokens), *defaultRequest.MaxTokens)
+
+	channel := &model.Channel{}
+	channel.SetSetting(dto.ChannelSettings{HealthCheckMaxTokens: 32})
+	request, ok := buildTestRequest("gpt-4.1", string(constant.EndpointTypeOpenAI), channel, false).(*dto.GeneralOpenAIRequest)
+	require.True(t, ok)
+	require.Equal(t, uint(32), *request.MaxTokens)
 }
 
 func TestOpenAIChatSamplingCompatibility(t *testing.T) {

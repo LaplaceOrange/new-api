@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 
 import {
   CHANNEL_FORM_DEFAULT_VALUES,
+  buildSettingJSON,
   channelFormSchema,
   transformChannelToFormDefaults,
   transformFormDataToCreatePayload,
@@ -105,6 +106,52 @@ describe('channel concurrency form and display', () => {
     expect(
       formatChannelConcurrency(createChannel({ concurrency_known: false }))
     ).toBe('—')
+  })
+})
+
+describe('channel health check token settings', () => {
+  test('accepts the default and bounded positive token values', () => {
+    const validDefaults = {
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'channel',
+      key: 'key',
+      models: 'gpt-4',
+    }
+
+    expect(channelFormSchema.safeParse(validDefaults).success).toBe(true)
+    expect(
+      channelFormSchema.safeParse({
+        ...validDefaults,
+        health_check_max_tokens: 1_000_000,
+      }).success
+    ).toBe(true)
+    expect(
+      channelFormSchema.safeParse({
+        ...validDefaults,
+        health_check_max_tokens: 0,
+      }).success
+    ).toBe(false)
+    expect(
+      channelFormSchema.safeParse({
+        ...validDefaults,
+        health_check_max_tokens: 1_000_001,
+      }).success
+    ).toBe(false)
+  })
+
+  test('persists and loads the configured token value', () => {
+    const formData = {
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      health_check_max_tokens: 32,
+    }
+    expect(JSON.parse(buildSettingJSON(formData))).toMatchObject({
+      health_check_max_tokens: 32,
+    })
+    expect(
+      transformChannelToFormDefaults(
+        createChannel({ setting: '{"health_check_max_tokens":32}' })
+      ).health_check_max_tokens
+    ).toBe(32)
   })
 })
 

@@ -77,6 +77,7 @@ function isOptionalProxyURL(value: string | undefined): boolean {
 export const HTTP_PROTOCOL_AUTO = 'auto'
 export const HTTP_PROTOCOL_HTTP1 = 'http1'
 export const MAX_HTTP2_CONNECTION_SHARDS = 8
+export const MAX_HEALTH_CHECK_TOKENS = 1_000_000
 
 export function normalizeHttpProtocol(
   value: string | undefined | null
@@ -268,6 +269,15 @@ export const channelFormSchema = z
       .refine(isOptionalProxyURL, ERROR_MESSAGES.INVALID_PROXY),
     http_protocol: z.enum(['auto', 'http1']).optional(),
     http2_connection_shards: z.number().int().optional(),
+    health_check_max_tokens: z
+      .number()
+      .int('Health check max tokens must be a whole number')
+      .min(1, 'Health check max tokens must be at least 1')
+      .max(
+        MAX_HEALTH_CHECK_TOKENS,
+        'Health check max tokens cannot exceed 1,000,000'
+      )
+      .optional(),
     pass_through_body_enabled: z.boolean().optional(),
     system_prompt: z.string().optional(),
     system_prompt_override: z.boolean().optional(),
@@ -452,6 +462,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   proxy: '',
   http_protocol: HTTP_PROTOCOL_AUTO,
   http2_connection_shards: 1,
+  health_check_max_tokens: undefined,
   pass_through_body_enabled: false,
   system_prompt: '',
   system_prompt_override: false,
@@ -495,6 +506,7 @@ export function transformChannelToFormDefaults(
     proxy: '',
     http_protocol: HTTP_PROTOCOL_AUTO as 'auto' | 'http1',
     http2_connection_shards: 1,
+    health_check_max_tokens: undefined as number | undefined,
     pass_through_body_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
@@ -514,6 +526,12 @@ export function transformChannelToFormDefaults(
         proxy: parsed.proxy || '',
         http_protocol: protocol,
         http2_connection_shards: protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
+        health_check_max_tokens:
+          Number.isInteger(parsed.health_check_max_tokens) &&
+          parsed.health_check_max_tokens >= 1 &&
+          parsed.health_check_max_tokens <= MAX_HEALTH_CHECK_TOKENS
+            ? parsed.health_check_max_tokens
+            : undefined,
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
@@ -661,6 +679,12 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     settingObj.http_protocol = HTTP_PROTOCOL_HTTP1
   } else if (shards > 1) {
     settingObj.http2_connection_shards = shards
+  }
+  if (
+    formData.health_check_max_tokens != null &&
+    formData.health_check_max_tokens > 0
+  ) {
+    settingObj.health_check_max_tokens = formData.health_check_max_tokens
   }
 
   return JSON.stringify(settingObj)

@@ -643,6 +643,15 @@ func TestChannelSettingsValidateHTTPTransport(t *testing.T) {
 	assert.Contains(t, err.Error(), "http2_connection_shards")
 }
 
+func TestChannelSettingsHealthCheckMaxTokens(t *testing.T) {
+	require.Equal(t, uint(DefaultHealthCheckMaxTokens), (ChannelSettings{}).GetHealthCheckMaxTokens())
+	require.Equal(t, uint(DefaultHealthCheckMaxTokens), (ChannelSettings{HealthCheckMaxTokens: 0}).GetHealthCheckMaxTokens())
+	require.Equal(t, uint(32), (ChannelSettings{HealthCheckMaxTokens: 32}).GetHealthCheckMaxTokens())
+	require.NoError(t, (&ChannelSettings{HealthCheckMaxTokens: MaxHealthCheckTokens}).ValidateHealthCheckMaxTokens())
+	require.Error(t, (&ChannelSettings{HealthCheckMaxTokens: -1}).ValidateHealthCheckMaxTokens())
+	require.Error(t, (&ChannelSettings{HealthCheckMaxTokens: MaxHealthCheckTokens + 1}).ValidateHealthCheckMaxTokens())
+}
+
 func TestChannelOtherSettingsValidateToolLossPolicy(t *testing.T) {
 	require.NoError(t, (*ChannelOtherSettings)(nil).ValidateToolLossPolicy())
 	require.NoError(t, (&ChannelOtherSettings{}).ValidateToolLossPolicy())

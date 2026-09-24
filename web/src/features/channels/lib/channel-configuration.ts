@@ -59,6 +59,7 @@ const CONFIGURATION_BLOCKS = {
       'pass_through_body_enabled',
       'system_prompt',
       'system_prompt_override',
+      'health_check_max_tokens',
     ],
   },
   fieldPassthrough: {
@@ -149,7 +150,8 @@ export function getChannelConfigurationState(
       values.thinking_to_content ||
       values.pass_through_body_enabled ||
       values.system_prompt?.trim() ||
-      values.system_prompt_override
+      values.system_prompt_override ||
+      values.health_check_max_tokens != null
     ),
     fieldPassthrough: Boolean(
       ((openaiPassthrough || claudePassthrough) &&
