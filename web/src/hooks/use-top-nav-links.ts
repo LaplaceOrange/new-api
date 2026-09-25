@@ -87,6 +87,16 @@ export function useTopNavLinks(): TopNavLink[] {
     links.push({ title: t('Rankings'), href: '/rankings', requiresAuth })
   }
 
+  const degradation = modules?.degradation
+  if (degradation && typeof degradation === 'object' && degradation.enabled) {
+    const requiresAuth = degradation.requireAuth && !isAuthed
+    links.push({
+      title: t('Degradation Monitor'),
+      href: '/degradation',
+      requiresAuth,
+    })
+  }
+
   // Contribution is always protected by the authenticated route. Omitting
   // requiresAuth here avoids the public header countdown and redirects to
   // sign-in immediately with the destination preserved.

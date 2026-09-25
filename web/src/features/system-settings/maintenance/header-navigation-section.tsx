@@ -56,6 +56,8 @@ const headerNavSchema = z.object({
   rankingsEnabled: z.boolean(),
   rankingsRequireAuth: z.boolean(),
   contributionEnabled: z.boolean(),
+  degradationEnabled: z.boolean(),
+  degradationRequireAuth: z.boolean(),
   docs: z.boolean(),
   about: z.boolean(),
 })
@@ -94,6 +96,14 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
     config.contribution?.enabled === undefined
       ? HEADER_NAV_DEFAULT.contribution.enabled
       : Boolean(config.contribution.enabled),
+  degradationEnabled:
+    config.degradation?.enabled === undefined
+      ? HEADER_NAV_DEFAULT.degradation.enabled
+      : Boolean(config.degradation.enabled),
+  degradationRequireAuth:
+    config.degradation?.requireAuth === undefined
+      ? HEADER_NAV_DEFAULT.degradation.requireAuth
+      : Boolean(config.degradation.requireAuth),
   docs:
     config.docs === undefined ? HEADER_NAV_DEFAULT.docs : Boolean(config.docs),
   about:
@@ -140,6 +150,11 @@ export function HeaderNavigationSection({
         ...(config.contribution ?? HEADER_NAV_DEFAULT.contribution),
         enabled: values.contributionEnabled,
         requireAuth: true,
+      },
+      degradation: {
+        ...(config.degradation ?? HEADER_NAV_DEFAULT.degradation),
+        enabled: values.degradationEnabled,
+        requireAuth: values.degradationRequireAuth,
       },
     }
 
@@ -195,7 +210,10 @@ export function HeaderNavigationSection({
   const accessModules: Array<{
     enabledKey: keyof HeaderNavFormValues
     requireAuthKey: keyof HeaderNavFormValues
-    requireAuthDependsOn: 'pricingEnabled' | 'rankingsEnabled'
+    requireAuthDependsOn:
+      | 'pricingEnabled'
+      | 'rankingsEnabled'
+      | 'degradationEnabled'
     title: string
     description: string
     requireAuthTitle: string
@@ -210,6 +228,17 @@ export function HeaderNavigationSection({
       requireAuthTitle: t('Require login to view models'),
       requireAuthDescription: t(
         'Visitors must authenticate before accessing the pricing directory.'
+      ),
+    },
+    {
+      enabledKey: 'degradationEnabled',
+      requireAuthKey: 'degradationRequireAuth',
+      requireAuthDependsOn: 'degradationEnabled',
+      title: t('Degradation Monitor'),
+      description: t('Login page for model identity checks by group.'),
+      requireAuthTitle: t('Require login'),
+      requireAuthDescription: t(
+        'Visitors must sign in before opening the degradation monitor.'
       ),
     },
     {

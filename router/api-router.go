@@ -369,6 +369,12 @@ func SetApiRouter(router *gin.Engine) {
 			groupRoute.GET("/", controller.GetGroups)
 		}
 
+		degradationRoute := apiRouter.Group("/degradation")
+		degradationRoute.GET("/", middleware.HeaderNavModuleAuth("degradation"), controller.GetDegradationPage)
+		degradationRoute.GET("/models", middleware.AdminAuth(), controller.GetDegradationGroupModels)
+		degradationRoute.PUT("/", middleware.AdminAuth(), controller.UpdateDegradationConfig)
+		degradationRoute.POST("/clear", middleware.AdminAuth(), controller.ClearDegradationHistory)
+
 		prefillGroupRoute := apiRouter.Group("/prefill_group")
 		prefillGroupRoute.Use(middleware.AdminAuth())
 		{

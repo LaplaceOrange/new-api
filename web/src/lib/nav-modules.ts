@@ -22,7 +22,11 @@ import { readCachedStatus, statusQueryOptions } from '@/lib/status-query'
 
 export type ModuleAccess = { enabled: boolean; requireAuth: boolean }
 
-export type HeaderNavModule = 'rankings' | 'pricing' | 'contribution'
+export type HeaderNavModule =
+  | 'rankings'
+  | 'pricing'
+  | 'contribution'
+  | 'degradation'
 
 export type HeaderNavModules = {
   home: boolean
@@ -30,6 +34,7 @@ export type HeaderNavModules = {
   pricing: ModuleAccess
   rankings: ModuleAccess
   contribution: ModuleAccess
+  degradation: ModuleAccess
   docs: boolean
   about: boolean
   [key: string]: boolean | ModuleAccess
@@ -41,6 +46,7 @@ const DEFAULT_HEADER_NAV_MODULES: HeaderNavModules = {
   pricing: { enabled: true, requireAuth: false },
   rankings: { enabled: true, requireAuth: false },
   contribution: { enabled: true, requireAuth: true },
+  degradation: { enabled: true, requireAuth: true },
   docs: true,
   about: true,
 }
@@ -49,6 +55,7 @@ const DEFAULTS: Record<HeaderNavModule, ModuleAccess> = {
   pricing: DEFAULT_HEADER_NAV_MODULES.pricing,
   rankings: DEFAULT_HEADER_NAV_MODULES.rankings,
   contribution: DEFAULT_HEADER_NAV_MODULES.contribution,
+  degradation: DEFAULT_HEADER_NAV_MODULES.degradation,
 }
 
 function cloneHeaderNavDefaults(): HeaderNavModules {
@@ -57,6 +64,7 @@ function cloneHeaderNavDefaults(): HeaderNavModules {
     pricing: { ...DEFAULT_HEADER_NAV_MODULES.pricing },
     rankings: { ...DEFAULT_HEADER_NAV_MODULES.rankings },
     contribution: { ...DEFAULT_HEADER_NAV_MODULES.contribution },
+    degradation: { ...DEFAULT_HEADER_NAV_MODULES.degradation },
   }
 }
 
@@ -127,6 +135,10 @@ export function parseHeaderNavModules(raw: unknown): HeaderNavModules {
     if (key === 'contribution') {
       result.contribution = parseAccess(value, result.contribution)
       result.contribution.requireAuth = true
+      return
+    }
+    if (key === 'degradation') {
+      result.degradation = parseAccess(value, result.degradation)
       return
     }
 

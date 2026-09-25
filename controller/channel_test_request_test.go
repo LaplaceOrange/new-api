@@ -89,7 +89,7 @@ func TestChannelTestOpenAIChatCompatibility(t *testing.T) {
 		{name: "o series", model: "o3-mini", upstream: "o3-mini", channelType: constant.ChannelTypeAzure, wantLimit: "max_completion_tokens"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			request, ok := buildTestRequest(tt.model, tt.endpoint, &model.Channel{}, tt.stream).(*dto.GeneralOpenAIRequest)
+			request, ok := buildTestRequest(tt.model, tt.endpoint, &model.Channel{}, tt.stream, "", 0).(*dto.GeneralOpenAIRequest)
 			require.True(t, ok)
 			encoded := convertChatCompatibilityRequest(t, request, tt.channelType, map[string]string{tt.model: tt.upstream})
 			want := map[string]any{
@@ -109,13 +109,13 @@ func TestChannelTestOpenAIChatCompatibility(t *testing.T) {
 }
 
 func TestBuildTestRequestUsesChannelHealthCheckMaxTokens(t *testing.T) {
-	defaultRequest, ok := buildTestRequest("gpt-4.1", string(constant.EndpointTypeOpenAI), &model.Channel{}, false).(*dto.GeneralOpenAIRequest)
+	defaultRequest, ok := buildTestRequest("gpt-4.1", string(constant.EndpointTypeOpenAI), &model.Channel{}, false, "", 0).(*dto.GeneralOpenAIRequest)
 	require.True(t, ok)
 	require.Equal(t, uint(dto.DefaultHealthCheckMaxTokens), *defaultRequest.MaxTokens)
 
 	channel := &model.Channel{}
 	channel.SetSetting(dto.ChannelSettings{HealthCheckMaxTokens: 32})
-	request, ok := buildTestRequest("gpt-4.1", string(constant.EndpointTypeOpenAI), channel, false).(*dto.GeneralOpenAIRequest)
+	request, ok := buildTestRequest("gpt-4.1", string(constant.EndpointTypeOpenAI), channel, false, "", 0).(*dto.GeneralOpenAIRequest)
 	require.True(t, ok)
 	require.Equal(t, uint(32), *request.MaxTokens)
 }

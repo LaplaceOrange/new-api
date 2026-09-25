@@ -14,11 +14,15 @@ type headerNavAccess struct {
 	RequireAuth bool
 }
 
-func getHeaderNavAccess(module string) headerNavAccess {
-	fallback := headerNavAccess{
-		Enabled:     true,
-		RequireAuth: false,
+func headerNavFallback(module string) headerNavAccess {
+	if module == "degradation" {
+		return headerNavAccess{Enabled: true, RequireAuth: true}
 	}
+	return headerNavAccess{Enabled: true, RequireAuth: false}
+}
+
+func getHeaderNavAccess(module string) headerNavAccess {
+	fallback := headerNavFallback(module)
 
 	common.OptionMapRWMutex.RLock()
 	raw := common.OptionMap["HeaderNavModules"]

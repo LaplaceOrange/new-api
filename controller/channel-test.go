@@ -40,6 +40,7 @@ type testResult struct {
 	context     *gin.Context
 	localErr    error
 	newAPIError *types.NewAPIError
+	body        []byte
 }
 
 type channelTestOptions struct {
@@ -47,6 +48,10 @@ type channelTestOptions struct {
 	SkipConsumeLog         bool
 	SkipPricingValidation  bool
 	GroupOverride          string
+	Prompt                 string
+	ForceChat              bool
+	MaxTokens              uint
+	Quiet                  bool
 }
 
 type channelTestResponseRecorder struct {
@@ -157,6 +162,9 @@ func testChannelWithOptions(ctx context.Context, channel *model.Channel, testUse
 	}
 
 	endpointType = normalizeChannelTestEndpoint(channel, endpointType)
+	if options.ForceChat {
+		endpointType = string(constant.EndpointTypeOpenAI)
+	}
 
 	requestPath := "/v1/chat/completions"
 
@@ -279,7 +287,7 @@ func testChannelWithOptions(ctx context.Context, channel *model.Channel, testUse
 		}
 	}
 
-	request := buildTestRequest(testModel, endpointType, channel, isStream)
+	request := buildTestRequest(testModel, endpointType, channel, isStream, options.Prompt, options.MaxTokens)
 
 	info, err := relaycommon.GenRelayInfo(c, relayFormat, request, nil)
 
@@ -345,7 +353,9 @@ func testChannelWithOptions(ctx context.Context, channel *model.Channel, testUse
 	//// 创建一个用于日志的 info 副本，移除 ApiKey
 	//logInfo := info
 	//logInfo.ApiKey = ""
-	common.SysLog(fmt.Sprintf("testing channel %d with model %s , info %+v ", channel.Id, testModel, info.ToString()))
+	if !options.Quiet {
+		common.SysLog(fmt.Sprintf("testing channel %d with model %s , info %+v ", channel.Id, testModel, info.ToString()))
+	}
 
 	priceData := hosttypes.PriceData{}
 	if !options.SkipPricingValidation {
@@ -585,13 +595,14 @@ func testChannelWithOptions(ctx context.Context, channel *model.Channel, testUse
 			Other:            other,
 		})
 	}
-	if !options.UseSSRFProtectedClient {
+	if !options.Quiet && !options.UseSSRFProtectedClient {
 		common.SysLog(fmt.Sprintf("testing channel #%d, response: \n%s", channel.Id, string(respBody)))
 	}
 	return testResult{
 		context:     c,
 		localErr:    nil,
 		newAPIError: nil,
+		body:        respBody,
 	}
 }
 
@@ -878,11 +889,18 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
 	return message
 }
 
-func buildTestRequest(model string, endpointType string, channel *model.Channel, isStream bool) dto.Request {
+func buildTestRequest(model string, endpointType string, channel *model.Channel, isStream bool, prompt string, maxTokens uint) dto.Request {
 	testResponsesInput := json.RawMessage(`[{"role":"user","content":"hi"}]`)
 	healthCheckMaxTokens := uint(dto.DefaultHealthCheckMaxTokens)
 	if channel != nil {
 		healthCheckMaxTokens = channel.GetSetting().GetHealthCheckMaxTokens()
+	}
+	if maxTokens > 0 {
+		healthCheckMaxTokens = maxTokens
+	}
+	message := "hi"
+	if strings.TrimSpace(prompt) != "" {
+		message = prompt
 	}
 
 	// 根据端点类型构建不同的测试请求
@@ -932,7 +950,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 				Messages: []dto.ClaudeMessage{
 					{
 						Role:    "user",
-						Content: "hi",
+						Content: message,
 					},
 				},
 			}
@@ -955,7 +973,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 				Messages: []dto.Message{
 					{
 						Role:    "user",
-						Content: "hi",
+						Content: message,
 					},
 				},
 				MaxTokens: lo.ToPtr(healthCheckMaxTokens),
@@ -1005,7 +1023,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 		Messages: []dto.Message{
 			{
 				Role:    "user",
-				Content: "hi",
+				Content: message,
 			},
 		},
 	}

@@ -24,6 +24,7 @@ const (
 	SystemTaskTypeChannelContributionTest   = "channel_contribution_test"
 	SystemTaskTypeChannelContributionHealth = "channel_contribution_health"
 	SystemTaskTypeUserCleanupScan           = "user_cleanup_scan"
+	SystemTaskTypeDegradationMonitor        = "degradation_monitor"
 )
 
 var ErrSystemTaskLockLost = errors.New("system task lock lost")

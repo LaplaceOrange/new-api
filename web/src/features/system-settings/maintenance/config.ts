@@ -27,6 +27,7 @@ export type HeaderNavModulesConfig = {
   pricing: HeaderNavAccessConfig
   rankings: HeaderNavAccessConfig
   contribution: HeaderNavAccessConfig
+  degradation: HeaderNavAccessConfig
   docs: boolean
   about: boolean
   [key: string]: boolean | HeaderNavAccessConfig
@@ -51,6 +52,10 @@ export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
     requireAuth: false,
   },
   contribution: {
+    enabled: true,
+    requireAuth: true,
+  },
+  degradation: {
     enabled: true,
     requireAuth: true,
   },
@@ -109,6 +114,7 @@ const cloneHeaderNavDefault = (): HeaderNavModulesConfig => ({
   pricing: { ...HEADER_NAV_DEFAULT.pricing },
   rankings: { ...HEADER_NAV_DEFAULT.rankings },
   contribution: { ...HEADER_NAV_DEFAULT.contribution },
+  degradation: { ...HEADER_NAV_DEFAULT.degradation },
 })
 
 const parseAccessModule = (
@@ -158,6 +164,7 @@ export function parseHeaderNavModules(
       pricing: { ...base.pricing },
       rankings: { ...base.rankings },
       contribution: { ...base.contribution },
+      degradation: { ...base.degradation },
     }
 
     Object.entries(parsed).forEach(([key, raw]) => {
@@ -172,6 +179,10 @@ export function parseHeaderNavModules(
       if (key === 'contribution') {
         result.contribution = parseAccessModule(raw, base.contribution)
         result.contribution.requireAuth = true
+        return
+      }
+      if (key === 'degradation') {
+        result.degradation = parseAccessModule(raw, base.degradation)
         return
       }
 
