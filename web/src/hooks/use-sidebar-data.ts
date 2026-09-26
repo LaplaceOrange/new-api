@@ -24,6 +24,8 @@ import {
   CreditCard,
   FileText,
   FlaskConical,
+  Images,
+  SlidersHorizontal,
   HeartHandshake,
   Key,
   LayoutDashboard,
@@ -64,6 +66,11 @@ export function useSidebarData(): SidebarData {
             title: t('Playground'),
             url: '/playground',
             icon: FlaskConical,
+          },
+          {
+            title: t('Online Image Studio'),
+            url: '/image-studio',
+            icon: Images,
           },
           {
             title: t('Chat'),
@@ -174,6 +181,11 @@ export function useSidebarData(): SidebarData {
             title: t('Subscriptions'),
             url: '/subscriptions',
             icon: CreditCard,
+          },
+          {
+            title: t('Image Studio Settings'),
+            url: '/image-studio-admin',
+            icon: SlidersHorizontal,
           },
           {
             title: t('System Info'),

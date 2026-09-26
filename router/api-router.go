@@ -207,6 +207,27 @@ func SetApiRouter(router *gin.Engine) {
 			subscriptionAdminRoute.DELETE("/user_subscriptions/:id", controller.AdminDeleteUserSubscription)
 		}
 
+		imageStudioRoute := apiRouter.Group("/image-studio")
+		imageStudioRoute.Use(middleware.UserAuth(), middleware.DisableCache())
+		{
+			imageStudioRoute.GET("/options", controller.GetImageStudioOptions)
+			imageStudioRoute.GET("/legal/:kind", controller.GetImageStudioLegal)
+			imageStudioRoute.GET("/records", controller.ListImageStudioRecords)
+			imageStudioRoute.GET("/records/:id/assets/:asset", controller.GetImageStudioAsset)
+			imageStudioRoute.DELETE("/records/:id", middleware.SessionCookieOriginGuard(), controller.DeleteImageStudioRecord)
+			imageStudioRoute.POST("/generate", middleware.SessionCookieOriginGuard(), middleware.CriticalRateLimit(), controller.ImageStudioPrepare, middleware.Distribute(), controller.ImageStudioRelay)
+		}
+		imageStudioAdmin := apiRouter.Group("/image-studio/admin")
+		imageStudioAdmin.Use(middleware.AdminAuth(), middleware.DisableCache())
+		{
+			imageStudioAdmin.GET("/config", controller.GetImageStudioAdminConfig)
+			imageStudioAdmin.PUT("/config", middleware.SessionCookieOriginGuard(), controller.UpdateImageStudioAdminConfig)
+			imageStudioAdmin.GET("/records", controller.ListImageStudioRecords)
+			imageStudioAdmin.POST("/records/:action", middleware.SessionCookieOriginGuard(), controller.BatchImageStudioRecords)
+			imageStudioAdmin.GET("/records/:id/assets/:asset", controller.GetImageStudioAsset)
+			imageStudioAdmin.DELETE("/records/:id", middleware.SessionCookieOriginGuard(), controller.DeleteImageStudioRecord)
+		}
+
 		// Subscription payment callbacks (no auth)
 		apiRouter.POST("/subscription/epay/notify", anonymousRequestBodyLimit, controller.SubscriptionEpayNotify)
 		apiRouter.GET("/subscription/epay/notify", controller.SubscriptionEpayNotify)

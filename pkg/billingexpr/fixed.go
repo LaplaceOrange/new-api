@@ -5,7 +5,55 @@ import (
 	"math"
 
 	"github.com/expr-lang/expr/ast"
+	"github.com/expr-lang/expr/parser"
 )
+
+// ImageUnitPrice accepts only a single unconditional, fixed price multiplied
+// by image_count. Other valid expressions may change price with request or usage.
+func ImageUnitPrice(expression string) (float64, bool) {
+	version, body := ParseExprVersion(expression)
+	if version != DefaultExprVersion {
+		return 0, false
+	}
+	tree, err := parser.Parse(body)
+	if err != nil {
+		return 0, false
+	}
+	multiplier, ok := tree.Node.(*ast.BinaryNode)
+	if !ok || multiplier.Operator != "*" {
+		return 0, false
+	}
+	priceNode := multiplier.Left
+	countNode := multiplier.Right
+	if count, valid := priceNode.(*ast.IdentifierNode); valid && count.Value == "image_count" {
+		priceNode, countNode = countNode, priceNode
+	}
+	count, valid := countNode.(*ast.IdentifierNode)
+	if !valid || count.Value != "image_count" {
+		return 0, false
+	}
+	tier, valid := priceNode.(*ast.CallNode)
+	if !valid || len(tier.Arguments) != 2 {
+		return 0, false
+	}
+	callee, valid := tier.Callee.(*ast.IdentifierNode)
+	if !valid || callee.Value != "tier" {
+		return 0, false
+	}
+	if _, valid = tier.Arguments[0].(*ast.StringNode); !valid {
+		return 0, false
+	}
+	fixed, valid := tier.Arguments[1].(*ast.CallNode)
+	if !valid || len(fixed.Arguments) != 1 {
+		return 0, false
+	}
+	callee, valid = fixed.Callee.(*ast.IdentifierNode)
+	if !valid || callee.Value != "fixed" {
+		return 0, false
+	}
+	amount, literal := requestRuleNumber(fixed.Arguments[0])
+	return amount, literal && amount >= 0 && !math.IsNaN(amount) && !math.IsInf(amount*1_000_000, 0)
+}
 
 // UsesFixedPricing includes unselected branches, even when compilation later
 // optimizes them away. Hosts use it to reject unsupported billing entrances.

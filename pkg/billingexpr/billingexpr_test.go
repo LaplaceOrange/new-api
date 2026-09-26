@@ -41,6 +41,28 @@ func TestFixedPriceBranches(t *testing.T) {
 	}
 }
 
+func TestImageUnitPriceOnlyAcceptsUnconditionalPerImagePrice(t *testing.T) {
+	for _, test := range []struct {
+		expression string
+		price      float64
+		ok         bool
+	}{
+		{`tier("image", fixed(0.04)) * image_count`, 0.04, true},
+		{`v1:image_count * tier("image", fixed(0))`, 0, true},
+		{`tier("request", fixed(0.04))`, 0, false},
+		{`tier("image", fixed(0.04)) * (param("size") == "4096x4096" ? 2 : image_count)`, 0, false},
+		{`len > 1 ? tier("large", fixed(0.08)) * image_count : tier("small", fixed(0.04)) * image_count`, 0, false},
+		{`tier("image", p * 2 + c * 8) * image_count`, 0, false},
+		{`tier("image", fixed(-1)) * image_count`, 0, false},
+	} {
+		price, ok := billingexpr.ImageUnitPrice(test.expression)
+		assert.Equal(t, test.ok, ok, test.expression)
+		if ok {
+			assert.Equal(t, test.price, price, test.expression)
+		}
+	}
+}
+
 func TestFixedPriceRejectsInvalidLeavesIncludingUnselectedBranches(t *testing.T) {
 	for _, expression := range []string{
 		`true ? tier("ok", p) : tier("bad", fixed(-0.01))`,
