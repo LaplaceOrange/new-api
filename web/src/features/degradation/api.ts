@@ -59,3 +59,21 @@ export async function clearDegradationHistory(group: string, model: string) {
   )
   return res.data
 }
+
+export async function startDegradationTest(group: string, model: string) {
+  const res = await api.post<{
+    success: boolean
+    message?: string
+    data: { task_id: string }
+  }>('/api/degradation/test', { group, model })
+  return res.data
+}
+
+export async function getDegradationTest(taskId: string) {
+  const res = await api.get<{
+    success: boolean
+    message?: string
+    data: { status: string; error: string }
+  }>(`/api/degradation/test/${encodeURIComponent(taskId)}`)
+  return res.data
+}

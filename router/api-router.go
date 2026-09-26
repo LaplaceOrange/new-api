@@ -395,6 +395,8 @@ func SetApiRouter(router *gin.Engine) {
 		degradationRoute.GET("/models", middleware.AdminAuth(), controller.GetDegradationGroupModels)
 		degradationRoute.PUT("/", middleware.AdminAuth(), controller.UpdateDegradationConfig)
 		degradationRoute.POST("/clear", middleware.AdminAuth(), controller.ClearDegradationHistory)
+		degradationRoute.POST("/test", middleware.AdminAuth(), controller.StartDegradationTest)
+		degradationRoute.GET("/test/:task_id", middleware.AdminAuth(), controller.GetDegradationTest)
 
 		prefillGroupRoute := apiRouter.Group("/prefill_group")
 		prefillGroupRoute.Use(middleware.AdminAuth())

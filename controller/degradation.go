@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/degradation"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
@@ -226,4 +227,58 @@ func ClearDegradationHistory(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, nil)
+}
+
+func StartDegradationTest(c *gin.Context) {
+	var payload degradationTestPayload
+	if err := common.DecodeJson(c.Request.Body, &payload); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	payload.Group = strings.TrimSpace(payload.Group)
+	payload.Model = strings.TrimSpace(payload.Model)
+	if payload.Group == "" || payload.Model == "" {
+		common.ApiErrorMsg(c, "group and model are required")
+		return
+	}
+	cfg := degradation.LoadConfig()
+	found := false
+	for _, group := range cfg.Groups {
+		if group.Group != payload.Group {
+			continue
+		}
+		for _, item := range group.Models {
+			if item.Model == payload.Model {
+				found = true
+				break
+			}
+		}
+	}
+	if !found || !ratio_setting.ContainsGroupRatio(payload.Group) || !enabledModelSet(payload.Group)[payload.Model] {
+		common.ApiErrorMsg(c, "model is not available for monitoring")
+		return
+	}
+	task, created, err := service.EnqueueSystemTask(model.SystemTaskTypeDegradationMonitor, payload)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !created {
+		common.ApiErrorMsg(c, "a degradation test is already running")
+		return
+	}
+	common.ApiSuccess(c, gin.H{"task_id": task.TaskID})
+}
+
+func GetDegradationTest(c *gin.Context) {
+	task, err := model.GetSystemTaskByTaskID(c.Param("task_id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if task == nil || task.Type != model.SystemTaskTypeDegradationMonitor {
+		common.ApiErrorMsg(c, "test not found")
+		return
+	}
+	common.ApiSuccess(c, gin.H{"status": task.Status, "error": task.Error})
 }

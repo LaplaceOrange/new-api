@@ -18,8 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
-import { Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { MoreHorizontal, Play, Trash2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -28,6 +28,13 @@ import { EmptyState } from '@/components/empty-state'
 import { PublicLayout } from '@/components/layout'
 import { PageTransition } from '@/components/page-transition'
 import { StatusBadge } from '@/components/status-badge'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Tooltip,
@@ -42,7 +49,12 @@ import {
 } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { clearDegradationHistory, getDegradationPage } from './api'
+import {
+  clearDegradationHistory,
+  getDegradationPage,
+  getDegradationTest,
+  startDegradationTest,
+} from './api'
 import { DegradationEditor } from './editor'
 import type { DegradationModel } from './types'
 
@@ -172,6 +184,7 @@ function ModelTimeline(props: {
         events={props.model.timeline}
         group={props.group}
         model={props.model.model}
+        unavailable={props.model.status === 'unavailable'}
       />
     </div>
   )
@@ -184,10 +197,12 @@ function StatusStrip(props: {
   events: DegradationModel['timeline']
   group: string
   model: string
+  unavailable: boolean
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [taskId, setTaskId] = useState<string | null>(null)
   const events = [...props.events]
     .filter((event) => event.status !== 'retrying')
     .sort((a, b) => a.created_at - b.created_at)
@@ -197,7 +212,10 @@ function StatusStrip(props: {
     ...events,
   ]
   const clearMutation = useMutation({
-    mutationFn: () => clearDegradationHistory(props.group, props.model),
+    mutationFn: async () =>
+      requireServerSuccess(
+        await clearDegradationHistory(props.group, props.model)
+      ),
     onSuccess: async () => {
       setConfirmOpen(false)
       toast.success(t('Detection history cleared'))
@@ -209,6 +227,46 @@ function StatusStrip(props: {
       )
     },
   })
+  const testMutation = useMutation({
+    mutationFn: async () =>
+      requireServerSuccess(
+        await startDegradationTest(props.group, props.model)
+      ),
+    onSuccess: (response) => {
+      setTaskId(response.data.task_id)
+      toast.success(t('Test started'))
+    },
+    onError: (error) => {
+      toast.error(getServerErrorMessage(error, t('Test failed')))
+    },
+  })
+  const testQuery = useQuery({
+    queryKey: ['degradation-test', taskId],
+    queryFn: async () =>
+      requireServerSuccess(await getDegradationTest(taskId ?? '')),
+    enabled: taskId !== null,
+    refetchInterval: (query) =>
+      query.state.data?.data.status === 'succeeded' ||
+      query.state.data?.data.status === 'failed'
+        ? false
+        : 1500,
+  })
+  useEffect(() => {
+    if (!taskId) return
+    if (testQuery.isError) {
+      setTaskId(null)
+      return
+    }
+    if (testQuery.data?.data.status === 'succeeded') {
+      toast.success(t('Test completed'))
+      void queryClient.invalidateQueries({ queryKey: ['degradation'] })
+      setTaskId(null)
+    } else if (testQuery.data?.data.status === 'failed') {
+      toast.error(testQuery.data.data.error || t('Test failed'))
+      void queryClient.invalidateQueries({ queryKey: ['degradation'] })
+      setTaskId(null)
+    }
+  }, [taskId, testQuery.data, testQuery.isError, queryClient, t])
   return (
     <>
       <TooltipProvider>
@@ -241,14 +299,41 @@ function StatusStrip(props: {
             )
           )}
           {props.canClear ? (
-            <button
-              className='text-muted-foreground hover:bg-destructive/10 hover:text-destructive flex h-full items-center justify-center rounded-sm'
-              onClick={() => setConfirmOpen(true)}
-              title={t('Clear detection history')}
-              type='button'
-            >
-              <Trash2 className='size-4' />
-            </button>
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant='ghost'
+                    size='icon'
+                    className='text-muted-foreground h-12 w-full rounded-sm'
+                    aria-label={t('Open menu')}
+                  />
+                }
+              >
+                <MoreHorizontal aria-hidden='true' />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align='end'>
+                <DropdownMenuItem
+                  disabled={
+                    props.unavailable ||
+                    taskId !== null ||
+                    testMutation.isPending
+                  }
+                  onClick={() => testMutation.mutate()}
+                >
+                  <Play aria-hidden='true' />
+                  {t('Test now')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  variant='destructive'
+                  disabled={taskId !== null || testMutation.isPending}
+                  onClick={() => setConfirmOpen(true)}
+                >
+                  <Trash2 aria-hidden='true' />
+                  {t('Delete all records')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : null}
         </div>
       </TooltipProvider>

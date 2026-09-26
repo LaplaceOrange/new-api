@@ -13,6 +13,11 @@ import (
 
 type degradationMonitorHandler struct{}
 
+type degradationTestPayload struct {
+	Group string `json:"group"`
+	Model string `json:"model"`
+}
+
 func (degradationMonitorHandler) Type() string { return model.SystemTaskTypeDegradationMonitor }
 
 func (degradationMonitorHandler) Enabled() bool {
@@ -25,11 +30,51 @@ func (degradationMonitorHandler) Interval() time.Duration { return time.Minute }
 func (degradationMonitorHandler) NewPayload() any { return nil }
 
 func (degradationMonitorHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
-	if err := runOneDegradationCheck(ctx); err != nil {
+	var payload degradationTestPayload
+	if err := task.DecodePayload(&payload); err != nil {
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, err)
+		return
+	}
+	var err error
+	if payload.Group != "" || payload.Model != "" {
+		err = runManualDegradationCheck(ctx, payload)
+	} else {
+		err = runOneDegradationCheck(ctx)
+	}
+	if err != nil {
 		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, err)
 		return
 	}
 	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, nil, nil)
+}
+
+func runManualDegradationCheck(ctx context.Context, payload degradationTestPayload) error {
+	cfg := degradation.LoadConfig()
+	for _, group := range cfg.Groups {
+		if group.Group != payload.Group || !ratio_setting.ContainsGroupRatio(group.Group) {
+			continue
+		}
+		if !enabledModelSet(group.Group)[payload.Model] {
+			break
+		}
+		for _, item := range group.Models {
+			if item.Model == payload.Model {
+				targets, err := model.ListDegradationTargets()
+				if err != nil {
+					return err
+				}
+				target := model.DegradationTarget{GroupName: payload.Group, ModelName: payload.Model}
+				for _, existing := range targets {
+					if existing.GroupName == payload.Group && existing.ModelName == payload.Model {
+						target = existing
+						break
+					}
+				}
+				return executeDegradationCheck(ctx, cfg, target, item.Expected)
+			}
+		}
+	}
+	return fmt.Errorf("model %s is not monitored in group %s", payload.Model, payload.Group)
 }
 
 func runOneDegradationCheck(ctx context.Context) error {
@@ -90,23 +135,25 @@ func runOneDegradationCheck(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	item := dueItem
-	passed, scored, detected := runDegradationProbe(ctx, item.group, item.model, item.expected)
+	return executeDegradationCheck(ctx, cfg, *due, dueItem.expected)
+}
+
+func executeDegradationCheck(ctx context.Context, cfg degradation.Config, target model.DegradationTarget, expected string) error {
+	passed, scored, detected := runDegradationProbe(ctx, target.GroupName, target.ModelName, expected)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	verdict := degradation.Decide(time.Now(), due.Failures, cfg.RetryCount, cfg.Interval(), cfg.RetryInterval(), passed, scored, detected)
-	target := model.DegradationTarget{
-		GroupName:     item.group,
-		ModelName:     item.model,
+	verdict := degradation.Decide(time.Now(), target.Failures, cfg.RetryCount, cfg.Interval(), cfg.RetryInterval(), passed, scored, detected)
+	return model.SaveDegradationAttempt(model.DegradationTarget{
+		GroupName:     target.GroupName,
+		ModelName:     target.ModelName,
 		Status:        verdict.Status,
 		DetectedModel: verdict.Detected,
 		Failures:      verdict.Failures,
 		NextCheckAt:   verdict.Next.Unix(),
-	}
-	return model.SaveDegradationAttempt(target, model.DegradationEvent{
-		GroupName:     item.group,
-		ModelName:     item.model,
+	}, model.DegradationEvent{
+		GroupName:     target.GroupName,
+		ModelName:     target.ModelName,
 		Status:        verdict.Status,
 		DetectedModel: verdict.Detected,
 	})
