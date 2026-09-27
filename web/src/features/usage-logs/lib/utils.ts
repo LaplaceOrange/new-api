@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 /**
  * Utility functions for usage logs feature
  */
+import type { TFunction } from 'i18next'
+
 import {
   getAllLogs,
   getUserLogs,
@@ -41,6 +43,16 @@ import type {
 } from '../types'
 
 export { buildQueryParams } from './query-params'
+
+export function displayLogTokenName(
+  name: string,
+  id: number,
+  t: TFunction
+): string {
+  return id === 0 && name === 'image-studio'
+    ? t('Online Image Studio')
+    : name
+}
 
 // ============================================================================
 // Type Checkers & Utilities

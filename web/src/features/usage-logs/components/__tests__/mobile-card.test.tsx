@@ -24,7 +24,10 @@ import {
 } from '@tanstack/react-table'
 import { render, screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import i18next from 'i18next'
 import { expect, it, vi } from 'vitest'
+
+import zh from '@/i18n/locales/zh.json'
 
 import { usageLogSchema, type UsageLog } from '../../data/schema'
 import { useCommonLogsColumns } from '../columns/common-logs-columns'
@@ -173,6 +176,23 @@ it('keeps input, output and cache quantities readable without empty metric cells
 it('shows the established empty state when no logs exist', () => {
   renderLogs({ logs: [] })
   expect(screen.getByText('No Logs Found')).toBeVisible()
+})
+
+it('labels internal image requests in the viewer language without renaming real tokens', async () => {
+  i18next.addResource('zh', 'translation', 'Online Image Studio', zh.translation['Online Image Studio'])
+  await i18next.changeLanguage('zh')
+  try {
+    renderLogs({
+      logs: [
+        usageLogSchema.parse({ ...log, id: 2, token_id: 0, token_name: 'image-studio' }),
+        usageLogSchema.parse({ ...log, id: 3, token_id: 7, token_name: 'image-studio' }),
+      ],
+    })
+    expect(screen.getByRole('button', { name: 'Token: 在线生图' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Token: image-studio' })).toBeVisible()
+  } finally {
+    await i18next.changeLanguage('en')
+  }
 })
 
 it.each([false, true])(

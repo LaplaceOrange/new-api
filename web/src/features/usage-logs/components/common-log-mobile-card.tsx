@@ -37,6 +37,7 @@ import {
   getLogTypeConfig,
   isDisplayableLogType,
   isTimingLogType,
+  displayLogTokenName,
 } from '../lib/utils'
 import { ModelBadge } from './model-badge'
 import { StreamTpsCell, TimingMetricsCell } from './timing-metrics-cell'
@@ -106,7 +107,7 @@ export function CommonLogMobileCard<TData>(props: {
     },
     token: {
       label: t('Token'),
-      value: log.token_name,
+      value: displayLogTokenName(log.token_name, log.token_id, t),
       visible: displayable && props.cells.has('token_name') && !!log.token_name,
       sensitive: true,
     },

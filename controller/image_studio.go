@@ -489,7 +489,7 @@ func ImageStudioPrepare(c *gin.Context) {
 		return
 	}
 	userCache.WriteContext(c)
-	token := &model.Token{UserId: record.UserID, Name: "image-studio", Group: req.Group}
+	token := &model.Token{UserId: record.UserID, Name: "image-studio", Group: req.Group, UnlimitedQuota: true}
 	if err := middleware.SetupContextForToken(c, token); err != nil {
 		_ = model.DB.Model(&record).Updates(map[string]any{"status": "failed", "error": "could not initialize billing"}).Error
 		c.AbortWithStatus(500)
@@ -500,6 +500,7 @@ func ImageStudioPrepare(c *gin.Context) {
 	capture := &imageStudioCapture{ResponseWriter: originalWriter, status: 200, header: originalWriter.Header().Clone()}
 	c.Writer = capture
 	c.Set("image_studio", true)
+	c.Set("image_studio_record_id", record.ID)
 	c.Next()
 	c.Writer = originalWriter
 	if quota, exists := c.Get("image_studio_billed_quota"); exists {

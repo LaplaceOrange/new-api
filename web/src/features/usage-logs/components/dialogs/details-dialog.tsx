@@ -85,6 +85,7 @@ import {
   getLogTypeConfig,
   isPerCallBilling,
   isTimingLogType,
+  displayLogTokenName,
 } from '../../lib/utils'
 import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
 import { PluginAuthorLink } from '../plugin-author-link'
@@ -686,7 +687,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
           )}
 
           {props.log.token_name && (
-            <DetailRow label={t('Token')} value={props.log.token_name} mono />
+            <DetailRow label={t('Token')} value={displayLogTokenName(props.log.token_name, props.log.token_id, t)} mono />
           )}
 
           {(props.log.group || other?.group) && (

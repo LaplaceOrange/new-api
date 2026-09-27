@@ -69,6 +69,7 @@ import {
   isTimingLogType,
   getLogTypeConfig,
   isPerCallBilling,
+  displayLogTokenName,
 } from '../../lib/utils'
 import type { LogOtherData } from '../../types'
 import { DetailsDialog } from '../dialogs/details-dialog'
@@ -597,6 +598,7 @@ export function useCommonLogsColumns(
     accessorKey: 'token_name',
     header: t('Token'),
     cell: function TokenNameCell({ row }) {
+      const { t } = useTranslation()
       const { sensitiveVisible } = useUsageLogsContext()
       const log = row.original
       if (!isDisplayableLogType(log.type)) return null
@@ -605,7 +607,9 @@ export function useCommonLogsColumns(
       if (!tokenName) return null
 
       const other = parseLogOther(log.other)
-      const displayName = sensitiveVisible ? tokenName : '••••'
+      const displayName = sensitiveVisible
+        ? displayLogTokenName(tokenName, log.token_id, t)
+        : '••••'
       let group = log.group
       if (!group) group = other?.group || ''
       const groupRatio = getGroupRatio(other)
@@ -618,15 +622,15 @@ export function useCommonLogsColumns(
                 <StatusBadge
                   label={displayName}
                   icon={KeyRound}
-                  copyText={sensitiveVisible ? tokenName : undefined}
+                  copyText={sensitiveVisible ? displayName : undefined}
                   size='sm'
                   showDot={false}
                   className='border-border/60 bg-muted/30 text-foreground h-6 max-w-full gap-1.5 overflow-hidden rounded-md border px-2 py-0.5 [font-family:var(--font-body)]'
                 />
               </TooltipTrigger>
-              {sensitiveVisible && tokenName.length > 16 && (
+              {sensitiveVisible && displayName.length > 16 && (
                 <TooltipContent side='top' className='max-w-xs break-all'>
-                  {tokenName}
+                  {displayName}
                 </TooltipContent>
               )}
             </Tooltip>

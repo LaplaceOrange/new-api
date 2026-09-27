@@ -90,8 +90,112 @@ func TestFixedPriceBillingDatabaseMatrix(t *testing.T) {
 			require.NoError(t, db.Raw(versionQuery).Scan(&version).Error)
 			t.Logf("database: %s", version)
 			runFixedPriceAccountingCases(t, db, logDB)
+			runImageStudioAccountingCase(t, db, logDB)
 		})
 	}
+}
+
+func runImageStudioAccountingCase(t *testing.T, db, logDB *gorm.DB) {
+	t.Helper()
+	t.Run("settles and logs selected group", func(t *testing.T) {
+		user := model.User{Username: "studio-billing", Quota: 100_000, Status: common.UserStatusEnabled}
+		require.NoError(t, db.Create(&user).Error)
+		channel := model.Channel{Name: "studio-billing", Key: "unused", Status: common.ChannelStatusEnabled}
+		require.NoError(t, db.Create(&channel).Error)
+		t.Cleanup(func() {
+			require.NoError(t, logDB.Where("user_id = ?", user.Id).Delete(&model.Log{}).Error)
+			require.NoError(t, db.Unscoped().Delete(&user).Error)
+			require.NoError(t, db.Unscoped().Delete(&channel).Error)
+		})
+
+		const expression = `tier("request", fixed(0.04))`
+		const groupRatio = 1.5
+		charge := common.QuotaRound(0.04 * groupRatio * common.QuotaPerUnit)
+		info := &relaycommon.RelayInfo{
+			UserId: user.Id, TokenId: 0, TokenKey: "", TokenUnlimited: true, SkipTokenQuota: true,
+			ForcePreConsume: true, OriginModelName: "studio-request", UsingGroup: "premium",
+			UserGroup: "default", UserSetting: dto.UserSetting{BillingPreference: "wallet_only"},
+			StartTime: time.Now(), ChannelMeta: &relaycommon.ChannelMeta{ChannelId: channel.Id},
+			PriceData: hosttypes.PriceData{GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: groupRatio}},
+			TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+				BillingMode: "tiered_expr", ExprString: expression, ExprHash: billingexpr.ExprHashString(expression),
+				QuotaPerUnit: common.QuotaPerUnit, GroupRatio: groupRatio,
+				EstimatedQuotaAfterGroup: charge, EstimatedBillingUnit: billingexpr.BillingUnitRequest,
+			},
+			RelayFormat: types.RelayFormatOpenAIImage,
+		}
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Request = httptest.NewRequest("POST", "/v1/images/generations", nil)
+		ctx.Set("id", user.Id)
+		ctx.Set("username", user.Username)
+		ctx.Set("token_name", "image-studio")
+		ctx.Set("image_studio_record_id", uint(42))
+		require.Nil(t, PreConsumeBilling(ctx, charge, info))
+		remaining, err := model.GetUserQuota(user.Id, true)
+		require.NoError(t, err)
+		assert.Equal(t, user.Quota-charge, remaining)
+		assert.Equal(t, 0, info.TokenId)
+
+		PostTextConsumeQuota(ctx, info, &dto.Usage{PromptTokens: 1, TotalTokens: 1}, nil)
+		var log model.Log
+		require.NoError(t, logDB.Where("user_id = ?", user.Id).Take(&log).Error)
+		assert.Equal(t, charge, log.Quota)
+		assert.Equal(t, "premium", log.Group)
+		assert.Equal(t, "image-studio", log.TokenName)
+		assert.Zero(t, log.TokenId)
+		var other map[string]any
+		require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+		assert.Equal(t, float64(42), other["image_studio_record_id"])
+		remaining, err = model.GetUserQuota(user.Id, true)
+		require.NoError(t, err)
+		assert.Equal(t, user.Quota-charge, remaining)
+		assert.Equal(t, charge, info.Billing.GetPreConsumedQuota())
+
+		insufficient := &relaycommon.RelayInfo{
+			UserId: user.Id, SkipTokenQuota: true, ForcePreConsume: true,
+			UserSetting: dto.UserSetting{BillingPreference: "wallet_only"},
+		}
+		apiErr := PreConsumeBilling(ctx, user.Quota, insufficient)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, types.ErrorCodeInsufficientUserQuota, apiErr.GetErrorCode())
+		remaining, err = model.GetUserQuota(user.Id, true)
+		require.NoError(t, err)
+		assert.Equal(t, user.Quota-charge, remaining)
+	})
+	t.Run("refunds failed generation without a token", func(t *testing.T) {
+		user := model.User{Username: "studio-refund", Quota: 100_000, Status: common.UserStatusEnabled}
+		require.NoError(t, db.Create(&user).Error)
+		t.Cleanup(func() { require.NoError(t, db.Unscoped().Delete(&user).Error) })
+		info := &relaycommon.RelayInfo{
+			UserId: user.Id, SkipTokenQuota: true, ForcePreConsume: true,
+			UserSetting: dto.UserSetting{BillingPreference: "wallet_only"},
+		}
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		require.Nil(t, PreConsumeBilling(ctx, 20_000, info))
+		assert.True(t, info.Billing.NeedsRefund())
+		refunded := make(chan struct{}, 1)
+		const callback = "studio_refund_observed"
+		require.NoError(t, db.Callback().Update().After("gorm:commit_or_rollback_transaction").Register(callback, func(tx *gorm.DB) {
+			if tx.Statement.Table == "users" && tx.Error == nil {
+				select {
+				case refunded <- struct{}{}:
+				default:
+				}
+			}
+		}))
+		t.Cleanup(func() { require.NoError(t, db.Callback().Update().Remove(callback)) })
+		info.Billing.Refund(ctx)
+		info.Billing.Refund(ctx)
+		select {
+		case <-refunded:
+		case <-time.After(5 * time.Second):
+			t.Fatal("studio refund did not finish")
+		}
+		remaining, err := model.GetUserQuota(user.Id, true)
+		require.NoError(t, err)
+		assert.Equal(t, user.Quota, remaining)
+		assert.False(t, info.Billing.NeedsRefund())
+	})
 }
 
 func runFixedPriceAccountingCases(t *testing.T, db, logDB *gorm.DB) {
