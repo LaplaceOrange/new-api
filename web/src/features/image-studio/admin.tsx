@@ -97,7 +97,7 @@ export function ImageStudioAdmin() {
   }
 
   return (
-    <div className='mx-auto max-w-7xl space-y-5 px-5 py-6'>
+    <div role='region' aria-label={t('Image Studio Settings')} className='mx-auto min-h-0 w-full max-w-7xl flex-1 space-y-5 overflow-y-auto px-5 py-6'>
       <div className='flex flex-wrap items-center justify-between gap-3'>
         <h1 className='text-xl font-semibold'>{t('Image Studio Settings')}</h1>
         <div className='flex gap-2'>
