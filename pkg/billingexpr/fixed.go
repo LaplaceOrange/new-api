@@ -32,7 +32,24 @@ func ImageUnitPrice(expression string) (float64, bool) {
 	if !valid || count.Value != "image_count" {
 		return 0, false
 	}
-	tier, valid := priceNode.(*ast.CallNode)
+	return imageFixedPrice(priceNode)
+}
+
+// ImageRequestPrice accepts a single unconditional fixed charge per request.
+func ImageRequestPrice(expression string) (float64, bool) {
+	version, body := ParseExprVersion(expression)
+	if version != DefaultExprVersion {
+		return 0, false
+	}
+	tree, err := parser.Parse(body)
+	if err != nil {
+		return 0, false
+	}
+	return imageFixedPrice(tree.Node)
+}
+
+func imageFixedPrice(node ast.Node) (float64, bool) {
+	tier, valid := node.(*ast.CallNode)
 	if !valid || len(tier.Arguments) != 2 {
 		return 0, false
 	}

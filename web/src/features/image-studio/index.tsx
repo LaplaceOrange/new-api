@@ -86,7 +86,7 @@ export function ImageStudio() {
   const model = options.data?.models.find((item) => item.name === modelName) ?? options.data?.models[0]
   const groups = useMemo(() => Object.entries(model?.groups ?? {}), [model])
   const activeGroup = groups.some(([name]) => name === group) ? group : groups[0]?.[0] ?? ''
-  const price = model && activeGroup ? model.price * model.groups[activeGroup] * (Number(count) || 1) : 0
+  const price = model && activeGroup ? model.price * model.groups[activeGroup] * (model.per_image === false ? 1 : (Number(count) || 1)) : 0
   const list = records.data?.data ?? []
   const record = list.find((item) => item.id === selected) ?? list[0]
 

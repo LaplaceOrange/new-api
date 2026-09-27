@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
@@ -30,6 +31,67 @@ func imageStudioTestContext(method, path string, body *bytes.Buffer, userID, rol
 	ctx.Set("id", userID)
 	ctx.Set("role", role)
 	return ctx, recorder
+}
+
+func TestImageStudioAdminAcceptsOnlyFixedExpressionModels(t *testing.T) {
+	withTieredBillingConfig(t, map[string]string{
+		"studio-request": "tiered_expr",
+		"studio-image":   "tiered_expr",
+		"studio-token":   "tiered_expr",
+	}, map[string]string{
+		"studio-request": `tier("request", fixed(0.04))`,
+		"studio-image":   `tier("image", fixed(0.02)) * image_count`,
+		"studio-token":   `tier("tokens", p * 2 + c * 8)`,
+	})
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.ImageStudioConfig{}))
+	require.NoError(t, db.Create(&model.Channel{
+		Id: 901, Type: constant.ChannelTypeOpenAI, Key: "test", Status: common.ChannelStatusEnabled, Name: "studio",
+	}).Error)
+	for _, name := range []string{"studio-request", "studio-image", "studio-token"} {
+		require.NoError(t, db.Create(&model.Ability{Group: "default", Model: name, ChannelId: 901, Enabled: true}).Error)
+		require.NoError(t, db.Create(&model.Model{
+			ModelName: name, Status: 1, Endpoints: `{"image-generation":"/v1/images/generations"}`,
+		}).Error)
+	}
+	model.InitChannelCache()
+	model.InvalidatePricingCache()
+
+	config := model.DefaultImageStudioConfig()
+	candidates := imageStudioCatalog(config, 1, true)
+	byName := make(map[string]imageStudioModelInfo, len(candidates))
+	for _, candidate := range candidates {
+		byName[candidate.Name] = candidate
+	}
+	require.Contains(t, byName, "studio-request")
+	assert.Equal(t, 0.04, byName["studio-request"].Price)
+	assert.False(t, byName["studio-request"].PerImage)
+	require.Contains(t, byName, "studio-image")
+	assert.True(t, byName["studio-image"].PerImage)
+	assert.NotContains(t, byName, "studio-token")
+
+	request := map[string]any{
+		"operator_name": "Example", "contact_email": "contact@example.org",
+		"agreement": "Agreement", "privacy": "Privacy",
+		"models": []model.ImageStudioModel{{Name: "studio-request"}},
+	}
+	body, err := common.Marshal(request)
+	require.NoError(t, err)
+	ctx, output := imageStudioTestContext(http.MethodPut, "/api/image-studio/admin/config", bytes.NewBuffer(body), 1, common.RoleAdminUser)
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	UpdateImageStudioAdminConfig(ctx)
+	require.Equal(t, http.StatusOK, output.Code, output.Body.String())
+	saved, err := model.GetImageStudioConfig()
+	require.NoError(t, err)
+	assert.Equal(t, []model.ImageStudioModel{{Name: "studio-request"}}, saved.EnabledModels())
+
+	request["models"] = []model.ImageStudioModel{{Name: "studio-token"}}
+	body, err = common.Marshal(request)
+	require.NoError(t, err)
+	ctx, output = imageStudioTestContext(http.MethodPut, "/api/image-studio/admin/config", bytes.NewBuffer(body), 1, common.RoleAdminUser)
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	UpdateImageStudioAdminConfig(ctx)
+	assert.Equal(t, http.StatusBadRequest, output.Code)
 }
 
 func TestImageStudioIndependentLegalAndPrivateAssets(t *testing.T) {

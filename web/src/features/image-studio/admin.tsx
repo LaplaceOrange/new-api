@@ -123,7 +123,7 @@ export function ImageStudioAdmin() {
                 <Checkbox checked={enabled} onCheckedChange={() => toggleModel(item.name)} aria-label={item.name} />
                 <div className='min-w-0 flex-1'>
                   <span className='block truncate text-sm font-medium'>{item.name}</span>
-                  <span className='text-muted-foreground text-xs'>${item.price} / {t('image')}</span>
+                  <span className='text-muted-foreground text-xs'>${item.price} / {t(item.per_image === false ? 'request' : 'image')}</span>
                 </div>
                 {enabled && <label className='flex items-center gap-2 text-xs'>
                   <Checkbox checked={models.find((entry) => entry.name === item.name)?.allow_edits ?? false} onCheckedChange={(value) => setModels((current) => current.map((entry) => entry.name === item.name ? { ...entry, allow_edits: value === true } : entry))} />
@@ -132,7 +132,7 @@ export function ImageStudioAdmin() {
               </div>
             })}
           </div>
-          {!settings.data?.candidates.length && <p className='text-muted-foreground text-sm'>{t('No fixed-price image models available')}</p>}
+          {!settings.data?.candidates.length && <p className='text-muted-foreground text-sm'>{t('No models available')}</p>}
         </section>
         <section className='grid gap-5 border-t pt-5 xl:grid-cols-2'>
           {(['agreement', 'privacy'] as const).map((kind) => <div key={kind} className='space-y-2'>

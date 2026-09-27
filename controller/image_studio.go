@@ -41,6 +41,7 @@ type imageStudioModelInfo struct {
 	Name       string             `json:"name"`
 	AllowEdits bool               `json:"allow_edits"`
 	Price      float64            `json:"price"`
+	PerImage   bool               `json:"per_image"`
 	Groups     map[string]float64 `json:"groups"`
 }
 
@@ -54,9 +55,14 @@ func imageStudioCatalog(config model.ImageStudioConfig, userID int, admin bool) 
 	result := make([]imageStudioModelInfo, 0)
 	for _, item := range model.GetPricing() {
 		currentPrice, fixedPrice := ratio_setting.GetModelPrice(item.ModelName, false)
+		perImage := true
 		if billing_setting.GetBillingMode(item.ModelName) == billing_setting.BillingModeTieredExpr {
 			expression, exists := billing_setting.GetBillingExpr(item.ModelName)
 			currentPrice, fixedPrice = billingexpr.ImageUnitPrice(expression)
+			if !fixedPrice {
+				currentPrice, fixedPrice = billingexpr.ImageRequestPrice(expression)
+				perImage = false
+			}
 			fixedPrice = fixedPrice && exists
 		}
 		if !slices.Contains(item.SupportedEndpointTypes, constant.EndpointTypeImageGeneration) ||
@@ -65,7 +71,7 @@ func imageStudioCatalog(config model.ImageStudioConfig, userID int, admin bool) 
 			math.IsNaN(currentPrice) || math.IsInf(currentPrice, 0) || currentPrice < 0 {
 			continue
 		}
-		choice := imageStudioModelInfo{Name: item.ModelName, Price: currentPrice, Groups: map[string]float64{}}
+		choice := imageStudioModelInfo{Name: item.ModelName, Price: currentPrice, PerImage: perImage, Groups: map[string]float64{}}
 		if admin {
 			choice.AllowEdits = slices.ContainsFunc(enabled, func(v model.ImageStudioModel) bool { return v.Name == item.ModelName && v.AllowEdits })
 		} else {
@@ -191,7 +197,7 @@ func UpdateImageStudioAdminConfig(c *gin.Context) {
 	seen := map[string]bool{}
 	for _, selected := range request.Models {
 		if seen[selected.Name] || !slices.ContainsFunc(candidates, func(v imageStudioModelInfo) bool { return v.Name == selected.Name }) {
-			c.JSON(400, gin.H{"error": "model is not an eligible fixed-price image model"})
+			c.JSON(400, gin.H{"error": "model must have a fixed per-request or per-image price"})
 			return
 		}
 		seen[selected.Name] = true
@@ -354,7 +360,10 @@ func ImageStudioPrepare(c *gin.Context) {
 		c.AbortWithStatusJSON(403, gin.H{"error": "group is unavailable for this model"})
 		return
 	}
-	estimate := selected.Price * ratio * float64(n)
+	estimate := selected.Price * ratio
+	if selected.PerImage {
+		estimate *= float64(n)
+	}
 	if math.IsNaN(estimate) || math.IsInf(estimate, 0) {
 		c.AbortWithStatusJSON(400, gin.H{"error": "image price is unavailable"})
 		return

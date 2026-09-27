@@ -4,6 +4,7 @@ export type StudioModel = {
   name: string
   allow_edits: boolean
   price: number
+  per_image?: boolean
   groups: Record<string, number>
 }
 
