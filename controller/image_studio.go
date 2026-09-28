@@ -47,8 +47,10 @@ type imageStudioModelInfo struct {
 
 func imageStudioCatalog(config model.ImageStudioConfig, userID int, admin bool) []imageStudioModelInfo {
 	group := ""
-	if !admin {
-		group, _ = model.GetUserGroup(userID, false)
+	var userRatios map[string]float64
+	if user, err := model.GetUserCache(userID); err == nil {
+		group = user.Group
+		userRatios = user.GetSetting().GroupRatios
 	}
 	allowed := service.GetUserUsableGroups(group)
 	enabled := config.EnabledModels()
@@ -89,14 +91,14 @@ func imageStudioCatalog(config model.ImageStudioConfig, userID int, admin bool) 
 		if admin {
 			for _, name := range item.EnableGroup {
 				if name != "all" && name != "auto" && ratio_setting.ContainsGroupRatio(name) {
-					choice.Groups[name] = service.GetUserGroupRatio(group, name)
+					choice.Groups[name] = service.GetUserGroupRatio(group, name, userRatios)
 				}
 			}
 		} else {
 			for name := range allowed {
 				if name != "auto" && ratio_setting.ContainsGroupRatio(name) &&
 					slices.Contains(service.GetGroupsEnabledModels([]string{name}), item.ModelName) {
-					choice.Groups[name] = service.GetUserGroupRatio(group, name)
+					choice.Groups[name] = service.GetUserGroupRatio(group, name, userRatios)
 				}
 			}
 		}

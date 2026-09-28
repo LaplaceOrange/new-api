@@ -13,6 +13,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -99,6 +100,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	other := model.NewLogOther()
 	other.SetPublic("model_ratio", modelRatio)
 	other.SetPublic("group_ratio", groupRatio)
+	other.SetPublic("base_group_ratio", ratio_setting.GetGroupRatio(relayInfo.UsingGroup))
 	other.SetPublic("completion_ratio", completionRatio)
 	other.SetPublic("cache_tokens", cacheTokens)
 	other.SetPublic("cache_ratio", cacheRatio)
@@ -304,6 +306,7 @@ func GenerateMjOtherInfo(relayInfo *relaycommon.RelayInfo, priceData hosttypes.P
 	other := model.NewLogOther()
 	other.SetPublic("model_price", priceData.ModelPrice)
 	other.SetPublic("group_ratio", priceData.GroupRatioInfo.GroupRatio)
+	other.SetPublic("base_group_ratio", ratio_setting.GetGroupRatio(relayInfo.UsingGroup))
 	if priceData.GroupRatioInfo.HasSpecialRatio {
 		other.SetPublic("user_group_ratio", priceData.GroupRatioInfo.GroupSpecialRatio)
 	}

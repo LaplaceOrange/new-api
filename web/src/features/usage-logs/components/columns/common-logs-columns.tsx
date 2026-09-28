@@ -22,6 +22,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { GroupBadge } from '@/components/group-badge'
+import { GroupRatioChange } from '@/components/group-ratio-change'
 import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -80,15 +81,10 @@ import { useUsageLogsContext } from '../usage-logs-provider'
 
 interface DetailSegment {
   text: string
+  ratio?: number
+  baseRatio?: number
   muted?: boolean
   danger?: boolean
-}
-
-function formatRatioCompact(ratio: number | undefined): string {
-  if (ratio == null || !Number.isFinite(ratio)) return '-'
-  return ratio % 1 === 0
-    ? String(ratio)
-    : ratio.toFixed(4).replace(/\.?0+$/, '')
 }
 
 function getGroupRatio(other: LogOtherData | null): number | null {
@@ -323,7 +319,9 @@ function buildTypeDetailSegments(
 
       if (effectiveRatio != null && Number.isFinite(effectiveRatio)) {
         segments.push({
-          text: `${ratioLabel} ${formatRatioCompact(effectiveRatio)}x`,
+          text: `${ratioLabel} `,
+          ratio: effectiveRatio,
+          baseRatio: other.base_group_ratio,
         })
       }
     }
@@ -649,7 +647,10 @@ export function useCommonLogsColumns(
               {group && groupRatio != null ? ' ' : null}
               {groupRatio != null ? (
                 <span className='text-muted-foreground/60 relative top-px align-baseline tabular-nums'>
-                  {formatRatioCompact(groupRatio)}x
+                  <GroupRatioChange
+                    ratio={groupRatio}
+                    baseRatio={other?.base_group_ratio}
+                  />
                 </span>
               ) : null}
             </span>
@@ -740,7 +741,7 @@ export function useCommonLogsColumns(
               {completionTokens.toLocaleString()}
             </span>
             {sensitiveWords.length > 0 && (
-              <span className='text-red-600 dark:text-red-400 text-xs'>
+              <span className='text-xs text-red-600 dark:text-red-400'>
                 {t('Prohibited word: {{word}}', {
                   word: sensitiveWords.join('、'),
                 })}
@@ -844,6 +845,12 @@ export function useCommonLogsColumns(
               )}
             >
               {primary.text}
+              {primary.ratio != null && (
+                <GroupRatioChange
+                  ratio={primary.ratio}
+                  baseRatio={primary.baseRatio}
+                />
+              )}
               {hasMore && (
                 <span className='text-muted-foreground/40 ml-0.5'>
                   +{segments.length - 1}

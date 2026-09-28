@@ -43,7 +43,11 @@ const label = "View other accounts' audit logs"
 const description =
   'View audit records from user and admin roles. Root records are always excluded.'
 
-function renderPermissions(viewerRole: number, allowed?: boolean) {
+function renderPermissions(
+  viewerRole: number,
+  allowed?: boolean,
+  groupRatios?: Record<string, number>
+) {
   useAuthStore
     .getState()
     .auth.setUser({ id: 1, username: 'operator', role: viewerRole })
@@ -72,13 +76,14 @@ function renderPermissions(viewerRole: number, allowed?: boolean) {
       }
     }
     if (url === '/api/group/') {
-      return { data: { success: true, data: ['default'] } }
+      return { data: { success: true, data: ['default', 'vip'] } }
     }
     return {
       data: {
         success: true,
         data: {
           ...target,
+          group_ratios: groupRatios,
           admin_permissions:
             allowed === undefined ? {} : { audit: { read: allowed } },
         },
@@ -142,4 +147,42 @@ it('admin cannot edit the audit permission even when the catalog is available', 
   expect(
     screen.queryByRole('checkbox', { name: new RegExp(label) })
   ).not.toBeInTheDocument()
+})
+
+it('saves a personal group multiplier from the existing user editor', async () => {
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  renderPermissions(100, undefined, { default: 0.5 })
+
+  const ratio = await screen.findByRole('textbox', { name: 'default' })
+  expect(ratio).toHaveValue('0.5')
+  await userEvent.clear(ratio)
+  await userEvent.type(ratio, '0.25')
+  await userEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+  await waitFor(() =>
+    expect(put).toHaveBeenCalledWith(
+      '/api/user/',
+      expect.objectContaining({ group_ratios: { default: 0.25 } })
+    )
+  )
+})
+
+it('clears a personal multiplier when its input is emptied', async () => {
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  renderPermissions(100, undefined, { default: 0.5 })
+
+  const ratio = await screen.findByRole('textbox', { name: 'default' })
+  await userEvent.clear(ratio)
+  await userEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+  await waitFor(() =>
+    expect(put).toHaveBeenCalledWith(
+      '/api/user/',
+      expect.objectContaining({ group_ratios: {} })
+    )
+  )
 })

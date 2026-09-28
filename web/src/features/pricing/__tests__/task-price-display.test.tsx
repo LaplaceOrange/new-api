@@ -125,6 +125,36 @@ const imageModel: PricingModel = {
   },
 }
 
+it('shows base and overridden multipliers together in model details', () => {
+  vi.spyOn(api, 'get').mockResolvedValue({ data: { data: { groups: [] } } })
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  clients.push(client)
+  render(
+    <QueryClientProvider client={client}>
+      <ModelDetailsContent
+        model={{
+          ...imageModel,
+          billing_mode: 'ratio',
+          billing_expr: undefined,
+          billing_usage_schema: undefined,
+        }}
+        groupRatio={{ default: 0.5 }}
+        baseGroupRatio={{ default: 1 }}
+        usableGroup={{ default: { desc: '', ratio: 0.5 } }}
+        endpointMap={{}}
+        autoGroups={[]}
+        priceRate={1}
+        usdExchangeRate={1}
+        tokenUnit='M'
+      />
+    </QueryClientProvider>
+  )
+  expect(screen.getByText('1x', { selector: 'del' })).toBeVisible()
+  expect(screen.getByText('0.5x')).toBeVisible()
+})
+
 it.each([false, true])(
   'shows localized image labels and units in base and group pricing when configured=%s',
   async (configured) => {

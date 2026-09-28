@@ -75,13 +75,13 @@ const options = [
   },
 ]
 
-function Harness(props: { initialValue: string }) {
+function Harness(props: { initialValue: string; options?: typeof options }) {
   const [value, setValue] = useState(props.initialValue)
 
   return (
     <I18nextProvider i18n={i18n}>
       <ApiKeyGroupCombobox
-        options={options}
+        options={props.options ?? options}
         value={value}
         onValueChange={setValue}
       />
@@ -105,6 +105,24 @@ function getCommandItem(label: string): HTMLElement {
 }
 
 describe('API key group combobox Auto effect', () => {
+  test('shows the original multiplier struck through before a personal override', () => {
+    render(
+      <Harness
+        initialValue='vip'
+        options={options.map((option) =>
+          option.value === 'vip' ? { ...option, baseRatio: 2 } : option
+        )}
+      />
+    )
+    const trigger = getTrigger()
+    expect(within(trigger).getByText('2x', { selector: 'del' })).toBeVisible()
+    expect(within(trigger).getByText('3x')).toBeVisible()
+    fireEvent.click(trigger)
+    expect(
+      within(getCommandItem('vip')).getByText('2x', { selector: 'del' })
+    ).toBeInTheDocument()
+  })
+
   test('uses the compact table capsules in the selected group and dropdown options', () => {
     setReducedMotion(false)
     render(<Harness initialValue='auto' />)

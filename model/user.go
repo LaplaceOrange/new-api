@@ -112,6 +112,7 @@ type User struct {
 	LastLoginAt          int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
 	AuthVersion          int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
 	AdminPermissions     map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
+	GroupRatios          map[string]float64         `json:"group_ratios,omitempty" gorm:"-:all"`
 }
 
 func (user *User) ToBaseUser() *UserBase {
@@ -200,12 +201,20 @@ func UpdateUserSetting(userId int, setting dto.UserSetting) error {
 	if userId == 0 {
 		return errors.New("id 为空！")
 	}
-	settingBytes, err := common.Marshal(setting)
-	if err != nil {
-		return err
-	}
-	settingValue := string(settingBytes)
-	if err = DB.Model(&User{}).Where("id = ?", userId).Update("setting", settingValue).Error; err != nil {
+	var settingValue string
+	if err := DB.Transaction(func(tx *gorm.DB) error {
+		var current User
+		if err := lockForUpdate(tx).Select("id", "setting").First(&current, userId).Error; err != nil {
+			return err
+		}
+		setting.GroupRatios = current.GetSetting().GroupRatios
+		settingBytes, err := common.Marshal(setting)
+		if err != nil {
+			return err
+		}
+		settingValue = string(settingBytes)
+		return tx.Model(&current).Update("setting", settingValue).Error
+	}); err != nil {
 		return err
 	}
 	return updateUserSettingCache(userId, settingValue)

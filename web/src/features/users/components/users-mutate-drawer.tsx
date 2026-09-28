@@ -114,6 +114,7 @@ export function UsersMutateDrawer({
   const currentUser = useAuthStore((s) => s.auth.user)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false)
+  const [ratioInputs, setRatioInputs] = useState<Record<string, string>>({})
 
   // Fetch groups
   const { data: groupsData } = useQuery({
@@ -138,6 +139,7 @@ export function UsersMutateDrawer({
 
   // Load existing data when updating
   useEffect(() => {
+    setRatioInputs({})
     if (open && isUpdate && currentRow) {
       // For update, fetch fresh data
       getUser(currentRow.id)
@@ -225,6 +227,7 @@ export function UsersMutateDrawer({
           onOpenChange(v)
           if (!v) {
             form.reset()
+            setRatioInputs({})
           }
         }}
       >
@@ -382,6 +385,57 @@ export function UsersMutateDrawer({
                       </FormItem>
                     )}
                   />
+
+                  {isUpdate && (
+                    <FormField
+                      control={form.control}
+                      name='group_ratios'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Personal group ratios')}</FormLabel>
+                          <FormDescription>
+                            {t(
+                              'Leave blank to follow the user-group rule or base ratio.'
+                            )}
+                          </FormDescription>
+                          <div className='grid gap-3 sm:grid-cols-2'>
+                            {groups.map((group) => (
+                              <div key={group} className='space-y-1'>
+                                <Label htmlFor={`user-ratio-${group}`}>
+                                  {group}
+                                </Label>
+                                <Input
+                                  id={`user-ratio-${group}`}
+                                  type='text'
+                                  inputMode='decimal'
+                                  value={
+                                    ratioInputs[group] ??
+                                    field.value?.[group] ??
+                                    ''
+                                  }
+                                  onChange={(event) => {
+                                    const value = event.target.value
+                                    setRatioInputs((current) => ({
+                                      ...current,
+                                      [group]: value,
+                                    }))
+                                    const next = { ...field.value }
+                                    if (value === '') {
+                                      delete next[group]
+                                    } else {
+                                      next[group] = Number(value)
+                                    }
+                                    field.onChange(next)
+                                  }}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
 
                   <FormField
                     control={form.control}

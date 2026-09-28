@@ -97,6 +97,17 @@ func GetGroupGroupRatio(userGroup, usingGroup string) (float64, bool) {
 	return ratio, true
 }
 
+// GetEffectiveGroupRatio resolves personal, user-group, then billing-group pricing.
+func GetEffectiveGroupRatio(userGroup, usingGroup string, userRatios map[string]float64) (float64, bool) {
+	if ratio, ok := userRatios[usingGroup]; ok && ContainsGroupRatio(usingGroup) {
+		return ratio, true
+	}
+	if ratio, ok := GetGroupGroupRatio(userGroup, usingGroup); ok {
+		return ratio, true
+	}
+	return GetGroupRatio(usingGroup), false
+}
+
 func GroupGroupRatio2JSONString() string {
 	return groupGroupRatioMap.MarshalJSONString()
 }

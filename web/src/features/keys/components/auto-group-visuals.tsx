@@ -20,6 +20,7 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { GroupBadge } from '@/components/group-badge'
+import { GroupRatioChange } from '@/components/group-ratio-change'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
@@ -93,6 +94,7 @@ function getRatioBadgeClassName(ratio: GroupRatio, isAuto: boolean): string {
 type GroupRatioBadgeProps = {
   isAuto?: boolean
   ratio: GroupRatio
+  baseRatio?: number
   topupRatio?: GroupRatioValue
   shouldReduceMotion?: boolean
 }
@@ -119,7 +121,16 @@ export function GroupRatioBadge(props: GroupRatioBadgeProps) {
         getRatioBadgeClassName(props.ratio, props.isAuto === true)
       )}
     >
-      {label}
+      {typeof props.ratio === 'number' &&
+      props.baseRatio !== undefined &&
+      props.baseRatio !== props.ratio ? (
+        <>
+          <GroupRatioChange ratio={props.ratio} baseRatio={props.baseRatio} />{' '}
+          {t('Ratio')}
+        </>
+      ) : (
+        label
+      )}
     </Badge>
   )
 

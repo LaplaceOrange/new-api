@@ -50,9 +50,11 @@ import {
   Info,
   LogIn,
 } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
+import { GroupRatioChange } from '@/components/group-ratio-change'
 import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -108,11 +110,6 @@ function timingTextColorClass(
   if (variant === 'success') return 'text-emerald-600'
   if (variant === 'warning') return 'text-amber-600'
   return 'text-rose-600'
-}
-
-function formatRatio(ratio: number | undefined): string {
-  if (ratio == null) return '-'
-  return ratio.toFixed(4)
 }
 
 function getUsageBillingPathLabel(
@@ -173,7 +170,7 @@ function BillingBreakdown(props: {
   const isTieredExpr = other.billing_mode === 'tiered_expr'
   const tieredSummary = getTieredBillingSummary(other)
 
-  const rows: Array<{ label: string; value: string }> = []
+  const rows: Array<{ label: string; value: ReactNode }> = []
   const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
   const fmtPrice = (usd: number) => formatBillingCurrencyFromUSD(usd, priceOpts)
   const baseInputUSD = other.model_ratio != null ? other.model_ratio * 2.0 : 0
@@ -232,7 +229,12 @@ function BillingBreakdown(props: {
   if (effectiveGR != null && Number.isFinite(effectiveGR)) {
     rows.push({
       label: isUserGR ? t('User Exclusive Ratio') : t('Group Ratio'),
-      value: `${formatRatio(effectiveGR)}x`,
+      value: (
+        <GroupRatioChange
+          ratio={effectiveGR}
+          baseRatio={other.base_group_ratio}
+        />
+      ),
     })
   }
 
@@ -687,7 +689,15 @@ export function DetailsDialog(props: DetailsDialogProps) {
           )}
 
           {props.log.token_name && (
-            <DetailRow label={t('Token')} value={displayLogTokenName(props.log.token_name, props.log.token_id, t)} mono />
+            <DetailRow
+              label={t('Token')}
+              value={displayLogTokenName(
+                props.log.token_name,
+                props.log.token_id,
+                t
+              )}
+              mono
+            />
           )}
 
           {(props.log.group || other?.group) && (

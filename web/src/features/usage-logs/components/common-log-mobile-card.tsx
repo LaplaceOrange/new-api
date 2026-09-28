@@ -24,6 +24,7 @@ import { useTranslation } from 'react-i18next'
 import { CopyButton } from '@/components/copy-button'
 import { Dialog } from '@/components/dialog'
 import { GroupBadge } from '@/components/group-badge'
+import { GroupRatioChange } from '@/components/group-ratio-change'
 import { StatusBadge, type StatusVariant } from '@/components/status-badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -282,7 +283,11 @@ export function CommonLogMobileCard<TData>(props: {
             Number.isFinite(groupRatio) &&
             props.cells.has('token_name') && (
               <div className='text-muted-foreground col-span-2 [overflow-wrap:anywhere]'>
-                {t('Group Ratio')}: {groupRatio}×
+                {t('Group Ratio')}:{' '}
+                <GroupRatioChange
+                  ratio={groupRatio}
+                  baseRatio={other?.base_group_ratio}
+                />
               </div>
             )}
         </div>

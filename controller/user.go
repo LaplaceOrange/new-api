@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -19,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/QuantumNous/new-api/constant"
 
@@ -398,6 +400,7 @@ func GetUser(c *gin.Context) {
 		return
 	}
 	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
+	user.GroupRatios = user.GetSetting().GroupRatios
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -677,11 +680,30 @@ func UpdateUser(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
 		return
 	}
+	if updatedUser.GroupRatios != nil {
+		for group, ratio := range updatedUser.GroupRatios {
+			if !ratio_setting.ContainsGroupRatio(group) || math.IsNaN(ratio) || math.IsInf(ratio, 0) || ratio < 0 || ratio > 1000 {
+				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+				return
+			}
+		}
+	}
 	updatePassword := updatedUser.Password != ""
 	authzTouched := false
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {
 		if err := updatedUser.EditWithTx(tx, updatePassword); err != nil {
 			return err
+		}
+		if updatedUser.GroupRatios != nil {
+			settings := updatedUser.GetSetting()
+			settings.GroupRatios = updatedUser.GroupRatios
+			data, err := common.Marshal(settings)
+			if err != nil {
+				return err
+			}
+			if err := tx.Model(&model.User{}).Where("id = ?", updatedUser.Id).Update("setting", string(data)).Error; err != nil {
+				return err
+			}
 		}
 		touched, err := updateAdminPermissionsForUserInTx(c, tx, updatedUser.Id, originUser.Role, updatedUser.AdminPermissions)
 		authzTouched = touched

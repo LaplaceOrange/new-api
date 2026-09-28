@@ -53,6 +53,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 		other.SetPublic("model_ratio", info.PriceData.ModelRatio)
 	}
 	other.SetPublic("group_ratio", info.PriceData.GroupRatioInfo.GroupRatio)
+	other.SetPublic("base_group_ratio", ratio_setting.GetGroupRatio(info.UsingGroup))
 	if info.PriceData.GroupRatioInfo.HasSpecialRatio {
 		other.SetPublic("user_group_ratio", info.PriceData.GroupRatioInfo.GroupSpecialRatio)
 	}
@@ -145,6 +146,9 @@ func taskBillingOther(task *model.Task) *model.LogOther {
 			other.SetPublic("model_ratio", bc.ModelRatio)
 		}
 		other.SetPublic("group_ratio", bc.GroupRatio)
+		if bc.BaseGroupRatio != nil {
+			other.SetPublic("base_group_ratio", *bc.BaseGroupRatio)
+		}
 		if priceData := taskBillingContextPriceData(bc); priceData != nil {
 			for k, v := range priceData.OtherRatios() {
 				if !other.SetPublic(k, v) {
@@ -359,14 +363,17 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 		return false
 	}
 
-	groupRatio := ratio_setting.GetGroupRatio(group)
-	userGroupRatio, hasUserGroupRatio := ratio_setting.GetGroupGroupRatio(group, group)
-
 	var finalGroupRatio float64
-	if hasUserGroupRatio {
-		finalGroupRatio = userGroupRatio
+	if bc := task.PrivateData.BillingContext; bc != nil {
+		finalGroupRatio = bc.GroupRatio
 	} else {
-		finalGroupRatio = groupRatio
+		userGroup := group
+		var userRatios map[string]float64
+		if user, err := model.GetUserById(task.UserId, false); err == nil {
+			userGroup = user.Group
+			userRatios = user.GetSetting().GroupRatios
+		}
+		finalGroupRatio, _ = ratio_setting.GetEffectiveGroupRatio(userGroup, group, userRatios)
 	}
 
 	// 计算 OtherRatios 乘积（视频折扣、时长等）

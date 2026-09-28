@@ -50,6 +50,7 @@ function toolbarProps(): PricingToolbarProps {
     vendors: [],
     groups: ['default', 'premium'],
     groupRatios: { default: 1, premium: 3 },
+    baseGroupRatios: { default: 1, premium: 2 },
     tags: [],
     models: [],
     hasActiveFilters: false,
@@ -59,6 +60,16 @@ function toolbarProps(): PricingToolbarProps {
 }
 
 describe('pricing controls', () => {
+  it('shows the original group multiplier struck through in the filter', async () => {
+    const user = userEvent.setup()
+    render(<PricingToolbar {...toolbarProps()} />)
+    await user.click(screen.getByRole('button', { name: 'Filter' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Filter' })
+    const premium = within(dialog).getByRole('button', { name: /premium/ })
+    expect(within(premium).getByText('2x', { selector: 'del' })).toBeVisible()
+    expect(within(premium).getByText('3x')).toBeVisible()
+  })
+
   it('changes the token unit and keeps the selected unit pressed when clicked again', async () => {
     const props = toolbarProps()
     const user = userEvent.setup()

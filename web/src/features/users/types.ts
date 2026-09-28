@@ -62,6 +62,7 @@ export const userSchema = z.object({
   admin_permissions: z
     .record(z.string(), z.record(z.string(), z.boolean()))
     .optional(),
+  group_ratios: z.record(z.string(), z.number()).optional(),
 })
 export type User = z.infer<typeof userSchema>
 
@@ -126,6 +127,7 @@ export interface UserFormData {
   group?: string // Only used when updating user
   remark?: string // Only used when updating user
   admin_permissions?: AdminPermissionMatrix
+  group_ratios?: Record<string, number>
 }
 
 export type ManageUserAction =

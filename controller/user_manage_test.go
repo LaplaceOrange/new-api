@@ -17,7 +17,11 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redis/v8"
 
@@ -26,6 +30,118 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestPersonalGroupRatiosOverrideGroupRulesAndSurviveSettingsUpdates(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	require.NoError(t, authz.Init(db))
+	originalGroups := ratio_setting.GroupRatio2JSONString()
+	originalRules := ratio_setting.GroupGroupRatio2JSONString()
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":2}`))
+	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{"vip":{"default":0.8}}`))
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalGroups))
+		require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(originalRules))
+	})
+
+	user := model.User{
+		Username: "personal-ratio", Password: "password", Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, Group: "vip", AuthVersion: 1,
+	}
+	user.SetSetting(dto.UserSetting{Language: "zh"})
+	require.NoError(t, db.Create(&user).Error)
+
+	update := func(ratios map[string]float64) *httptest.ResponseRecorder {
+		ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/user/", map[string]any{
+			"id": user.Id, "username": user.Username, "group": user.Group,
+			"display_name": user.DisplayName, "group_ratios": ratios,
+		}, 999)
+		ctx.Set("role", common.RoleRootUser)
+		UpdateUser(ctx)
+		return recorder
+	}
+	require.Contains(t, update(map[string]float64{"default": 0.25, "vip": 0}).Body.String(), `"success":true`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, "zh", user.GetSetting().Language)
+	assert.Equal(t, map[string]float64{"default": 0.25, "vip": 0}, user.GetSetting().GroupRatios)
+
+	relayInfo := &relaycommon.RelayInfo{
+		UserGroup: user.Group, UsingGroup: "default",
+		UserSetting: user.GetSetting(),
+	}
+	price := helper.HandleGroupRatio(&gin.Context{}, relayInfo)
+	assert.Equal(t, 0.25, price.GroupRatio)
+	assert.True(t, price.HasSpecialRatio)
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodGet, "/api/user/groups", nil, user.Id)
+	GetUserGroups(ctx)
+	require.Contains(t, recorder.Body.String(), `"success":true`)
+	var groups struct {
+		Data map[string]struct {
+			Ratio     float64 `json:"ratio"`
+			BaseRatio float64 `json:"base_ratio"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &groups))
+	assert.Equal(t, 0.25, groups.Data["default"].Ratio)
+	assert.Equal(t, 1.0, groups.Data["default"].BaseRatio)
+	assert.Equal(t, 0.0, groups.Data["vip"].Ratio)
+	assert.Equal(t, 2.0, groups.Data["vip"].BaseRatio)
+
+	anonymous, publicGroups := newAuthenticatedContext(t, http.MethodGet, "/api/user/groups", nil, 0)
+	GetUserGroups(anonymous)
+	assert.Contains(t, publicGroups.Body.String(), `"success":true`)
+	assert.NotContains(t, publicGroups.Body.String(), `"ratio":0.25`)
+
+	require.NoError(t, model.UpdateUserSetting(user.Id, dto.UserSetting{
+		Language: "fr", GroupRatios: map[string]float64{"default": 0.01},
+	}))
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, "fr", user.GetSetting().Language)
+	assert.Equal(t, 0.25, user.GetSetting().GroupRatios["default"])
+
+	require.Contains(t, update(map[string]float64{}).Body.String(), `"success":true`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Empty(t, user.GetSetting().GroupRatios)
+	ratio, special := ratio_setting.GetEffectiveGroupRatio(user.Group, "default", user.GetSetting().GroupRatios)
+	assert.Equal(t, 0.8, ratio)
+	assert.True(t, special)
+	ratio, special = ratio_setting.GetEffectiveGroupRatio(user.Group, "vip", user.GetSetting().GroupRatios)
+	assert.Equal(t, 2.0, ratio)
+	assert.False(t, special)
+}
+
+func TestUpdateUserRejectsInvalidPersonalGroupRatios(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	user := model.User{
+		Username: "ratio-validation", Password: "password", Role: common.RoleCommonUser,
+		Group: "default", Status: common.UserStatusEnabled, AuthVersion: 1,
+	}
+	require.NoError(t, db.Create(&user).Error)
+	for _, ratios := range []map[string]float64{
+		{"missing-group": 0.5},
+		{"default": -0.1},
+		{"default": 1001},
+	} {
+		ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/user/", map[string]any{
+			"id": user.Id, "username": user.Username, "group": user.Group,
+			"group_ratios": ratios,
+		}, 999)
+		ctx.Set("role", common.RoleRootUser)
+		UpdateUser(ctx)
+		assert.Contains(t, recorder.Body.String(), `"success":false`)
+		require.NoError(t, db.First(&user, user.Id).Error)
+		assert.Empty(t, user.GetSetting().GroupRatios)
+	}
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/user/", map[string]any{
+		"id": user.Id, "username": user.Username, "group": user.Group,
+		"group_ratios": map[string]float64{"default": 0.5},
+	}, 998)
+	ctx.Set("role", common.RoleCommonUser)
+	UpdateUser(ctx)
+	assert.Contains(t, recorder.Body.String(), `"success":false`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Empty(t, user.GetSetting().GroupRatios)
+}
 
 func setupManageUserTestDB(t *testing.T) *gorm.DB {
 	t.Helper()

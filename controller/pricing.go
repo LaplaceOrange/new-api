@@ -41,16 +41,14 @@ func GetPricing(c *gin.Context) {
 	usableGroup := map[string]string{}
 	groupRatio := map[string]float64{}
 	maps.Copy(groupRatio, ratio_setting.GetGroupRatioCopy())
+	baseGroupRatio := ratio_setting.GetGroupRatioCopy()
 	var group string
 	if exists {
 		user, err := model.GetUserCache(userId.(int))
 		if err == nil {
 			group = user.Group
 			for g := range groupRatio {
-				ratio, ok := ratio_setting.GetGroupGroupRatio(group, g)
-				if ok {
-					groupRatio[g] = ratio
-				}
+				groupRatio[g] = service.GetUserGroupRatio(group, g, user.GetSetting().GroupRatios)
 			}
 		}
 	}
@@ -61,6 +59,7 @@ func GetPricing(c *gin.Context) {
 	for group := range ratio_setting.GetGroupRatioCopy() {
 		if _, ok := usableGroup[group]; !ok {
 			delete(groupRatio, group)
+			delete(baseGroupRatio, group)
 		}
 	}
 
@@ -69,6 +68,7 @@ func GetPricing(c *gin.Context) {
 		"data":               pricing,
 		"vendors":            model.GetVendors(),
 		"group_ratio":        groupRatio,
+		"base_group_ratio":   baseGroupRatio,
 		"usable_group":       usableGroup,
 		"supported_endpoint": model.GetSupportedEndpointMap(),
 		"auto_groups":        service.GetUserAutoGroup(group),

@@ -20,6 +20,7 @@ import { ChevronDown, RotateCcw } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { GroupRatioChange } from '@/components/group-ratio-change'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -45,7 +46,7 @@ type FilterOption = {
   value: string
   label: string
   count?: number
-  suffix?: string
+  suffix?: ReactNode
   icon?: ReactNode
 }
 
@@ -70,6 +71,7 @@ export interface PricingSidebarProps {
   vendors: PricingVendor[]
   groups: string[]
   groupRatios?: Record<string, number>
+  baseGroupRatios?: Record<string, number>
   tags: string[]
   models: PricingModel[]
   hasActiveFilters: boolean
@@ -82,14 +84,6 @@ function countBy(
   predicate: (model: PricingModel) => boolean
 ): number {
   return models.reduce((count, model) => count + (predicate(model) ? 1 : 0), 0)
-}
-
-function formatGroupRatio(ratio: number | undefined): string | undefined {
-  if (ratio == null) return undefined
-  const formatted = Number.isInteger(ratio)
-    ? ratio.toString()
-    : ratio.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
-  return `x${formatted}`
 }
 
 function FilterChip(props: {
@@ -187,7 +181,13 @@ export function PricingSidebar(props: PricingSidebarProps) {
     ...props.groups.map((group) => ({
       value: group,
       label: group,
-      suffix: formatGroupRatio(props.groupRatios?.[group]),
+      suffix:
+        props.groupRatios?.[group] === undefined ? undefined : (
+          <GroupRatioChange
+            ratio={props.groupRatios[group]}
+            baseRatio={props.baseGroupRatios?.[group]}
+          />
+        ),
     })),
   ]
 

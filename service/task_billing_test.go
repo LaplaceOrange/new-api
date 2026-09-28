@@ -222,6 +222,9 @@ func TestPriceDataReplaceAndApplyOtherRatios(t *testing.T) {
 
 func TestTaskBillingOtherFiltersHistoricalOtherRatios(t *testing.T) {
 	task := makeTask(1, 1, 100, 0, BillingSourceWallet, 0)
+	baseRatio := 1.5
+	task.PrivateData.BillingContext.BaseGroupRatio = &baseRatio
+	task.PrivateData.BillingContext.GroupRatio = 0.25
 	task.PrivateData.BillingContext.OtherRatios = map[string]float64{
 		"seconds":  2,
 		"identity": 1,
@@ -234,6 +237,8 @@ func TestTaskBillingOtherFiltersHistoricalOtherRatios(t *testing.T) {
 	other := taskBillingOther(task).Snapshot()
 
 	assert.Equal(t, 2.0, other["seconds"])
+	assert.Equal(t, 1.5, other["base_group_ratio"])
+	assert.Equal(t, 0.25, other["group_ratio"])
 	assert.Equal(t, 1.0, other["identity"])
 	assert.NotContains(t, other, "zero")
 	assert.NotContains(t, other, "negative")
@@ -378,6 +383,7 @@ func TestLogTaskConsumptionWithoutSnapshotKeepsRatioMode(t *testing.T) {
 	require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
 	assert.Equal(t, true, other["is_task"])
 	assert.Equal(t, "/v1/videos", other["request_path"])
+	assert.Equal(t, float64(1), other["base_group_ratio"])
 	assert.NotContains(t, other, "billing_mode")
 	assert.NotContains(t, other, "expr_b64")
 	assert.NotContains(t, other, "matched_tier")
@@ -967,6 +973,31 @@ func TestRefundTaskQuota_FundingFailureKeepsAccountingAndPendingMarker(t *testin
 // ===========================================================================
 // RecalculateTaskQuota tests
 // ===========================================================================
+
+func TestRecalculateTaskQuotaByTokensKeepsSubmittedGroupRatio(t *testing.T) {
+	truncate(t)
+	originalRatios := ratio_setting.ModelRatio2JSONString()
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"test-model":1}`))
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(originalRatios))
+	})
+
+	const userID, channelID, tokenID = 59, 59, 59
+	seedUser(t, userID, 10000)
+	seedToken(t, tokenID, userID, "sk-ratio-snapshot", 5000)
+	seedChannel(t, channelID)
+	seedChargedAccounting(t, userID, channelID, tokenID, 1000, 1)
+	task := makeTask(userID, channelID, 1000, tokenID, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext.GroupRatio = 0.25
+	require.NoError(t, model.DB.Create(task).Error)
+
+	assert.True(t, RecalculateTaskQuotaByTokens(context.Background(), task, 1000))
+	assert.Equal(t, 250, task.Quota)
+	assert.Equal(t, 10750, getUserQuota(t, userID))
+	var stored model.Task
+	require.NoError(t, model.DB.First(&stored, task.ID).Error)
+	assert.Equal(t, 250, stored.Quota)
+}
 
 func TestRecalculate_PositiveDelta(t *testing.T) {
 	truncate(t)

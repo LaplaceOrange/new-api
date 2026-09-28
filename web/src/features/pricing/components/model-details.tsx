@@ -37,6 +37,7 @@ import { CopyButton } from '@/components/copy-button'
 import { StaticDataTable } from '@/components/data-table'
 import { sideDrawerContentClassName } from '@/components/drawer-layout'
 import { GroupBadge } from '@/components/group-badge'
+import { GroupRatioChange } from '@/components/group-ratio-change'
 import { PublicLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import {
@@ -1004,6 +1005,7 @@ function getDynamicFormattedPricesByTier(
 type GroupPricingSectionProps = {
   model: PricingModel
   groupRatio: Record<string, number>
+  baseGroupRatio?: Record<string, number>
   usableGroup: Record<string, { desc: string; ratio: number }>
   autoGroups: string[]
   priceRate: number
@@ -1179,7 +1181,7 @@ function ProviderGroupPricingSection(
     })
     const formattedPricesByGroup = new Map(
       availableGroups.map((group) => {
-        const ratio = props.groupRatio[group] || 1
+        const ratio = props.groupRatio[group] ?? 1
         return [
           group,
           getDynamicFormattedPricesByTier(dynamicTiers, {
@@ -1202,7 +1204,7 @@ function ProviderGroupPricingSection(
         <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
         <div className='space-y-3'>
           {availableGroups.map((group) => {
-            const ratio = props.groupRatio[group] || 1
+            const ratio = props.groupRatio[group] ?? 1
             const formattedPricesByTier =
               formattedPricesByGroup.get(group) ??
               new Map<DynamicPricingTier, Map<string, string>>()
@@ -1212,7 +1214,10 @@ function ProviderGroupPricingSection(
                 <div className='bg-muted/20 flex items-center justify-between gap-3 border-b px-3 py-2'>
                   <GroupBadge group={group} size='sm' />
                   <span className='text-muted-foreground font-mono text-xs'>
-                    {ratio}x
+                    <GroupRatioChange
+                      ratio={ratio}
+                      baseRatio={props.baseGroupRatio?.[group]}
+                    />
                   </span>
                 </div>
                 <StaticDataTable
@@ -1408,7 +1413,12 @@ function ProviderGroupPricingSection(
             header: t('Ratio'),
             className: thClass,
             cellClassName: 'text-muted-foreground py-2.5 font-mono',
-            cell: (group) => `${props.groupRatio[group] || 1}x`,
+            cell: (group) => (
+              <GroupRatioChange
+                ratio={props.groupRatio[group] ?? 1}
+                baseRatio={props.baseGroupRatio?.[group]}
+              />
+            ),
           },
           ...(isTokenBased
             ? [
@@ -1471,6 +1481,7 @@ const TAB_META: Record<
 export interface ModelDetailsContentProps {
   model: PricingModel
   groupRatio: Record<string, number>
+  baseGroupRatio?: Record<string, number>
   usableGroup: Record<string, { desc: string; ratio: number }>
   endpointMap: Record<string, { path?: string; method?: string }>
   autoGroups: string[]
@@ -1547,6 +1558,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
             <GroupPricingSection
               model={props.model}
               groupRatio={props.groupRatio}
+              baseGroupRatio={props.baseGroupRatio}
               usableGroup={props.usableGroup}
               autoGroups={props.autoGroups}
               priceRate={props.priceRate}
@@ -1616,6 +1628,7 @@ export function ModelDetails() {
   const {
     models,
     groupRatio,
+    baseGroupRatio,
     usableGroup,
     endpointMap,
     autoGroups,
@@ -1695,6 +1708,7 @@ export function ModelDetails() {
         <ModelDetailsContent
           model={model}
           groupRatio={groupRatio || {}}
+          baseGroupRatio={baseGroupRatio}
           usableGroup={usableGroup || {}}
           autoGroups={autoGroups || []}
           priceRate={priceRate ?? 1}

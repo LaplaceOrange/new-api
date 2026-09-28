@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 
 import { cn } from '@/lib/utils'
 
+import { GroupRatioChange } from './group-ratio-change'
 import { StatusBadge, type StatusBadgeProps } from './status-badge'
 import { Badge } from './ui/badge'
 
@@ -29,6 +30,7 @@ export function GroupMultiplierBadge(props: {
   className?: string
   label?: string
   ratio?: number | null
+  baseRatio?: number
 }) {
   let colorClassName =
     'border-muted-foreground/30 bg-muted text-muted-foreground'
@@ -49,7 +51,12 @@ export function GroupMultiplierBadge(props: {
       )}
     >
       {props.children}
-      <span>{props.label ?? `${props.ratio}x`}</span>
+      <span>
+        {props.label ??
+          (props.ratio == null ? null : (
+            <GroupRatioChange ratio={props.ratio} baseRatio={props.baseRatio} />
+          ))}
+      </span>
     </Badge>
   )
 }
@@ -61,6 +68,7 @@ type GroupBadgeProps = Omit<
   group?: string | null
   label?: string
   ratio?: number | null
+  baseRatio?: number
   ratioLabel?: string
   containerClassName?: string
 }
@@ -84,6 +92,7 @@ export function GroupBadge(props: GroupBadgeProps) {
     group,
     label: labelOverride,
     ratio,
+    baseRatio,
     ratioLabel,
     containerClassName,
     copyable = false,
@@ -127,7 +136,11 @@ export function GroupBadge(props: GroupBadgeProps) {
       )}
     >
       <span className='max-w-full min-w-0 overflow-hidden'>{badge}</span>
-      <GroupMultiplierBadge ratio={ratio} label={ratioLabel} />
+      <GroupMultiplierBadge
+        ratio={ratio}
+        baseRatio={baseRatio}
+        label={ratioLabel}
+      />
     </span>
   )
 }

@@ -44,6 +44,7 @@ await i18n.use(initReactI18next).init({
 function CellHarness(props: {
   group: string
   ratio?: number | string
+  baseRatio?: number
   crossGroupRetry?: boolean
   shouldReduceMotion?: boolean
 }) {
@@ -53,6 +54,7 @@ function CellHarness(props: {
         <ApiKeyGroupCell
           group={props.group}
           ratio={props.ratio}
+          baseRatio={props.baseRatio}
           crossGroupRetry={props.crossGroupRetry ?? false}
           shouldReduceMotion={props.shouldReduceMotion ?? false}
         />
@@ -62,6 +64,12 @@ function CellHarness(props: {
 }
 
 describe('API key group table cell', () => {
+  test('shows the base multiplier struck through before a group override', () => {
+    render(<CellHarness group='vip' ratio={0} baseRatio={2} />)
+    expect(screen.getByText('2x', { selector: 'del' })).toBeVisible()
+    expect(screen.getByText('0x')).toBeVisible()
+  })
+
   test('keeps the group and compact localized multiplier together with one subtle flowing edge', () => {
     const { container } = render(
       <CellHarness group='auto' ratio='自动' crossGroupRetry />

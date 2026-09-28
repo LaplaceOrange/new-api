@@ -27,6 +27,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/samber/lo"
@@ -788,9 +789,11 @@ func executeTaskSubmissionWith(
 	task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
 	task.PrivateData.TokenId = relayInfo.TokenId
 	task.PrivateData.NodeName = common.NodeName
+	baseGroupRatio := ratio_setting.GetGroupRatio(relayInfo.UsingGroup)
 	task.PrivateData.BillingContext = &model.TaskBillingContext{
 		ModelPrice:      relayInfo.PriceData.ModelPrice,
 		GroupRatio:      relayInfo.PriceData.GroupRatioInfo.GroupRatio,
+		BaseGroupRatio:  &baseGroupRatio,
 		ModelRatio:      relayInfo.PriceData.ModelRatio,
 		OtherRatios:     relayInfo.PriceData.OtherRatios(),
 		OriginModelName: relayInfo.OriginModelName,

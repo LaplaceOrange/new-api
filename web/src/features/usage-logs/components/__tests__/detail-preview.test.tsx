@@ -192,6 +192,20 @@ test('quota saturation remains first and only billing adds to the counter', () =
   expect(preview.textContent).toBe('Quota clamped+1')
 })
 
+test('overridden group ratio keeps the original visible in log preview and billing details', async () => {
+  const preview = renderPreview({
+    group_ratio: 0.25,
+    user_group_ratio: 0.25,
+    base_group_ratio: 1.5,
+  })
+  expect(preview.textContent).toBe('User Exclusive Ratio 1.5x0.25x')
+  expect(within(preview).getByText('1.5x', { selector: 'del' })).toBeVisible()
+  fireEvent.click(preview)
+  const dialog = within(await screen.findByRole('dialog'))
+  expect(dialog.getByText('1.5x', { selector: 'del' })).toBeVisible()
+  expect(dialog.getByText('0.25x')).toBeVisible()
+})
+
 test.each([true, false])(
   'plugin information in the opened dialog respects admin=%s',
   async (isAdmin) => {

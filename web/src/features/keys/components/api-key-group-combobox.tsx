@@ -48,6 +48,7 @@ export type ApiKeyGroupOption = {
   label: string
   desc?: string
   ratio?: number | string
+  baseRatio?: number
   topupRatio?: number | string
 }
 
@@ -133,6 +134,7 @@ export function ApiKeyGroupCombobox({
           <span className='hidden sm:block'>
             <GroupRatioBadge
               ratio={selectedOption?.ratio}
+              baseRatio={selectedOption?.baseRatio}
               topupRatio={selectedOption?.topupRatio}
               isAuto={isAutoSelected}
               shouldReduceMotion={shouldReduceMotion}
@@ -201,6 +203,7 @@ export function ApiKeyGroupCombobox({
                     </span>
                     <GroupRatioBadge
                       ratio={option.ratio}
+                      baseRatio={option.baseRatio}
                       topupRatio={option.topupRatio}
                       isAuto={isAutoOption}
                       shouldReduceMotion={shouldReduceMotion}
