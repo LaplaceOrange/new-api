@@ -93,6 +93,7 @@ function buildSearchSourceKey(values: {
   username?: unknown
   requestId?: unknown
   upstreamRequestId?: unknown
+  status?: unknown
   type?: unknown
 }) {
   return [
@@ -105,6 +106,7 @@ function buildSearchSourceKey(values: {
     values.username,
     values.requestId,
     values.upstreamRequestId,
+    values.status,
     Array.isArray(values.type) ? values.type.join(',') : values.type,
   ]
     .map((value) => String(value ?? ''))
@@ -157,9 +159,11 @@ export function CommonLogsFilterBar<TData>(
       username: searchParams.username,
       requestId: searchParams.requestId,
       upstreamRequestId: searchParams.upstreamRequestId,
+      status: searchParams.status,
       type: searchParams.type,
     }
     const filters: CommonLogFilters = {
+      status: searchParams.status ?? 'all',
       startTime: searchParams.startTime
         ? new Date(searchParams.startTime)
         : start,
@@ -188,6 +192,7 @@ export function CommonLogsFilterBar<TData>(
     searchParams.requestId,
     searchParams.upstreamRequestId,
     searchParams.type,
+    searchParams.status,
   ])
   const [draft, setDraft] = useState<CommonLogDraft>(() => searchState)
   const activeDraft =
@@ -230,9 +235,14 @@ export function CommonLogsFilterBar<TData>(
 
   const handleReset = useCallback(() => {
     const { start, end } = getDefaultTimeRange()
-    const resetFilters: CommonLogFilters = { startTime: start, endTime: end }
+    const resetFilters: CommonLogFilters = {
+      startTime: start,
+      endTime: end,
+      status: 'all',
+    }
     const resetSearch = {
       type: [LOG_TYPE_ALL_VALUE],
+      status: 'all' as const,
       startTime: start.getTime(),
       endTime: end.getTime(),
     }
@@ -269,8 +279,13 @@ export function CommonLogsFilterBar<TData>(
     !!filters.upstreamRequestId
 
   const hasTypeFilter = logType !== LOG_TYPE_ALL_VALUE
+  const hasStatusFilter = filters.status !== 'all'
   const hasAdditionalFilters =
-    !!filters.model || !!filters.group || hasTypeFilter || hasExpandedFilters
+    !!filters.model ||
+    !!filters.group ||
+    hasTypeFilter ||
+    hasStatusFilter ||
+    hasExpandedFilters
 
   const expandedFilterCount = [
     filters.token,
@@ -333,6 +348,52 @@ export function CommonLogsFilterBar<TData>(
       />
     </LogsFilterField>
   )
+  const statusItems = [
+    { value: 'all', label: t('All') },
+    { value: 'success', label: t('Only Success') },
+    { value: 'error', label: t('Only Errors') },
+  ]
+  const statusFilter = (
+    <LogsFilterField>
+      <Select
+        items={statusItems}
+        value={filters.status ?? 'all'}
+        onValueChange={(value) => {
+          if (value !== 'all' && value !== 'success' && value !== 'error') {
+            return
+          }
+          setDraft((current) => {
+            const base =
+              current.sourceKey === searchState.sourceKey
+                ? current
+                : searchState
+            return {
+              sourceKey: searchState.sourceKey,
+              filters: { ...base.filters, status: value },
+              logType: LOG_TYPE_ALL_VALUE,
+            }
+          })
+        }}
+      >
+        <SelectTrigger aria-label={t('Status')}>
+          <SelectValue>
+            {t('Status')}:{' '}
+            {statusItems.find((item) => item.value === filters.status)?.label ??
+              t('All')}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent alignItemWithTrigger={false}>
+          <SelectGroup>
+            {statusItems.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </LogsFilterField>
+  )
   const modelFilter = (
     <LogsFilterField>
       <LogsFilterInput
@@ -373,7 +434,7 @@ export function CommonLogsFilterBar<TData>(
                 : searchState
             return {
               sourceKey: searchState.sourceKey,
-              filters: base.filters,
+              filters: { ...base.filters, status: 'all' },
               logType: nextLogType,
             }
           })
@@ -493,6 +554,7 @@ export function CommonLogsFilterBar<TData>(
           {dateRangeFilter}
           {modelFilter}
           {groupFilter}
+          {statusFilter}
           {typeFilter}
         </>
       }
@@ -502,13 +564,15 @@ export function CommonLogsFilterBar<TData>(
         <>
           {modelFilter}
           {groupFilter}
+          {statusFilter}
           {typeFilter}
           {advancedFilters}
         </>
       }
       mobileFilterCount={
-        [filters.model, filters.group, hasTypeFilter].filter(Boolean).length +
-        expandedFilterCount
+        [filters.model, filters.group, hasTypeFilter, hasStatusFilter].filter(
+          Boolean
+        ).length + expandedFilterCount
       }
       hasAdvancedActiveFilters={hasExpandedFilters}
       advancedFilterCount={expandedFilterCount}

@@ -30,6 +30,7 @@ import type { UsageLog } from './data/schema'
  * Log category for different log types
  */
 export type LogCategory = 'common' | 'drawing' | 'task'
+export type RequestLogStatus = 'all' | 'success' | 'error'
 
 // ============================================================================
 // Filter Types
@@ -48,6 +49,7 @@ export interface CommonFilters {
  * Common logs specific filters
  */
 export interface CommonLogFilters extends CommonFilters {
+  status?: RequestLogStatus
   model?: string
   token?: string
   group?: string
@@ -114,6 +116,9 @@ export interface ToolSurchargeItem {
 }
 
 export interface LogOtherData {
+  error_type?: string
+  error_code?: string | number
+  status_code?: number
   admin_info?: {
     is_multi_key?: boolean
     multi_key_index?: number

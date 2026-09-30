@@ -31,6 +31,7 @@ import {
 } from '../api'
 import {
   LOG_TYPES,
+  LOG_TYPE_ENUM,
   DISPLAYABLE_LOG_TYPES,
   TIMING_LOG_TYPES,
 } from '../constants'
@@ -49,9 +50,7 @@ export function displayLogTokenName(
   id: number,
   t: TFunction
 ): string {
-  return id === 0 && name === 'image-studio'
-    ? t('Online Image Studio')
-    : name
+  return id === 0 && name === 'image-studio' ? t('Online Image Studio') : name
 }
 
 // ============================================================================
@@ -195,6 +194,7 @@ export function buildApiParams(config: {
   const params: GetLogsParams = {
     p: page,
     page_size: pageSize,
+    type: 0,
     ...(searchParams.type ? { type: processType(searchParams.type) } : {}),
     ...(searchParams.model ? { model_name: String(searchParams.model) } : {}),
     ...(searchParams.token ? { token_name: String(searchParams.token) } : {}),
@@ -241,6 +241,9 @@ export function buildApiParams(config: {
       }
     })
   }
+
+  if (searchParams.status === 'success') params.type = LOG_TYPE_ENUM.CONSUME
+  if (searchParams.status === 'error') params.type = LOG_TYPE_ENUM.ERROR
 
   return params
 }

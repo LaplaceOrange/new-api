@@ -37,6 +37,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
 
+import { buildApiParams } from '../../lib/utils'
 import { CommonLogsFilterBar } from '../common-logs-filter-bar'
 import { UsageLogsProvider } from '../usage-logs-provider'
 
@@ -128,3 +129,66 @@ it('marks only retired log types as deprecated while keeping historical filters 
     expect(router.state.location.search).toMatchObject({ type: ['7'], page: 1 })
   )
 })
+
+it('defaults to all records and applies success, error and reset filters on the server', async () => {
+  const router = await renderFilter()
+  const user = userEvent.setup()
+  expect(screen.getByRole('combobox', { name: 'Status' })).toHaveTextContent(
+    'All'
+  )
+  for (const [label, status, type] of [
+    ['Only Success', 'success', 2],
+    ['Only Errors', 'error', 5],
+    ['All', 'all', 0],
+  ] as const) {
+    await user.click(screen.getByRole('combobox', { name: 'Status' }))
+    await user.click(screen.getByRole('option', { name: label }))
+    await user.click(screen.getByRole('button', { name: 'Search' }))
+    await waitFor(() =>
+      expect(router.state.location.search).toMatchObject({ status, page: 1 })
+    )
+    expect(
+      buildApiParams({
+        page: 1,
+        pageSize: 20,
+        isAdmin: false,
+        searchParams: router.state.location.search,
+      }).type
+    ).toBe(type)
+  }
+  await user.click(screen.getByRole('combobox', { name: 'Status' }))
+  await user.click(screen.getByRole('option', { name: 'Only Errors' }))
+  await user.click(screen.getByRole('button', { name: 'Search' }))
+  await user.click(screen.getByRole('button', { name: 'Reset' }))
+  await waitFor(() =>
+    expect(screen.getByRole('combobox', { name: 'Status' })).toHaveTextContent(
+      'All'
+    )
+  )
+})
+
+it.each([false, true])(
+  'maps request status to API log types for admin=%s',
+  (isAdmin) => {
+    const config = { page: 3, pageSize: 20, isAdmin }
+    expect(buildApiParams({ ...config, searchParams: {} }).type).toBe(0)
+    expect(
+      buildApiParams({
+        ...config,
+        searchParams: { status: 'success', type: ['5'] },
+      }).type
+    ).toBe(2)
+    expect(
+      buildApiParams({
+        ...config,
+        searchParams: { status: 'error', requestId: 'req-failed' },
+      })
+    ).toMatchObject({ type: 5, request_id: 'req-failed', p: 3 })
+    expect(
+      buildApiParams({
+        ...config,
+        searchParams: { status: 'all', type: ['1'] },
+      }).type
+    ).toBe(1)
+  }
+)
