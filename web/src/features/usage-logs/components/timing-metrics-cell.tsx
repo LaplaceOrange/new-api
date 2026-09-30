@@ -20,11 +20,6 @@ import { CircleAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import {
-  dotColorMap,
-  textColorMap,
-  type StatusVariant,
-} from '@/components/status-badge'
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -33,21 +28,27 @@ import {
 import { formatUseTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-import { getFirstResponseTimeColor, getResponseTimeColor } from '../lib/format'
+import {
+  getFirstResponseTimeColor,
+  getResponseTimeColor,
+  getThroughputColor,
+  type PerformanceVariant,
+} from '../lib/format'
 import type { LogOtherData } from '../types'
 
-/**
- * Softened fills for the full-height timing bar. The bar sits directly beside
- * dense numeric text, so the saturated `dotColorMap` tones (tuned for small
- * dots and badges) read as too high-contrast at that size; a translucent fill
- * keeps the status legible while matching the page's muted palette.
- */
-const barColorMap: Record<StatusVariant, string> = {
-  ...dotColorMap,
-  success: 'bg-success/90',
-  warning: 'bg-warning/80',
-  danger: 'bg-destructive/80',
-  neutral: 'bg-neutral/80',
+const barColorMap: Record<PerformanceVariant, string> = {
+  success: 'bg-emerald-500',
+  warning: 'bg-amber-500',
+  orange: 'bg-orange-500',
+  danger: 'bg-red-500',
+  neutral: 'bg-neutral',
+}
+const textColorMap: Record<PerformanceVariant, string> = {
+  success: 'text-emerald-700 dark:text-emerald-400',
+  warning: 'text-amber-700 dark:text-amber-400',
+  orange: 'text-orange-700 dark:text-orange-400',
+  danger: 'text-red-600 dark:text-red-400',
+  neutral: 'text-muted-foreground',
 }
 
 interface TimingMetricsCellProps {
@@ -64,6 +65,7 @@ interface TimingMetricsCellProps {
    */
   indicator?: 'bar' | 'dot'
   compact?: boolean
+  showThroughput?: boolean
 }
 
 export function TimingMetricsCell(props: TimingMetricsCellProps) {
@@ -71,8 +73,10 @@ export function TimingMetricsCell(props: TimingMetricsCellProps) {
   const indicator = props.indicator ?? 'bar'
   const showFirstToken = props.isStream
   const firstTokenSeconds =
-    props.frtMs != null && props.frtMs > 0 ? props.frtMs / 1000 : null
-  const firstTokenVariant: StatusVariant =
+    props.frtMs != null && Number.isFinite(props.frtMs) && props.frtMs >= 0
+      ? props.frtMs / 1000
+      : null
+  const firstTokenVariant: PerformanceVariant =
     firstTokenSeconds == null
       ? 'neutral'
       : getFirstResponseTimeColor(firstTokenSeconds)
@@ -82,7 +86,44 @@ export function TimingMetricsCell(props: TimingMetricsCellProps) {
   )
   const firstTokenLabel =
     firstTokenSeconds == null ? t('N/A') : formatUseTime(firstTokenSeconds)
-  const totalTimeLabel = formatUseTime(props.useTimeSec)
+  const totalTimeLabel =
+    totalTimeVariant === 'neutral' ? t('N/A') : formatUseTime(props.useTimeSec)
+  const averageTps =
+    Number.isFinite(props.useTimeSec) &&
+    props.useTimeSec > 0 &&
+    Number.isFinite(props.completionTokens) &&
+    props.completionTokens > 0
+      ? props.completionTokens / props.useTimeSec
+      : null
+  const tokensPerSecond =
+    averageTps != null && Number.isFinite(averageTps) ? averageTps : null
+  const throughputVariant =
+    tokensPerSecond == null ? 'neutral' : getThroughputColor(tokensPerSecond)
+  const showThroughput = props.showThroughput !== false
+  const metrics = [
+    ...(showFirstToken
+      ? [
+          {
+            label: t('First token'),
+            value: firstTokenLabel,
+            variant: firstTokenVariant,
+          },
+        ]
+      : []),
+    { label: t('Duration'), value: totalTimeLabel, variant: totalTimeVariant },
+    ...(showThroughput
+      ? [
+          {
+            label: t('Average TPS'),
+            value:
+              tokensPerSecond == null
+                ? t('N/A')
+                : `${Math.round(tokensPerSecond)} t/s`,
+            variant: throughputVariant,
+          },
+        ]
+      : []),
+  ]
 
   const labels = (
     <div
@@ -92,64 +133,63 @@ export function TimingMetricsCell(props: TimingMetricsCellProps) {
           'min-h-0 flex-row flex-wrap items-center gap-x-2.5 gap-y-1'
       )}
     >
-      {showFirstToken && (
-        <div className='flex items-baseline gap-1.5'>
+      {metrics.map((metric) => (
+        <div key={metric.label} className='flex min-w-0 items-baseline gap-1.5'>
           {indicator === 'dot' && (
             <span
               aria-hidden
               className={cn(
                 'size-1.5 shrink-0 rounded-full',
-                dotColorMap[firstTokenVariant]
+                barColorMap[metric.variant]
               )}
             />
           )}
-          <span className='text-muted-foreground shrink-0'>
-            {t('First token')}
-          </span>
-          <span className={cn('tabular-nums', textColorMap[firstTokenVariant])}>
-            {firstTokenLabel}
+          <span className='text-muted-foreground min-w-0'>{metric.label}</span>
+          <span
+            className={cn(
+              'shrink-0 font-medium tabular-nums',
+              textColorMap[metric.variant]
+            )}
+          >
+            {metric.value}
           </span>
         </div>
-      )}
-      <div className='flex items-baseline gap-1.5'>
-        {indicator === 'dot' && (
-          <span
-            aria-hidden
-            className={cn(
-              'size-1.5 shrink-0 rounded-full',
-              dotColorMap[totalTimeVariant]
-            )}
-          />
-        )}
-        <span className='text-muted-foreground shrink-0'>{t('Duration')}</span>
-        <span className={cn('tabular-nums', textColorMap[totalTimeVariant])}>
-          {totalTimeLabel}
-        </span>
-      </div>
+      ))}
     </div>
   )
 
   if (indicator === 'dot') {
     return (
-      <div className={cn('flex items-stretch', props.className)}>{labels}</div>
+      <div
+        role='group'
+        aria-label={t('Timing')}
+        className={cn('flex items-stretch', props.className)}
+      >
+        {labels}
+      </div>
     )
   }
 
   return (
-    <div className={cn('flex items-stretch gap-2', props.className)}>
+    <div
+      role='group'
+      aria-label={t('Timing')}
+      className={cn('flex items-stretch gap-2', props.className)}
+    >
       <span
         aria-hidden
         className={cn(
           'flex w-1 shrink-0 flex-col overflow-hidden rounded-full',
-          !showFirstToken && barColorMap[totalTimeVariant]
+          !showFirstToken && !showThroughput && barColorMap[totalTimeVariant]
         )}
       >
-        {showFirstToken && (
-          <>
-            <span className={cn('flex-1', barColorMap[firstTokenVariant])} />
-            <span className={cn('flex-1', barColorMap[totalTimeVariant])} />
-          </>
-        )}
+        {(showFirstToken || showThroughput) &&
+          metrics.map((metric) => (
+            <span
+              key={metric.label}
+              className={cn('flex-1', barColorMap[metric.variant])}
+            />
+          ))}
       </span>
       {labels}
     </div>
@@ -170,10 +210,6 @@ export function StreamTpsCell(props: StreamTpsCellProps) {
   const { t } = useTranslation()
   const showStreamError =
     props.isStream && props.streamStatus && props.streamStatus.status !== 'ok'
-  const tpsLabel =
-    props.tokensPerSecond != null
-      ? `${Math.round(props.tokensPerSecond)} t/s`
-      : '—'
   let streamLabel = props.isStream ? t('Stream') : t('Non-stream')
   if (props.isTask) {
     streamLabel = t('Async')
@@ -217,12 +253,6 @@ export function StreamTpsCell(props: StreamTpsCellProps) {
           </TooltipProvider>
         )}
       </span>
-      {(!props.compact ||
-        (props.isStream && props.tokensPerSecond != null)) && (
-        <span className='text-muted-foreground/60 px-0.5 tabular-nums'>
-          {tpsLabel}
-        </span>
-      )}
     </div>
   )
 }

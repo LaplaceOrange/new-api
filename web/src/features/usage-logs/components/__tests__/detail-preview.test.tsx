@@ -36,6 +36,7 @@ import {
 import type { UsageLog } from '../../data/schema'
 import type { LogOtherData } from '../../types'
 import { useCommonLogsColumns } from '../columns/common-logs-columns'
+import { DetailsDialog } from '../dialogs/details-dialog'
 
 vi.mock('@lobehub/icons', () => ({}))
 vi.hoisted(() => {
@@ -126,6 +127,76 @@ function renderPreview(other: LogOtherData, isAdmin = true) {
   )
   return screen.getByRole('button', { name: /./ })
 }
+
+test('failed requests show model, timing and structured error details without admin diagnostics', async () => {
+  const errorMessage = `Upstream is unavailable: ${'provider-timeout-'.repeat(25)}`
+  const failedLog = {
+    ...makeLog({
+      request_path: '/v1/responses',
+      status_code: 503,
+      error_type: 'upstream_error',
+      error_code: 'provider_unavailable',
+      admin_info: { reject_reason: 'private-admin-diagnostic' },
+    }),
+    type: 5,
+    content: errorMessage,
+    use_time: 60,
+    request_id: 'request-id-'.repeat(20),
+  }
+  render(
+    <I18nextProvider i18n={i18n}>
+      <QueryClientProvider client={client}>
+        <DetailsDialog
+          log={failedLog}
+          isAdmin={false}
+          isRoot={false}
+          open
+          onOpenChange={() => undefined}
+        />
+      </QueryClientProvider>
+    </I18nextProvider>
+  )
+  const dialog = within(await screen.findByRole('dialog'))
+  expect(dialog.getByText('Request Details', { selector: 'h2' })).toBeVisible()
+  expect(dialog.getByText('wan2.5-i2v-preview')).toBeVisible()
+  expect(dialog.getByText('/v1/responses')).toBeVisible()
+  expect(dialog.getByText('Error Details')).toBeVisible()
+  expect(dialog.getByText('503')).toBeVisible()
+  expect(dialog.getByText('upstream_error')).toBeVisible()
+  expect(dialog.getByText('provider_unavailable')).toBeVisible()
+  expect(dialog.getByText(errorMessage)).toHaveClass('[overflow-wrap:anywhere]')
+  expect(dialog.getByText(failedLog.request_id)).toHaveClass('break-all')
+  expect(dialog.queryByText('private-admin-diagnostic')).not.toBeInTheDocument()
+  const metrics = dialog.getByRole('group', { name: 'Timing' })
+  expect(within(metrics).getByText('Average TPS')).toBeVisible()
+  expect(within(metrics).getByText('N/A')).toBeVisible()
+})
+
+test('streaming request details use the same grouped metrics as the log list', async () => {
+  render(
+    <I18nextProvider i18n={i18n}>
+      <QueryClientProvider client={client}>
+        <DetailsDialog
+          log={{
+            ...makeLog({ frt: 1200 }),
+            use_time: 10,
+            completion_tokens: 400,
+            is_stream: true,
+          }}
+          isAdmin={false}
+          isRoot={false}
+          open
+          onOpenChange={() => undefined}
+        />
+      </QueryClientProvider>
+    </I18nextProvider>
+  )
+  const dialog = within(await screen.findByRole('dialog'))
+  const metrics = within(dialog.getByRole('group', { name: 'Timing' }))
+  expect(metrics.getByText('First token')).toBeVisible()
+  expect(metrics.getByText('Duration')).toBeVisible()
+  expect(metrics.getByText('40 t/s')).toHaveClass('text-emerald-700')
+})
 
 test.each([
   {

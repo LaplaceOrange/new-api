@@ -688,18 +688,12 @@ export function useCommonLogsColumns(
         const log = row.original
         if (!isTimingLogType(log.type)) return null
 
-        const useTime = row.getValue('use_time') as number
         const other = parseLogOther(log.other)
-        const tokensPerSecond =
-          useTime > 0 && log.completion_tokens > 0
-            ? log.completion_tokens / useTime
-            : null
 
         return (
           <StreamTpsCell
             isStream={log.is_stream}
             isTask={other?.is_task === true}
-            tokensPerSecond={tokensPerSecond}
             streamStatus={other?.stream_status}
           />
         )
@@ -794,9 +788,11 @@ export function useCommonLogsColumns(
             completionTokens={log.completion_tokens}
             frtMs={other?.frt}
             isStream={log.is_stream}
+            showThroughput={other?.is_task !== true}
           />
         )
       },
+      size: 185,
     },
 
     {

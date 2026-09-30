@@ -60,7 +60,7 @@ export function DetailSection(props: {
       <Label
         className={cn(
           'flex items-center gap-1.5 text-xs font-semibold',
-          isDanger && 'text-red-500'
+          isDanger && 'text-red-700 dark:text-red-400'
         )}
       >
         {props.icon && (

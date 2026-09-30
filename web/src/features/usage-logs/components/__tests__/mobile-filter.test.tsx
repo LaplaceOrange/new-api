@@ -41,6 +41,7 @@ import zhTW from '@/i18n/locales/zh-TW.json'
 import zh from '@/i18n/locales/zh.json'
 import { api } from '@/lib/api'
 
+import { buildApiParams } from '../../lib/utils'
 import { CommonLogsFilterBar } from '../common-logs-filter-bar'
 import { CompactDateTimeRangePicker } from '../compact-date-time-range-picker'
 import { LogsFilterToolbar } from '../logs-filter-toolbar'
@@ -168,6 +169,33 @@ it('applies mobile drawer filters only when Search is pressed', async () => {
       screen.queryByRole('dialog', { name: 'Filter' })
     ).not.toBeInTheDocument()
   )
+})
+
+it('applies the mobile error status and clears a previous type filter on Search', async () => {
+  const router = await renderMobileFilter()
+  const user = userEvent.setup()
+  await user.click(screen.getByRole('button', { name: 'Filter' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Filter' })
+  await user.click(within(dialog).getByRole('combobox', { name: 'Status' }))
+  await user.click(screen.getByRole('option', { name: 'Only Errors' }))
+  expect(router.state.location.search).not.toHaveProperty('status')
+
+  await user.click(within(dialog).getByRole('button', { name: 'Search' }))
+  await waitFor(() =>
+    expect(router.state.location.search).toMatchObject({
+      status: 'error',
+      type: ['0'],
+      page: 1,
+    })
+  )
+  expect(
+    buildApiParams({
+      page: 1,
+      pageSize: 20,
+      isAdmin: false,
+      searchParams: router.state.location.search,
+    }).type
+  ).toBe(5)
 })
 
 it('keeps all quick actions visible without opening a menu', async () => {

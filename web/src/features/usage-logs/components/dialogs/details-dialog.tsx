@@ -36,8 +36,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import {
-  Copy,
-  Check,
   Route,
   Settings2,
   AlertTriangle,
@@ -53,18 +51,21 @@ import {
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { CopyButton } from '@/components/copy-button'
 import { Dialog } from '@/components/dialog'
 import { GroupRatioChange } from '@/components/group-ratio-change'
 import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
-import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
 import { usePricingData } from '@/features/pricing/hooks/use-pricing-data'
 import { BILLING_PRICING_VARS } from '@/features/pricing/lib/billing-expr'
 import { pluginUsageSchema } from '@/features/pricing/lib/plugin-pricing'
-import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
-import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
+import {
+  formatLogQuota,
+  formatTokens,
+  formatTimestampToDate,
+} from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { AuditDetailFields } from '../../audit/components/audit-detail-fields'
@@ -77,8 +78,6 @@ import {
   getTieredBillingSummary,
   hasAnyCacheTokens,
   isViolationFeeLog,
-  getFirstResponseTimeColor,
-  getResponseTimeColor,
   getReasoningEffortVariant,
   renderAuditContent,
 } from '../../lib/format'
@@ -91,6 +90,7 @@ import {
 } from '../../lib/utils'
 import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
 import { PluginAuthorLink } from '../plugin-author-link'
+import { TimingMetricsCell, StreamTpsCell } from '../timing-metrics-cell'
 import { DetailRow, DetailSection } from './log-detail-layout'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
@@ -102,14 +102,6 @@ const CHANNEL_FIELD_LABELS: Record<string, string> = {
   type: 'Type',
   base_url: 'Base URL',
   key: 'Key',
-}
-
-function timingTextColorClass(
-  variant: 'success' | 'warning' | 'danger'
-): string {
-  if (variant === 'success') return 'text-emerald-600'
-  if (variant === 'warning') return 'text-amber-600'
-  return 'text-rose-600'
 }
 
 function getUsageBillingPathLabel(
@@ -477,13 +469,13 @@ interface DetailsDialogProps {
 
 export function DetailsDialog(props: DetailsDialogProps) {
   const { t } = useTranslation()
-  const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
   const other = parseLogOther(props.log.other)
   const typeConfig = getLogTypeConfig(props.log.type)
 
   const isViolation = isViolationFeeLog(other)
   const isRefund = props.log.type === 6
   const isConsume = props.log.type === 2
+  const isError = props.log.type === 5
   const isTopup = props.log.type === 1
   const isManage = props.log.type === 3
   const isSubscription = other?.billing_source === 'subscription'
@@ -627,7 +619,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
       onOpenChange={props.onOpenChange}
       title={
         <>
-          {t('Log Details')}
+          {showTiming ? t('Request Details') : t('Log Details')}
           <StatusBadge
             label={t(typeConfig.label)}
             variant={typeConfig.color as StatusBadgeProps['variant']}
@@ -640,28 +632,93 @@ export function DetailsDialog(props: DetailsDialogProps) {
       contentClassName={cn(
         'min-w-0 overflow-hidden',
         'max-sm:max-h-[calc(100dvh-1.5rem)] max-sm:w-[calc(100vw-1.5rem)] max-sm:max-w-[calc(100vw-1.5rem)] max-sm:p-4',
-        isTieredBilling ? 'sm:max-w-4xl lg:max-w-5xl' : 'sm:max-w-lg'
+        isTieredBilling ? 'sm:max-w-4xl lg:max-w-5xl' : 'sm:max-w-2xl'
       )}
       headerClassName='max-sm:gap-1'
-      titleClassName='flex items-center gap-2 text-base'
+      titleClassName='flex flex-wrap items-center gap-2 pr-6 text-base'
       descriptionClassName='sr-only'
       contentHeight='min(72dvh, 720px)'
       bodyClassName='pr-2 sm:pr-4'
     >
       <div className='w-full max-w-full min-w-0 space-y-2.5 overflow-x-hidden py-1 sm:space-y-3'>
+        {showTiming && (
+          <section
+            aria-label={t('Request Details')}
+            className='min-w-0 space-y-3 border-b pb-3'
+          >
+            <div className='grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3'>
+              <DetailRow
+                label={t('Model')}
+                value={props.log.model_name || t('N/A')}
+              />
+              <DetailRow
+                label={t('Time')}
+                value={formatTimestampToDate(props.log.created_at)}
+                mono
+              />
+              <DetailRow
+                label={t('Type')}
+                value={
+                  <StreamTpsCell
+                    isStream={props.log.is_stream}
+                    isTask={other?.is_task === true}
+                    streamStatus={other?.stream_status}
+                    compact
+                  />
+                }
+              />
+              {other?.request_path && (
+                <DetailRow label={t('Path')} value={other.request_path} mono />
+              )}
+            </div>
+            <TimingMetricsCell
+              useTimeSec={props.log.use_time}
+              completionTokens={props.log.completion_tokens}
+              frtMs={other?.frt}
+              isStream={props.log.is_stream}
+              showThroughput={other?.is_task !== true}
+              indicator='dot'
+              compact
+            />
+          </section>
+        )}
         {/* Overview section - key identifiers */}
         <div className='min-w-0 space-y-1'>
           {props.log.request_id && (
             <DetailRow
               label={t('Request ID')}
-              value={props.log.request_id}
+              value={
+                <span className='flex min-w-0 items-start gap-2'>
+                  <span className='min-w-0 flex-1 break-all'>
+                    {props.log.request_id}
+                  </span>
+                  <CopyButton
+                    value={props.log.request_id}
+                    className='size-5'
+                    iconClassName='size-3'
+                    tooltip={t('Copy to clipboard')}
+                  />
+                </span>
+              }
               mono
             />
           )}
           {props.log.upstream_request_id && (
             <DetailRow
               label={t('Upstream Request ID')}
-              value={props.log.upstream_request_id}
+              value={
+                <span className='flex min-w-0 items-start gap-2'>
+                  <span className='min-w-0 flex-1 break-all'>
+                    {props.log.upstream_request_id}
+                  </span>
+                  <CopyButton
+                    value={props.log.upstream_request_id}
+                    className='size-5'
+                    iconClassName='size-3'
+                    tooltip={t('Copy to clipboard')}
+                  />
+                </span>
+              }
               mono
             />
           )}
@@ -720,62 +777,61 @@ export function DetailsDialog(props: DetailsDialogProps) {
               mono
             />
           )}
-
-          {showTiming && props.log.use_time > 0 && (
-            <DetailRow
-              label={t('Response Time')}
-              value={
-                <span
-                  className={cn(
-                    'font-medium',
-                    timingTextColorClass(
-                      getResponseTimeColor(
-                        props.log.use_time,
-                        props.log.completion_tokens
-                      )
-                    )
-                  )}
-                >
-                  {formatUseTime(props.log.use_time)}
-                  {props.log.is_stream &&
-                    other?.frt != null &&
-                    other.frt > 0 && (
-                      <span
-                        className={cn(
-                          'font-normal',
-                          timingTextColorClass(
-                            getFirstResponseTimeColor(other.frt / 1000)
-                          )
-                        )}
-                      >
-                        {' '}
-                        (FRT: {formatUseTime(other.frt / 1000)})
-                      </span>
-                    )}
-                </span>
-              }
-            />
-          )}
         </div>
+
+        {isError && (
+          <DetailSection
+            icon={<AlertTriangle className='size-3.5' aria-hidden='true' />}
+            label={t('Error Details')}
+            variant='danger'
+          >
+            {other?.status_code != null && (
+              <DetailRow
+                label={t('Status Code')}
+                value={other.status_code}
+                mono
+              />
+            )}
+            {other?.error_type && (
+              <DetailRow
+                label={t('Error Type')}
+                value={other.error_type}
+                mono
+              />
+            )}
+            {other?.error_code != null && (
+              <DetailRow
+                label={t('Error Code')}
+                value={String(other.error_code)}
+                mono
+              />
+            )}
+            {details && (
+              <div className='flex min-w-0 items-start gap-2 pt-1'>
+                <p className='min-w-0 flex-1 text-xs leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap'>
+                  {details}
+                </p>
+                <CopyButton
+                  value={details}
+                  className='size-6'
+                  iconClassName='size-3'
+                  tooltip={t('Copy to clipboard')}
+                />
+              </div>
+            )}
+          </DetailSection>
+        )}
 
         {/* Request conversion (admin only, not for refund) */}
         {showConversion && (
           <DetailSection label={t('Request Conversion')}>
             <div className='relative min-w-0'>
-              <Button
-                variant='ghost'
-                size='sm'
+              <CopyButton
+                value={conversionLabel}
                 className='absolute top-0 right-0 h-5 w-5 p-0'
-                onClick={() => copyToClipboard(conversionLabel)}
-                title={t('Copy to clipboard')}
-                aria-label={t('Copy to clipboard')}
-              >
-                {copiedText === conversionLabel ? (
-                  <Check className='size-3 text-green-600' />
-                ) : (
-                  <Copy className='size-3' />
-                )}
-              </Button>
+                iconClassName='size-3'
+                tooltip={t('Copy to clipboard')}
+              />
               <div className='min-w-0 space-y-1 pr-6'>
                 {other?.request_path && (
                   <DetailRow
@@ -1324,24 +1380,16 @@ export function DetailsDialog(props: DetailsDialogProps) {
         )}
 
         {/* Content */}
-        {details && (
+        {details && !isError && (
           <div className='space-y-1.5'>
             <Label className='text-xs font-semibold'>{t('Content')}</Label>
             <div className='bg-muted/30 relative min-w-0 overflow-hidden rounded-md border p-2.5'>
-              <Button
-                variant='ghost'
-                size='sm'
+              <CopyButton
+                value={details}
                 className='absolute top-1.5 right-1.5 h-5 w-5 p-0'
-                onClick={() => copyToClipboard(details)}
-                title={t('Copy to clipboard')}
-                aria-label={t('Copy to clipboard')}
-              >
-                {copiedText === details ? (
-                  <Check className='size-3 text-green-600' />
-                ) : (
-                  <Copy className='size-3' />
-                )}
-              </Button>
+                iconClassName='size-3'
+                tooltip={t('Copy to clipboard')}
+              />
               <p className='min-w-0 pr-6 text-xs leading-relaxed break-all whitespace-pre-wrap sm:wrap-break-word'>
                 {details}
               </p>

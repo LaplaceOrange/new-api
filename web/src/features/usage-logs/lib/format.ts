@@ -199,22 +199,29 @@ export function getReasoningEffortVariant(
 /**
  * Get time color based on duration (in seconds)
  */
-export function getTimeColor(
-  seconds: number
-): 'success' | 'warning' | 'danger' {
-  if (seconds < 10) return 'success'
-  if (seconds < 30) return 'warning'
+export type PerformanceVariant =
+  | 'success'
+  | 'warning'
+  | 'orange'
+  | 'danger'
+  | 'neutral'
+
+export function getTimeColor(seconds: number): PerformanceVariant {
+  if (!Number.isFinite(seconds) || seconds < 0) return 'neutral'
+  if (seconds < 60) return 'success'
+  if (seconds < 180) return 'warning'
+  if (seconds < 300) return 'orange'
   return 'danger'
 }
 
 /**
  * Get first-response-token color based on latency (in seconds)
  */
-export function getFirstResponseTimeColor(
-  seconds: number
-): 'success' | 'warning' | 'danger' {
-  if (seconds < 5) return 'success'
-  if (seconds < 10) return 'warning'
+export function getFirstResponseTimeColor(seconds: number): PerformanceVariant {
+  if (!Number.isFinite(seconds) || seconds < 0) return 'neutral'
+  if (seconds < 10) return 'success'
+  if (seconds < 30) return 'warning'
+  if (seconds < 60) return 'orange'
   return 'danger'
 }
 
@@ -223,21 +230,22 @@ export function getFirstResponseTimeColor(
  */
 export function getThroughputColor(
   tokensPerSecond: number
-): 'success' | 'warning' | 'danger' {
+): PerformanceVariant {
+  if (!Number.isFinite(tokensPerSecond) || tokensPerSecond < 0) return 'neutral'
   if (tokensPerSecond >= 30) return 'success'
   if (tokensPerSecond >= 15) return 'warning'
+  if (tokensPerSecond >= 5) return 'orange'
   return 'danger'
 }
 
 /**
- * Get response color using throughput only when enough output tokens exist.
+ * Duration and throughput have independent scales.
  */
 export function getResponseTimeColor(
   seconds: number,
-  completionTokens: number
-): 'success' | 'warning' | 'danger' {
-  if (completionTokens < 100 || seconds <= 0) return getTimeColor(seconds)
-  return getThroughputColor(completionTokens / seconds)
+  _completionTokens?: number
+): PerformanceVariant {
+  return getTimeColor(seconds)
 }
 
 /**
