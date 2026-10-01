@@ -24,6 +24,7 @@ import { z } from 'zod'
 import { EmptyState } from '@/components/empty-state'
 import { ErrorState } from '@/components/error-state'
 import { GroupTypeIcon } from '@/components/group-type-icon'
+import { LobeIconField } from '@/components/lobe-icon-field'
 import { MultiSelect } from '@/components/multi-select'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -38,6 +39,7 @@ import {
 } from '@/components/ui/select'
 import {
   groupTypeIconNames,
+  groupTypeCustomIconSchema,
   groupTypeSchema,
   type GroupType,
   type GroupTypeIconName,
@@ -130,7 +132,11 @@ export function GroupTypeEditor(props: GroupTypeEditorProps) {
             key={keys.current[index]}
           >
             <div className='flex items-center gap-2'>
-              <GroupTypeIcon icon={type.icon} color={type.color} />
+              <GroupTypeIcon
+                icon={type.icon}
+                customIcon={type.custom_icon}
+                color={type.color}
+              />
               <Input
                 aria-label={t('Type name')}
                 className='min-w-0 flex-1'
@@ -173,6 +179,8 @@ export function GroupTypeEditor(props: GroupTypeEditorProps) {
                     changeType(index, {
                       ...type,
                       icon: icon as GroupTypeIconName,
+                      custom_icon:
+                        icon === 'custom' ? type.custom_icon : undefined,
                     })
                   }
                 >
@@ -182,8 +190,12 @@ export function GroupTypeEditor(props: GroupTypeEditorProps) {
                     aria-label={t('Type icon')}
                   >
                     <SelectValue>
-                      <GroupTypeIcon icon={type.icon} color={type.color} />
-                      {t(type.icon)}
+                      <GroupTypeIcon
+                        icon={type.icon}
+                        customIcon={type.custom_icon}
+                        color={type.color}
+                      />
+                      {type.icon === 'custom' ? t('Custom') : t(type.icon)}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -191,7 +203,7 @@ export function GroupTypeEditor(props: GroupTypeEditorProps) {
                       {groupTypeIconNames.map((icon) => (
                         <SelectItem key={icon} value={icon}>
                           <GroupTypeIcon icon={icon} color={type.color} />
-                          {t(icon)}
+                          {icon === 'custom' ? t('Custom') : t(icon)}
                         </SelectItem>
                       ))}
                     </SelectGroup>
@@ -213,6 +225,36 @@ export function GroupTypeEditor(props: GroupTypeEditorProps) {
                 />
               </div>
             </div>
+            {type.icon === 'custom' && (
+              <div className='space-y-1'>
+                <Label
+                  htmlFor={`group-type-custom-icon-${keys.current[index]}`}
+                >
+                  {t('LobeHub icon ID')}
+                </Label>
+                <LobeIconField
+                  id={`group-type-custom-icon-${keys.current[index]}`}
+                  aria-label={t('LobeHub icon ID')}
+                  aria-invalid={
+                    Boolean(type.custom_icon) &&
+                    !groupTypeCustomIconSchema.safeParse(type.custom_icon)
+                      .success
+                  }
+                  compact
+                  value={type.custom_icon ?? ''}
+                  onChange={(customIcon) =>
+                    changeType(index, { ...type, custom_icon: customIcon })
+                  }
+                />
+                {type.custom_icon &&
+                  !groupTypeCustomIconSchema.safeParse(type.custom_icon)
+                    .success && (
+                    <p role='alert' className='text-destructive text-xs'>
+                      {t('Enter a valid LobeHub icon ID')}
+                    </p>
+                  )}
+              </div>
+            )}
             <div className='space-y-1'>
               <Label htmlFor={`group-type-groups-${keys.current[index]}`}>
                 {t('Groups in this type')}

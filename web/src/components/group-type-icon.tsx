@@ -16,9 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Globe2, Layers3, Shield, Sparkles, Star, Zap } from 'lucide-react'
+import {
+  Globe2,
+  ImageIcon,
+  Layers3,
+  Shield,
+  Sparkles,
+  Star,
+  Zap,
+} from 'lucide-react'
+import type { ReactNode } from 'react'
 
-import type { GroupTypeIconName } from '@/lib/group-types'
+import {
+  groupTypeCustomIconSchema,
+  type GroupTypeIconName,
+} from '@/lib/group-types'
+import { getLobeIcon, getLobeIconNames } from '@/lib/lobe-icon'
 
 const icons = {
   layers: Layers3,
@@ -29,17 +42,35 @@ const icons = {
   globe: Globe2,
 }
 
+const lobeIconNames = new Set(getLobeIconNames())
+
 export function GroupTypeIcon(props: {
   icon: GroupTypeIconName
+  customIcon?: string
   color: string
 }) {
-  const Icon = icons[props.icon] ?? Layers3
+  let icon: ReactNode
+  if (props.icon === 'custom') {
+    const name = props.customIcon ?? ''
+    const baseName = name.split('.')[0]
+    icon =
+      groupTypeCustomIconSchema.safeParse(name).success &&
+      lobeIconNames.has(baseName) ? (
+        getLobeIcon(name, 16)
+      ) : (
+        <ImageIcon className='size-4' />
+      )
+  } else {
+    const Icon = icons[props.icon] ?? Layers3
+    icon = <Icon className='size-4' />
+  }
   return (
     <span
+      aria-hidden='true'
       className='inline-flex size-7 shrink-0 items-center justify-center rounded-md'
       style={{ color: props.color, backgroundColor: `${props.color}18` }}
     >
-      <Icon aria-hidden='true' className='size-4' />
+      {icon}
     </span>
   )
 }

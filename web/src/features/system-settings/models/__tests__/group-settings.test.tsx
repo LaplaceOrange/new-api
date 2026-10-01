@@ -26,6 +26,7 @@ import { I18nextProvider } from 'react-i18next'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import { GroupTypeSection } from '@/components/group-type-section'
 import { groupTypesSchema } from '@/lib/group-types'
 
 import { SettingsPageProvider } from '../../components/settings-page-context'
@@ -83,6 +84,121 @@ function Fixture(props: {
 }
 
 describe('group type settings', () => {
+  it('saves a custom LobeHub icon ID selected from suggestions', async () => {
+    const user = userEvent.setup()
+    const onSave = vi.fn(async (_values: typeof defaults) => {})
+    render(
+      <Fixture
+        onSave={onSave}
+        initial={{
+          GroupTypes:
+            '[{"name":"Priority","icon":"star","color":"#059669","groups":["vip"]}]',
+        }}
+      />
+    )
+    await user.click(screen.getByRole('tab', { name: 'Group types' }))
+    await user.click(screen.getByRole('combobox', { name: 'Type icon' }))
+    await user.click(screen.getByRole('option', { name: 'Custom' }))
+    await user.click(screen.getByRole('combobox', { name: 'LobeHub icon ID' }))
+    await user.paste('DeepSeek.Color')
+    await user.click(screen.getByRole('option', { name: 'DeepSeek.Color' }))
+    await user.click(screen.getByRole('button', { name: 'Save group ratios' }))
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(onSave.mock.calls[0][0].GroupTypes)).toEqual([
+      {
+        name: 'Priority',
+        icon: 'custom',
+        custom_icon: 'DeepSeek.Color',
+        color: '#059669',
+        groups: ['vip'],
+      },
+    ])
+  })
+
+  it('removes the custom icon ID when saving a preset', async () => {
+    const user = userEvent.setup()
+    const onSave = vi.fn(async (_values: typeof defaults) => {})
+    render(
+      <Fixture
+        onSave={onSave}
+        initial={{
+          GroupTypes:
+            '[{"name":"Priority","icon":"custom","custom_icon":"DeepSeek.Color","color":"#059669","groups":["vip"]}]',
+        }}
+      />
+    )
+    await user.click(screen.getByRole('tab', { name: 'Group types' }))
+    await user.click(screen.getByRole('combobox', { name: 'Type icon' }))
+    await user.click(screen.getByRole('option', { name: 'shield' }))
+    expect(
+      screen.queryByRole('combobox', { name: 'LobeHub icon ID' })
+    ).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Save group ratios' }))
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(onSave.mock.calls[0][0].GroupTypes)[0]).toEqual({
+      name: 'Priority',
+      icon: 'shield',
+      color: '#059669',
+      groups: ['vip'],
+    })
+  })
+
+  it('restores a saved custom icon ID and keeps its type header collapsed', async () => {
+    const user = userEvent.setup()
+    const type = {
+      name: 'Provider',
+      icon: 'custom' as const,
+      custom_icon: 'DeepSeek.Color',
+      color: '#059669',
+      groups: [],
+    }
+    render(<Fixture initial={{ GroupTypes: JSON.stringify([type]) }} />)
+    await user.click(screen.getByRole('tab', { name: 'Group types' }))
+    expect(
+      screen.getByRole('combobox', { name: 'LobeHub icon ID' })
+    ).toHaveValue('DeepSeek.Color')
+    render(
+      <GroupTypeSection type={type} count={0}>
+        {null}
+      </GroupTypeSection>
+    )
+    const header = screen.getByRole('button', { name: 'Provider' })
+    expect(header).toHaveAttribute('aria-expanded', 'false')
+    expect(header).toBeVisible()
+  })
+
+  it('rejects missing IDs and icon property expressions when saving custom icons', async () => {
+    const user = userEvent.setup()
+    const onSave = vi.fn(async (_values: typeof defaults) => {})
+    render(
+      <Fixture
+        onSave={onSave}
+        initial={{
+          GroupTypes:
+            '[{"name":"Provider","icon":"custom","color":"#059669","groups":[]}]',
+        }}
+      />
+    )
+    await user.click(screen.getByRole('button', { name: 'Save group ratios' }))
+    await waitFor(() =>
+      expect(
+        screen.getAllByText('Invalid group type configuration')[0]
+      ).toBeVisible()
+    )
+    expect(onSave).not.toHaveBeenCalled()
+    expect(
+      groupTypesSchema.safeParse([
+        {
+          name: 'Provider',
+          icon: 'custom',
+          custom_icon: 'OpenAI.size={999}',
+          color: '#059669',
+          groups: [],
+        },
+      ]).success
+    ).toBe(false)
+  })
+
   it('displays the translated selected icon before opening its menu', async () => {
     const i18n = createInstance()
     await i18n.init({

@@ -66,6 +66,7 @@ export function GroupTypeSection(props: GroupTypeSectionProps) {
       >
         <GroupTypeIcon
           icon={props.type?.icon ?? 'layers'}
+          customIcon={props.type?.custom_icon}
           color={props.type?.color ?? '#737373'}
         />
         <span className='min-w-0 flex-1 truncate text-sm font-medium'>

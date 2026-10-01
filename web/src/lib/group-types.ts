@@ -25,10 +25,12 @@ export type GroupTypeIconName =
   | 'shield'
   | 'star'
   | 'globe'
+  | 'custom'
 
 export type GroupType = {
   name: string
   icon: GroupTypeIconName
+  custom_icon?: string
   color: string
   groups: string[]
 }
@@ -40,11 +42,18 @@ export const groupTypeIconNames = [
   'shield',
   'star',
   'globe',
+  'custom',
 ] as const
+
+export const groupTypeCustomIconSchema = z
+  .string()
+  .max(64)
+  .regex(/^[A-Z][A-Za-z0-9]*(\.(Color|Avatar))?$/)
 
 export const groupTypeSchema = z.object({
   name: z.string().max(48),
   icon: z.enum(groupTypeIconNames),
+  custom_icon: z.string().optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   groups: z.array(z.string().refine((name) => name.trim().length > 0)),
 })
@@ -52,6 +61,18 @@ export const groupTypeSchema = z.object({
 export const groupTypesSchema = z
   .array(groupTypeSchema)
   .superRefine((types, ctx) => {
+    for (const [index, type] of types.entries()) {
+      if (
+        type.icon === 'custom' &&
+        !groupTypeCustomIconSchema.safeParse(type.custom_icon).success
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [index, 'custom_icon'],
+          message: 'Enter a valid LobeHub icon ID',
+        })
+      }
+    }
     const names = types.map((type) => type.name.trim())
     const groups = types.flatMap((type) => type.groups)
     if (

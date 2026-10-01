@@ -520,7 +520,7 @@ func TestGroupTypesOptionIsValidatedAndPublishedToBothGroupViews(t *testing.T) {
 			require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Standard","vip":"Priority"}`))
 			require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":1}`))
 
-			value := `[{"name":"Priority","icon":"star","color":"#059669","groups":["vip","private-group"]},{"name":"Restricted","icon":"shield","color":"#2563eb","groups":["admin-only"]}]`
+			value := `[{"name":"Priority","icon":"star","color":"#059669","groups":["vip","private-group"]},{"name":"Restricted","icon":"shield","color":"#2563eb","groups":["admin-only"]},{"name":"Provider","icon":"custom","custom_icon":"DeepSeek.Color","color":"#059669","groups":["default"]}]`
 			require.NoError(t, model.UpdateOption("GroupTypes", value))
 			for _, invalid := range []string{
 				`null`,
@@ -528,6 +528,14 @@ func TestGroupTypesOptionIsValidatedAndPublishedToBothGroupViews(t *testing.T) {
 				`[null]`,
 				`[{"name":"","icon":"star","color":"#059669","groups":[]}]`,
 				`[{"name":"A","icon":"invalid","color":"#059669","groups":[]}]`,
+				`[{"name":"A","icon":"custom","color":"#059669","groups":[]}]`,
+				`[{"name":"A","icon":"custom","custom_icon":"","color":"#059669","groups":[]}]`,
+				`[{"name":"A","icon":"custom","custom_icon":" ","color":"#059669","groups":[]}]`,
+				`[{"name":"A","icon":"custom","custom_icon":"https://example.com/icon.svg","color":"#059669","groups":[]}]`,
+				`[{"name":"A","icon":"custom","custom_icon":"OpenAI.size={999}","color":"#059669","groups":[]}]`,
+				`[{"name":"A","icon":"custom","custom_icon":"OpenAI.constructor","color":"#059669","groups":[]}]`,
+				`[{"name":"A","icon":"custom","custom_icon":"<svg>","color":"#059669","groups":[]}]`,
+				`[{"name":"A","icon":"custom","custom_icon":"` + strings.Repeat("A", 65) + `","color":"#059669","groups":[]}]`,
 				`[{"name":"A","icon":"star","color":"red","groups":[]}]`,
 				`[{"name":"A","icon":"star","color":"#059669","groups":null}]`,
 				`[{"name":"A","icon":"star","color":"#gggggg","groups":[]}]`,
@@ -557,6 +565,7 @@ func TestGroupTypesOptionIsValidatedAndPublishedToBothGroupViews(t *testing.T) {
 					assert.Equal(t, []setting.GroupType{
 						{Name: "Priority", Icon: "star", Color: "#059669", Groups: []string{"vip"}},
 						{Name: "Restricted", Icon: "shield", Color: "#2563eb", Groups: []string{}},
+						{Name: "Provider", Icon: "custom", CustomIcon: "DeepSeek.Color", Color: "#059669", Groups: []string{"default"}},
 					}, result.GroupTypes)
 					assert.NotContains(t, recorder.Body.String(), "private-group")
 					assert.NotContains(t, recorder.Body.String(), "admin-only")

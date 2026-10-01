@@ -3,6 +3,7 @@ package setting
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -11,11 +12,14 @@ import (
 )
 
 type GroupType struct {
-	Name   string   `json:"name"`
-	Icon   string   `json:"icon"`
-	Color  string   `json:"color"`
-	Groups []string `json:"groups"`
+	Name       string   `json:"name"`
+	Icon       string   `json:"icon"`
+	CustomIcon string   `json:"custom_icon,omitempty"`
+	Color      string   `json:"color"`
+	Groups     []string `json:"groups"`
 }
+
+var groupTypeCustomIconPattern = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*(\.(Color|Avatar))?$`)
 
 func ValidateGroupTypes(value string) error {
 	var types []GroupType
@@ -38,6 +42,10 @@ func ValidateGroupTypes(value string) error {
 		}
 		switch groupType.Icon {
 		case "layers", "sparkles", "zap", "shield", "star", "globe":
+		case "custom":
+			if len(groupType.CustomIcon) > 64 || !groupTypeCustomIconPattern.MatchString(groupType.CustomIcon) {
+				return fmt.Errorf("invalid LobeHub icon ID: %q", groupType.CustomIcon)
+			}
 		default:
 			return fmt.Errorf("invalid group type icon: %q", groupType.Icon)
 		}
