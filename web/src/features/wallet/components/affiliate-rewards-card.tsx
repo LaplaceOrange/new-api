@@ -25,6 +25,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import type { ReferralSummary } from '@/features/referrals/types'
 import { formatQuota } from '@/lib/format'
 
 import type { UserWalletData } from '../types'
@@ -35,14 +36,15 @@ interface AffiliateRewardsCardProps {
   onTransfer: () => void
   complianceConfirmed?: boolean
   loading?: boolean
+  summary?: ReferralSummary
 }
 
 export function AffiliateRewardsCard({
-  user,
   affiliateLink,
   onTransfer,
   complianceConfirmed = true,
   loading,
+  summary,
 }: AffiliateRewardsCardProps) {
   const { t } = useTranslation()
   if (loading) {
@@ -60,7 +62,8 @@ export function AffiliateRewardsCard({
     )
   }
 
-  const hasRewards = (user?.aff_quota ?? 0) > 0
+  const hasRewards =
+    (summary?.balance ?? 0) >= (summary?.min_transfer_quota ?? Infinity)
 
   return (
     <Card data-card-hover='false' className='bg-muted/20 py-0'>
@@ -73,22 +76,28 @@ export function AffiliateRewardsCard({
             <h3 className='truncate text-sm font-semibold'>
               {t('Referral Program')}
             </h3>
-            <p className='text-muted-foreground line-clamp-1 text-xs'>
-              {t(
-                'Earn rewards when users join through your referral link. Transfer accumulated rewards to your balance anytime.'
-              )}
+            <p className='text-muted-foreground text-xs break-words'>
+              {summary?.campaign?.name ?? t('No active referral campaign')}
             </p>
           </div>
         </div>
 
         <div className='grid grid-cols-3 gap-1.5 text-center'>
           {[
-            [t('Pending'), formatQuota(user?.aff_quota ?? 0)],
-            [t('Total Earned'), formatQuota(user?.aff_history_quota ?? 0)],
-            [t('Invites'), String(user?.aff_count ?? 0)],
+            [t('Net withdrawable balance'), formatQuota(summary?.balance ?? 0)],
+            [t('Total Earned'), formatQuota(summary?.lifetime_earned ?? 0)],
+            [
+              t('Qualified friends'),
+              summary?.campaign
+                ? `${summary.qualified_count}/${summary.campaign.required_friends}`
+                : '-',
+            ],
           ].map(([label, value]) => (
-            <div key={label}>
-              <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
+            <div
+              key={label}
+              className='grid grid-rows-[minmax(3rem,auto)_auto] items-end'
+            >
+              <div className='text-muted-foreground self-center text-[10px] leading-tight font-medium break-words'>
                 {label}
               </div>
               <div className='mt-0.5 truncate text-sm font-semibold tabular-nums'>
@@ -130,6 +139,23 @@ export function AffiliateRewardsCard({
             )}
           </p>
         ) : null}
+        {summary?.campaign && (
+          <p className='text-muted-foreground text-xs lg:col-span-3'>
+            {summary.unlocked ? t('Unlocked') : t('Not unlocked')}
+            {' · '}
+            {t('Online paid credit threshold')}: {'> '}
+            {formatQuota(summary.campaign.paid_threshold_quota)}
+            {' · '}
+            {t('Invites')}: {summary.invited_count}
+            {' · '}
+            {t('Legacy rewards')}: {formatQuota(summary.legacy_balance)}
+          </p>
+        )}
+        {summary && !summary.campaign && (
+          <p className='text-muted-foreground text-xs lg:col-span-3'>
+            {t('Legacy rewards')}: {formatQuota(summary.legacy_balance)}
+          </p>
+        )}
       </CardContent>
     </Card>
   )

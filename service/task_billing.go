@@ -110,6 +110,10 @@ func taskAdjustFunding(task *model.Task, delta int) error {
 	if taskIsSubscription(task) {
 		return model.PostConsumeUserSubscriptionDelta(task.PrivateData.SubscriptionId, int64(delta))
 	}
+	if task.PrivateData.ReferralSourceId != "" {
+		_, err := model.SetReferralWalletSpend(task.UserId, task.PrivateData.ReferralSourceId, int64(task.Quota)+int64(delta), false)
+		return err
+	}
 	if delta > 0 {
 		return model.DecreaseUserQuota(task.UserId, delta, false)
 	}
@@ -224,7 +228,17 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 	}
 
 	// 1. 退还资金来源（钱包或订阅）
-	if err := taskAdjustFunding(task, -quota); err != nil {
+	if task.PrivateData.ReferralSourceId != "" {
+		delta, err := model.ReconcileReferralTaskQuota(task, 0)
+		if err != nil {
+			logger.LogError(ctx, fmt.Sprintf("reverse task referral task=%s: %v", task.TaskID, err))
+			return false
+		}
+		quota = -delta
+		if quota == 0 {
+			return true
+		}
+	} else if err := taskAdjustFunding(task, -quota); err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("退还资金来源失败 task %s: %s", task.TaskID, err.Error()))
 		return false
 	}
@@ -255,8 +269,10 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 	// 5. 资金退款完成后再清除持久化标记。
 	// 回写失败必须显式告警，避免漏掉潜在的重复退款风险。
 	task.Quota = 0
-	if err := task.UpdateQuota(); err != nil {
-		logger.LogError(ctx, fmt.Sprintf("退款成功但清除 task quota 失败 task %s: %s", task.TaskID, err.Error()))
+	if task.PrivateData.ReferralSourceId == "" {
+		if err := task.UpdateQuota(); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("退款成功但清除 task quota 失败 task %s: %s", task.TaskID, err.Error()))
+		}
 	}
 	return true
 }
@@ -265,17 +281,26 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 // actualQuota 是任务完成后的实际应扣额度，与预扣额度 (task.Quota) 做差额结算。
 // reason 用于日志记录（例如 "token重算" 或 "adaptor调整"）。
 // clamps 可选：若计算 actualQuota 时发生额度饱和，将其记入日志 admin_info（仅管理员可见）。
-func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string, clamps ...*common.QuotaClamp) {
-	if actualQuota < 0 {
-		return
+func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string, clamps ...*common.QuotaClamp) bool {
+	if actualQuota < 0 || actualQuota > common.MaxQuota {
+		return false
 	}
 	preConsumedQuota := task.Quota
 	quotaDelta := actualQuota - preConsumedQuota
+	if task.PrivateData.ReferralSourceId != "" {
+		delta, err := model.ReconcileReferralTaskQuota(task, actualQuota)
+		if err != nil {
+			logger.LogError(ctx, fmt.Sprintf("task funding settlement task=%s: %v", task.TaskID, err))
+			return false
+		}
+		quotaDelta = delta
+		preConsumedQuota = actualQuota - delta
+	}
 
 	if quotaDelta == 0 {
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 预扣费准确（%s，%s）",
 			task.TaskID, logger.LogQuota(actualQuota), reason))
-		return
+		return true
 	}
 
 	logger.LogInfo(ctx, fmt.Sprintf("任务 %s 差额结算：delta=%s（实际：%s，预扣：%s，%s）",
@@ -287,17 +312,21 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	))
 
 	// 调整资金来源
-	if err := taskAdjustFunding(task, quotaDelta); err != nil {
-		logger.LogError(ctx, fmt.Sprintf("差额结算资金调整失败 task %s: %s", task.TaskID, err.Error()))
-		return
+	if task.PrivateData.ReferralSourceId == "" {
+		if err := taskAdjustFunding(task, quotaDelta); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("差额结算资金调整失败 task %s: %s", task.TaskID, err.Error()))
+			return false
+		}
 	}
 
 	// 调整令牌额度
 	taskAdjustTokenQuota(ctx, task, quotaDelta)
 
 	task.Quota = actualQuota
-	if err := task.UpdateQuota(); err != nil {
-		logger.LogError(ctx, fmt.Sprintf("差额结算回写 quota 失败 task %s: %s", task.TaskID, err.Error()))
+	if task.PrivateData.ReferralSourceId == "" {
+		if err := task.UpdateQuota(); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("差额结算回写 quota 失败 task %s: %s", task.TaskID, err.Error()))
+		}
 	}
 
 	// 提交阶段已经累计过一次请求；结算阶段只调整最终用量。
@@ -332,6 +361,7 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		Other:     other,
 		NodeName:  task.PrivateData.NodeName,
 	})
+	return true
 }
 
 // RecalculateTaskQuotaByTokens 根据实际 token 消耗重新计费（异步差额结算）。
@@ -386,8 +416,26 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 	actualQuota, clamp := common.QuotaFromFloatChecked(float64(totalTokens) * modelRatio * finalGroupRatio * otherMultiplier)
 
 	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", totalTokens, modelRatio, finalGroupRatio, otherMultiplier)
-	RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
-	return true
+	return RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
+}
+
+func SettleTaskReferralReward(ctx context.Context, task *model.Task) {
+	if task.Status != model.TaskStatusSuccess || task.Quota <= 0 || task.PrivateData.ReferralSourceId == "" ||
+		task.PrivateData.ReferralUsageUnconfirmed {
+		return
+	}
+	source := task.PrivateData.BillingSource
+	if source == "" {
+		source = BillingSourceWallet
+	}
+	paid, err := model.GetReferralWalletPaidQuota(task.PrivateData.ReferralSourceId)
+	if err == nil {
+		err = model.CreditReferralSpend(source, task.PrivateData.ReferralSourceId, task.UserId,
+			int64(task.Quota), paid, model.ReferralNow())
+	}
+	if err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("settle task referral task=%s: %v", task.TaskID, err))
+	}
 }
 
 // EvaluateTaskCompletionUsage evaluates actual facts against the frozen task

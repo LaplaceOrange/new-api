@@ -220,7 +220,7 @@ func Redeem(key string, userId int) (*RedeemResult, error) {
 		}
 
 		if redemption.Quota > 0 {
-			if _, err := creditTopUpQuota(tx, &TopUp{UserId: userId}, redemption.Quota, nil); err != nil {
+			if _, err := creditTopUpQuota(tx, &TopUp{UserId: userId}, redemption.Quota, nil, false); err != nil {
 				return err
 			}
 		}

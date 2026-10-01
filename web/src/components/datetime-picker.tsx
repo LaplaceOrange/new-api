@@ -16,9 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ChevronDownIcon } from 'lucide-react'
+import { ChevronDownIcon, XIcon } from 'lucide-react'
 import * as React from 'react'
-import { enUS, fr, ja, ru, vi, zhCN } from 'react-day-picker/locale'
+import { enUS, fr, ja, ru, vi, zhCN, zhTW } from 'react-day-picker/locale'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -35,6 +35,7 @@ import { cn } from '@/lib/utils'
 const calendarLocales = {
   en: enUS,
   zh: zhCN,
+  'zh-TW': zhTW,
   fr,
   ru,
   ja,
@@ -42,6 +43,8 @@ const calendarLocales = {
 } as const
 
 interface DateTimePickerProps {
+  id?: string
+  ariaLabel?: string
   value?: Date
   onChange?: (date: Date | undefined) => void
   placeholder?: string
@@ -49,6 +52,8 @@ interface DateTimePickerProps {
 }
 
 export function DateTimePicker({
+  id,
+  ariaLabel,
   value,
   onChange,
   placeholder,
@@ -111,14 +116,16 @@ export function DateTimePicker({
   }
 
   return (
-    <div className={cn('flex gap-2', className)}>
+    <div className={cn('flex flex-wrap gap-2', className)}>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
           render={
             <Button
+              id={id}
+              aria-label={ariaLabel}
               variant='outline'
               className={cn(
-                'flex-1 justify-between font-normal',
+                'min-w-32 flex-1 justify-between font-normal',
                 !date && 'text-muted-foreground'
               )}
             />
@@ -141,25 +148,29 @@ export function DateTimePicker({
           />
         </PopoverContent>
       </Popover>
-      <Input
-        type='time'
-        value={time}
-        onChange={handleTimeChange}
-        className='w-32 appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none'
-        disabled={!date}
-      />
-      {date && (
-        <Button
-          type='button'
-          variant='outline'
-          size='icon'
-          onClick={handleClear}
-          className='shrink-0'
-          aria-label='Clear'
-        >
-          <span aria-hidden='true'>✕</span>
-        </Button>
-      )}
+      <div className='flex shrink-0 items-center gap-2'>
+        <Input
+          type='time'
+          aria-label={ariaLabel ? `${ariaLabel} ${t('Time')}` : t('Time')}
+          value={time}
+          onChange={handleTimeChange}
+          className='w-28 appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none'
+          disabled={!date}
+        />
+        {date && (
+          <Button
+            type='button'
+            variant='outline'
+            size='icon'
+            onClick={handleClear}
+            className='shrink-0'
+            aria-label={ariaLabel ? `${ariaLabel} ${t('Clear')}` : t('Clear')}
+            title={t('Clear')}
+          >
+            <XIcon aria-hidden='true' />
+          </Button>
+        )}
+      </div>
     </div>
   )
 }

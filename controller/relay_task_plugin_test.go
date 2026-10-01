@@ -420,7 +420,10 @@ func TestImmediateTaskSettlementDatabase(t *testing.T) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	models := []any{&model.User{}, &model.Channel{}, &model.Task{}, &model.Log{}}
+	models := []any{&model.User{}, &model.Channel{}, &model.Task{}, &model.Log{},
+		&model.ReferralCampaign{}, &model.ReferralFriend{}, &model.ReferralWalletSpend{},
+		&model.ReferralPaidWallet{}, &model.ReferralSettlement{}, &model.ReferralLedger{},
+		&model.ReferralAccount{}, &model.ReferralUnlock{}}
 	require.NoError(t, db.AutoMigrate(models...))
 	t.Cleanup(func() { require.NoError(t, db.Migrator().DropTable(models...)) })
 	var version string
@@ -455,13 +458,22 @@ export function buildQueryRequest(){throw new Error("completed submissions must 
 `
 	plugin, err := pluginruntime.CompilePlugin(source, pluginruntime.Options{})
 	require.NoError(t, err)
+	now := time.Now().Unix()
+	campaign := model.ReferralCampaign{Name: "Immediate consumption", Enabled: true,
+		StartAt: now - 60, EndAt: now + 3600, Direction: model.ReferralDirectionInviter,
+		SpendBasis: model.ReferralSpendWallet, RequiredFriends: 2, PaidThresholdQuota: 10,
+		BaseBps: 200, InviterBps: 500, InviteePoolBps: 400}
+	require.NoError(t, db.Create(&campaign).Error)
+	inviter := model.User{Username: "immediate-inviter", AffCode: "immediate-inviter"}
+	require.NoError(t, db.Create(&inviter).Error)
 	for index, tc := range []struct {
 		name, status string
 		actual       any
 		count        float64
+		reward       int64
 	}{
-		{"partial", "SUCCESS", 2, 2}, {"zero", "SUCCESS", 0, 0}, {"larger", "SUCCESS", 6, 6},
-		{"invalid usage", "SUCCESS", -1, 4}, {"expression failure", "SUCCESS", 7, 4}, {"negative result", "SUCCESS", 8, 4}, {"missing usage", "SUCCESS", nil, 4}, {"failed", "FAILURE", 9, 0},
+		{"partial", "SUCCESS", 2, 2, 200}, {"zero", "SUCCESS", 0, 0, 0}, {"larger", "SUCCESS", 6, 6, 600},
+		{"invalid usage", "SUCCESS", -1, 4, 0}, {"expression failure", "SUCCESS", 7, 4, 0}, {"negative result", "SUCCESS", 8, 4, 0}, {"missing usage", "SUCCESS", nil, 4, 0}, {"failed", "FAILURE", 9, 0, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -480,6 +492,7 @@ export function buildQueryRequest(){throw new Error("completed submissions must 
 			initial := int(20 * common.QuotaPerUnit)
 			user := model.User{Username: fmt.Sprintf("task_user_%d", index), AffCode: fmt.Sprintf("task_aff_%d", index), Quota: initial}
 			require.NoError(t, db.Create(&user).Error)
+			require.NoError(t, model.RegisterReferralFriend(user.Id, inviter.Id, now))
 			ch := model.Channel{Name: "test provider", Type: constant.ChannelTypeTaskPlugin}
 			require.NoError(t, db.Create(&ch).Error)
 			c := taskSubmissionTestContext()
@@ -492,6 +505,7 @@ export function buildQueryRequest(){throw new Error("completed submissions must 
 			common.SetContextKey(c, constant.ContextKeyChannelId, ch.Id)
 			common.SetContextKey(c, constant.ContextKeyChannelType, ch.Type)
 			info := taskSubmissionRelayInfo(nil)
+			info.RequestId = fmt.Sprintf("immediate-referral-%d", index)
 			info.UserId = user.Id
 			info.OriginModelName = "document-model"
 			info.UserGroup = "default"
@@ -529,6 +543,15 @@ export function buildQueryRequest(){throw new Error("completed submissions must 
 				assert.Equal(t, tc.count, other["usage_facts"].(map[string]any)["units"])
 			}
 			assert.False(t, c.Writer.Written(), "presentation must follow persistence and settlement")
+			entries, err := model.ListReferralLedger(inviter.Id, 0, 100)
+			require.NoError(t, err)
+			credited := int64(0)
+			for _, entry := range entries {
+				if entry.SourceId == model.ReferralSourceId(info.RequestId, user.Id) {
+					credited += entry.Amount
+				}
+			}
+			assert.Equal(t, tc.reward, credited, "only confirmed immediate consumption earns a rebate")
 			require.NoError(t, info.Billing.Settle(want))
 			info.Billing.Refund(c)
 			require.NoError(t, db.First(&updated, user.Id).Error)

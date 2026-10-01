@@ -1,3 +1,4 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -19,11 +20,15 @@ For commercial licensing, please contact support@quantumnous.com
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { ErrorState } from '@/components/error-state'
 import { SectionPageLayout } from '@/components/layout'
+import { getReferralRewards } from '@/features/referrals/api'
+import { ReferralRewardHistory } from '@/features/referrals/reward-history'
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { getSelf } from '@/lib/api'
 
+import { calculateCreemAmount, isApiSuccess } from './api'
 import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
 import { CreemConfirmDialog } from './components/dialogs/creem-confirm-dialog'
@@ -42,7 +47,6 @@ import {
   useWaffoPayment,
   useWaffoPancakePayment,
 } from './hooks'
-import { calculateCreemAmount, isApiSuccess } from './api'
 import {
   getDefaultPaymentType,
   getMinTopupAmount,
@@ -63,6 +67,13 @@ interface WalletProps {
 
 export function Wallet(props: WalletProps) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [referralPage, setReferralPage] = useState(1)
+  const referralQuery = useQuery({
+    queryKey: ['referrals', 'rewards', referralPage],
+    queryFn: () => getReferralRewards(referralPage),
+    placeholderData: (previous) => previous,
+  })
   const [user, setUser] = useState<UserWalletData | null>(null)
   const [userLoading, setUserLoading] = useState(true)
   const [topupAmount, setTopupAmount] = useState(0)
@@ -234,6 +245,7 @@ export function Wallet(props: WalletProps) {
     const success = await transferQuota(amount)
     if (success) {
       await fetchUser()
+      await queryClient.invalidateQueries({ queryKey: ['referrals'] })
     }
     return success
   }
@@ -308,6 +320,27 @@ export function Wallet(props: WalletProps) {
         <SectionPageLayout.Content>
           <div className='mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-5'>
             <WalletStatsCard user={user} loading={userLoading} />
+            <AffiliateRewardsCard
+              user={user}
+              summary={referralQuery.data?.summary}
+              affiliateLink={affiliateLink}
+              onTransfer={() => setTransferDialogOpen(true)}
+              complianceConfirmed={
+                topupInfo?.payment_compliance_confirmed !== false
+              }
+              loading={affiliateLoading || referralQuery.isPending}
+            />
+            {referralQuery.isError && (
+              <ErrorState onRetry={() => void referralQuery.refetch()} />
+            )}
+            {referralQuery.data && (
+              <ReferralRewardHistory
+                rewards={referralQuery.data}
+                page={referralPage}
+                pending={referralQuery.isFetching}
+                onPageChange={setReferralPage}
+              />
+            )}
 
             <div
               className={
@@ -360,16 +393,6 @@ export function Wallet(props: WalletProps) {
                 />
               </div>
             </div>
-
-            <AffiliateRewardsCard
-              user={user}
-              affiliateLink={affiliateLink}
-              onTransfer={() => setTransferDialogOpen(true)}
-              complianceConfirmed={
-                topupInfo?.payment_compliance_confirmed !== false
-              }
-              loading={affiliateLoading}
-            />
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
@@ -392,7 +415,8 @@ export function Wallet(props: WalletProps) {
         open={transferDialogOpen}
         onOpenChange={setTransferDialogOpen}
         onConfirm={handleTransfer}
-        availableQuota={user?.aff_quota ?? 0}
+        availableQuota={referralQuery.data?.summary.balance ?? 0}
+        minimumQuota={referralQuery.data?.summary.min_transfer_quota}
         transferring={transferring}
       />
 

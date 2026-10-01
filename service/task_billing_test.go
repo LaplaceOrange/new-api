@@ -59,6 +59,17 @@ func TestMain(m *testing.M) {
 		&model.UserSubscription{},
 		&model.SystemTask{},
 		&model.SystemTaskLock{},
+		&model.ReferralCampaign{},
+		&model.ReferralPolicy{},
+		&model.ReferralFriend{},
+		&model.ReferralPaidOrder{},
+		&model.ReferralPaidWallet{},
+		&model.ReferralWalletSpend{},
+		&model.ReferralSettlement{},
+		&model.ReferralUnlock{},
+		&model.ReferralAccount{},
+		&model.ReferralLedger{},
+		&model.ReferralTransfer{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -83,7 +94,67 @@ func truncate(t *testing.T) {
 		model.DB.Exec("DELETE FROM user_subscriptions")
 		model.DB.Exec("DELETE FROM system_task_locks")
 		model.DB.Exec("DELETE FROM system_tasks")
+		model.DB.Exec("DELETE FROM referral_transfers")
+		model.DB.Exec("DELETE FROM referral_ledgers")
+		model.DB.Exec("DELETE FROM referral_accounts")
+		model.DB.Exec("DELETE FROM referral_unlocks")
+		model.DB.Exec("DELETE FROM referral_settlements")
+		model.DB.Exec("DELETE FROM referral_wallet_spends")
+		model.DB.Exec("DELETE FROM referral_paid_wallets")
+		model.DB.Exec("DELETE FROM referral_paid_orders")
+		model.DB.Exec("DELETE FROM referral_friends")
+		model.DB.Exec("DELETE FROM referral_campaigns")
+		model.DB.Exec("DELETE FROM referral_policies")
 	})
+}
+
+func TestReferralTaskRewardsWaitForFinalSettlementAndRefundOnlyOnce(t *testing.T) {
+	for _, source := range []string{BillingSourceWallet, BillingSourceSubscription} {
+		t.Run(source, func(t *testing.T) {
+			truncate(t)
+			now := time.Now().Unix()
+			campaign := model.ReferralCampaign{
+				Name: "Task rebates", Enabled: true, StartAt: now - 60, EndAt: now + 3600,
+				Direction: model.ReferralDirectionInviter, SpendBasis: model.ReferralSpendAll,
+				RequiredFriends: 2, PaidThresholdQuota: 10, BaseBps: 200, InviterBps: 500, InviteePoolBps: 400,
+			}
+			require.NoError(t, model.DB.Create(&campaign).Error)
+			seedUser(t, 101, 2_000)
+			inviter := model.User{Id: 102, Username: "task-inviter", AffCode: "task-referral-inviter", Status: common.UserStatusEnabled}
+			require.NoError(t, model.DB.Create(&inviter).Error)
+			require.NoError(t, model.RegisterReferralFriend(101, 102, now))
+			task := makeTask(101, 0, 1_000, 0, source, 1)
+			task.PrivateData.ReferralSourceId = "task-referral-final"
+			if source == BillingSourceWallet {
+				_, err := model.SetReferralWalletSpend(101, task.PrivateData.ReferralSourceId, 1_000, true)
+				require.NoError(t, err)
+			} else {
+				seedSubscription(t, 1, 101, 10_000, 1_000)
+			}
+			require.NoError(t, model.DB.Create(task).Error)
+			SettleTaskReferralReward(context.Background(), task)
+			var count int64
+			require.NoError(t, model.DB.Model(&model.ReferralLedger{}).Count(&count).Error)
+			assert.Zero(t, count, "submission never awards a rebate")
+			require.True(t, RecalculateTaskQuota(context.Background(), task, 500, "final usage"))
+			task.Status = model.TaskStatusSuccess
+			SettleTaskReferralReward(context.Background(), task)
+			SettleTaskReferralReward(context.Background(), task)
+			var account model.ReferralAccount
+			require.NoError(t, model.DB.First(&account, "user_id = ?", 102).Error)
+			assert.EqualValues(t, 10, account.Balance)
+			stale := *task
+			require.True(t, RefundTaskQuota(context.Background(), task, "refund"))
+			require.True(t, RefundTaskQuota(context.Background(), &stale, "duplicate refund"))
+			require.NoError(t, model.DB.First(&account, "user_id = ?", 102).Error)
+			assert.Zero(t, account.Balance)
+			if source == BillingSourceWallet {
+				assert.Equal(t, 2_000, getUserQuota(t, 101))
+			} else {
+				assert.Zero(t, getSubscriptionUsed(t, 1))
+			}
+		})
+	}
 }
 
 func seedUser(t *testing.T, id int, quota int) {

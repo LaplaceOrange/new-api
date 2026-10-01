@@ -28,13 +28,14 @@ import (
 )
 
 type TaskSubmitResult struct {
-	UpstreamTaskID string
-	TaskData       []byte
-	ClientResponse any
-	Platform       constant.TaskPlatform
-	Quota          int
-	Immediate      *relaycommon.TaskInfo
-	PluginState    []byte
+	UpstreamTaskID           string
+	TaskData                 []byte
+	ClientResponse           any
+	Platform                 constant.TaskPlatform
+	Quota                    int
+	Immediate                *relaycommon.TaskInfo
+	PluginState              []byte
+	ReferralUsageUnconfirmed bool
 	//PerCallPrice   types.PriceData
 }
 
@@ -370,15 +371,19 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 
 	// 11. 提交后计费调整：让适配器根据上游实际返回调整 OtherRatios
 	finalQuota := info.PriceData.Quota
+	referralUsageUnconfirmed := false
 	if parsed.Immediate != nil && parsed.Immediate.Status == model.TaskStatusFailure {
 		finalQuota = 0
 	} else if snap := info.TieredBillingSnapshot; snap != nil {
+		referralUsageUnconfirmed = parsed.Immediate != nil && parsed.Immediate.Status == model.TaskStatusSuccess &&
+			len(billingexpr.UsedUsageKeys(snap.ExprString)) > 0
 		if parsed.Immediate != nil && parsed.Immediate.Status == model.TaskStatusSuccess && len(parsed.Immediate.UsageFacts) > 0 {
 			settlement, facts, err := service.EvaluateTaskCompletionUsage(snap, parsed.Immediate.UsageFacts)
 			if err != nil {
 				logger.LogWarn(c, fmt.Sprintf("task immediate usage settlement failed; retaining reserved quota: %v", err))
 			} else {
 				finalQuota = settlement.ActualQuotaAfterGroup
+				referralUsageUnconfirmed = false
 				snap.UsageFacts = facts
 				snap.EstimatedTier = settlement.MatchedTier
 				noteTaskQuotaClamp(info, settlement.Clamp)
@@ -398,13 +403,14 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	info.PriceData.Quota = finalQuota
 
 	return &TaskSubmitResult{
-		UpstreamTaskID: parsed.UpstreamTaskID,
-		TaskData:       parsed.TaskData,
-		ClientResponse: parsed.ClientResponse,
-		Platform:       platform,
-		Quota:          finalQuota,
-		Immediate:      parsed.Immediate,
-		PluginState:    parsed.PluginState,
+		UpstreamTaskID:           parsed.UpstreamTaskID,
+		TaskData:                 parsed.TaskData,
+		ClientResponse:           parsed.ClientResponse,
+		Platform:                 platform,
+		Quota:                    finalQuota,
+		Immediate:                parsed.Immediate,
+		PluginState:              parsed.PluginState,
+		ReferralUsageUnconfirmed: referralUsageUnconfirmed,
 	}, nil
 }
 
