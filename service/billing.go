@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
@@ -85,6 +86,7 @@ func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuo
 			}
 		}
 		SettleChannelContributionReward(ctx, relayInfo, actualQuota)
+		SettleReferralReward(ctx, relayInfo, actualQuota)
 		return nil
 	}
 
@@ -96,5 +98,24 @@ func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuo
 		}
 	}
 	SettleChannelContributionReward(ctx, relayInfo, actualQuota)
+	SettleReferralReward(ctx, relayInfo, actualQuota)
 	return nil
+}
+
+func SettleReferralReward(ctx *gin.Context, info *relaycommon.RelayInfo, quota int) {
+	if info == nil || quota <= 0 || info.IsChannelTest || info.TaskRelayInfo != nil || info.RequestId == "" {
+		return
+	}
+	sourceId := model.ReferralSourceId(info.RequestId, info.UserId)
+	paid, err := model.GetReferralWalletPaidQuota(sourceId)
+	if err == nil {
+		source := info.BillingSource
+		if source == "" {
+			source = BillingSourceWallet
+		}
+		err = model.CreditReferralSpend(source, sourceId, info.UserId, int64(quota), paid, model.ReferralNow())
+	}
+	if err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("referral settlement request=%s: %v", info.RequestId, err))
+	}
 }

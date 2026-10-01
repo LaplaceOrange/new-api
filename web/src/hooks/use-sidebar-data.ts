@@ -173,6 +173,12 @@ export function useSidebarData(): SidebarData {
             icon: DollarSign,
           },
           {
+            title: t('Referral campaigns'),
+            url: '/referrals',
+            icon: Users,
+            requiredRole: ROLE.ADMIN,
+          },
+          {
             title: t('Redemption Codes'),
             url: '/redemption-codes',
             icon: Ticket,

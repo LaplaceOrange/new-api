@@ -789,6 +789,7 @@ func executeTaskSubmissionWith(
 	task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
 	task.PrivateData.TokenId = relayInfo.TokenId
 	task.PrivateData.NodeName = common.NodeName
+	task.PrivateData.ReferralUsageUnconfirmed = result.ReferralUsageUnconfirmed
 	baseGroupRatio := ratio_setting.GetGroupRatio(relayInfo.UsingGroup)
 	task.PrivateData.BillingContext = &model.TaskBillingContext{
 		ModelPrice:      relayInfo.PriceData.ModelPrice,
@@ -840,6 +841,9 @@ func executeTaskSubmissionWith(
 		return nil, taskErr
 	}
 	service.LogTaskConsumption(c, relayInfo, task)
+	if result.Immediate != nil {
+		service.SettleTaskReferralReward(c, task)
+	}
 	diagnostics.complete(task, result.Quota)
 
 	return &taskSubmissionOutcome{Result: result, Task: task, RelayInfo: relayInfo}, nil

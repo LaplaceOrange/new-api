@@ -90,7 +90,7 @@ func ValidateTopUpQuotaCapacity(userId int, creditedQuota int) error {
 // creditTopUpQuota atomically enforces the wallet ceiling while adding quota.
 // Keeping the predicate and increment in one UPDATE prevents two
 // concurrent callbacks from both passing a separate read/check.
-func creditTopUpQuota(tx *gorm.DB, topUp *TopUp, creditedQuota int, updates map[string]any) (bool, error) {
+func creditTopUpQuota(tx *gorm.DB, topUp *TopUp, creditedQuota int, updates map[string]any, online bool) (bool, error) {
 	if topUp == nil {
 		return false, errors.New("top-up is nil")
 	}
@@ -110,6 +110,14 @@ func creditTopUpQuota(tx *gorm.DB, topUp *TopUp, creditedQuota int, updates map[
 		return false, result.Error
 	}
 	if result.RowsAffected == 1 {
+		if online && topUp.Money > 0 && !math.IsInf(topUp.Money, 0) {
+			if err := creditReferralPaidWalletTx(tx, topUp.UserId, creditedQuota); err != nil {
+				return false, err
+			}
+			if err := recordReferralPaidQuotaTx(tx, topUp.TradeNo, topUp.UserId, creditedQuota, topUp.CompleteTime); err != nil {
+				return false, err
+			}
+		}
 		return applyTopUpGroupUpgrade(tx, topUp)
 	}
 
@@ -306,7 +314,7 @@ func RechargeEpay(tradeNo string, actualPaymentMethod string, callerIp string) (
 		if err := tx.Save(topUp).Error; err != nil {
 			return err
 		}
-		groupChanged, err = creditTopUpQuota(tx, topUp, quotaToAdd, nil)
+		groupChanged, err = creditTopUpQuota(tx, topUp, quotaToAdd, nil, true)
 		return err
 	})
 	if err != nil {
@@ -368,7 +376,7 @@ func Recharge(referenceId string, customerId string, callerIp string) (err error
 		}
 		groupChanged, err = creditTopUpQuota(tx, topUp, quota, map[string]any{
 			"stripe_customer": customerId,
-		})
+		}, true)
 		return err
 	})
 
@@ -599,7 +607,7 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 
 		// 增加用户额度（立即写库，保持一致性）
 		var creditErr error
-		groupChanged, creditErr = creditTopUpQuota(tx, topUp, quotaToAdd, nil)
+		groupChanged, creditErr = creditTopUpQuota(tx, topUp, quotaToAdd, nil, false)
 		if creditErr != nil {
 			return creditErr
 		}
@@ -678,7 +686,7 @@ func RechargeCreem(referenceId string, customerEmail string, customerName string
 			}
 		}
 
-		groupChanged, err = creditTopUpQuota(tx, topUp, quota, updateFields)
+		groupChanged, err = creditTopUpQuota(tx, topUp, quota, updateFields, true)
 		return err
 	})
 
@@ -738,7 +746,7 @@ func RechargeWaffo(tradeNo string, callerIp string) (err error) {
 			return err
 		}
 
-		groupChanged, err = creditTopUpQuota(tx, topUp, quotaToAdd, nil)
+		groupChanged, err = creditTopUpQuota(tx, topUp, quotaToAdd, nil, true)
 		return err
 	})
 
@@ -800,7 +808,7 @@ func RechargeWaffoPancake(tradeNo string) (err error) {
 			return err
 		}
 
-		groupChanged, err = creditTopUpQuota(tx, topUp, quotaToAdd, nil)
+		groupChanged, err = creditTopUpQuota(tx, topUp, quotaToAdd, nil, true)
 		return err
 	})
 

@@ -81,17 +81,17 @@ func TestTransferAffQuotaToQuotaRejectsWalletQuotaOverflow(t *testing.T) {
 		Username: "affiliate-transfer-overflow-user",
 		Password: "password",
 		Status:   common.UserStatusEnabled,
-		Quota:    common.MaxQuota - 10,
+		Quota:    common.MaxWalletQuota - 10,
 		AffQuota: 20,
 	}
 	require.NoError(t, DB.Create(&user).Error)
 
 	err := user.TransferAffQuotaToQuota(20)
-	require.EqualError(t, err, "user quota would exceed the supported limit")
+	require.EqualError(t, err, "user wallet would overflow")
 
 	var got User
 	require.NoError(t, DB.First(&got, user.Id).Error)
-	assert.Equal(t, common.MaxQuota-10, got.Quota)
+	assert.Equal(t, common.MaxWalletQuota-10, got.Quota)
 	assert.Equal(t, 20, got.AffQuota)
 }
 

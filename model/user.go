@@ -10,7 +10,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
@@ -590,80 +589,12 @@ func HardDeleteUserById(id int) error {
 	return user.HardDelete()
 }
 
-func inviteUser(inviterId int) error {
-	result := DB.Model(&User{}).Where("id = ?", inviterId).Updates(map[string]any{
-		"aff_count":   gorm.Expr("aff_count + ?", 1),
-		"aff_quota":   gorm.Expr("aff_quota + ?", common.QuotaForInviter),
-		"aff_history": gorm.Expr("aff_history + ?", common.QuotaForInviter),
-	})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
-	}
-	return nil
-}
-
 func (user *User) TransferAffQuotaToQuota(quota int) error {
-	// 检查quota是否小于最小额度
-	if float64(quota) < common.QuotaPerUnit {
-		return fmt.Errorf("转移额度最小为%s！", logger.LogQuota(common.QuotaFromFloat(common.QuotaPerUnit)))
-	}
-	if quota > common.MaxQuota {
-		return errors.New("user quota would exceed the supported limit")
-	}
-
-	// 开始数据库事务
-	tx := DB.Begin()
-	if tx.Error != nil {
-		return tx.Error
-	}
-	defer tx.Rollback() // 确保在函数退出时事务能回滚
-
-	// 加锁查询用户以确保数据一致性
-	err := lockForUpdate(tx).First(user, user.Id).Error
+	_, err := TransferReferralBalance(user.Id, int64(quota))
 	if err != nil {
 		return err
 	}
-
-	// 再次检查用户的AffQuota是否足够
-	if user.AffQuota < quota {
-		return errors.New("邀请额度不足！")
-	}
-	maxCurrentQuota := int64(common.MaxQuota) - int64(quota)
-	if int64(user.Quota) > maxCurrentQuota {
-		return errors.New("user quota would exceed the supported limit")
-	}
-
-	// 使用条件更新同时转移邀请额度和用户额度，避免超出数据库支持的上限。
-	result := tx.Model(&User{}).
-		Where("id = ? AND aff_quota >= ? AND quota <= ?", user.Id, quota, maxCurrentQuota).
-		Updates(map[string]interface{}{
-			"aff_quota": gorm.Expr("aff_quota - ?", quota),
-			"quota":     gorm.Expr("quota + ?", quota),
-		})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected != 1 {
-		return errors.New("邀请额度不足！")
-	}
-
-	// 提交事务
-	if err := tx.Commit().Error; err != nil {
-		return err
-	}
-
-	// Keep the caller's snapshot and the Redis quota cache in sync with the
-	// committed database update. Quota transfers must be visible immediately
-	// to quota reservation paths that prefer the cache.
-	user.AffQuota -= quota
-	user.Quota += quota
-	if err := cacheIncrUserQuota(user.Id, int64(quota)); err != nil {
-		common.SysError(fmt.Sprintf("failed to update user quota cache after affiliate quota transfer: user_id=%d err=%v", user.Id, err))
-	}
-	return nil
+	return DB.Select("quota", "aff_quota").First(user, user.Id).Error
 }
 
 func (user *User) prepareForInsert(tx *gorm.DB) error {
@@ -733,7 +664,10 @@ func (user *User) Insert(inviterId int) error {
 				user.SetSetting(defaultSetting)
 			}
 
-			return tx.Create(user).Error
+			if err := tx.Create(user).Error; err != nil {
+				return err
+			}
+			return recordReferralRegistrationTx(tx, user, inviterId)
 		})
 	}); err != nil {
 		return err
@@ -762,17 +696,6 @@ func (user *User) finishInsert(inviterId int) {
 	if common.QuotaForNewUser > 0 {
 		RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("新用户注册赠送 %s", logger.LogQuota(common.QuotaForNewUser)))
 	}
-	if inviterId != 0 && operation_setting.IsPaymentComplianceConfirmed() {
-		if common.QuotaForInvitee > 0 {
-			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
-			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(common.QuotaForInvitee)))
-		}
-		if common.QuotaForInviter > 0 {
-			//_ = IncreaseUserQuota(inviterId, common.QuotaForInviter)
-			RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(common.QuotaForInviter)))
-			_ = inviteUser(inviterId)
-		}
-	}
 }
 
 func (user *User) FinishInsert(inviterId int) {
@@ -796,7 +719,10 @@ func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 			user.SetSetting(defaultSetting)
 		}
 
-		return tx.Create(user).Error
+		if err := tx.Create(user).Error; err != nil {
+			return err
+		}
+		return recordReferralRegistrationTx(tx, user, inviterId)
 	})
 }
 
@@ -818,16 +744,6 @@ func (user *User) FinalizeOAuthUserCreation(inviterId int) {
 
 	if common.QuotaForNewUser > 0 {
 		RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("新用户注册赠送 %s", logger.LogQuota(common.QuotaForNewUser)))
-	}
-	if inviterId != 0 && operation_setting.IsPaymentComplianceConfirmed() {
-		if common.QuotaForInvitee > 0 {
-			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
-			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(common.QuotaForInvitee)))
-		}
-		if common.QuotaForInviter > 0 {
-			RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(common.QuotaForInviter)))
-			_ = inviteUser(inviterId)
-		}
 	}
 }
 
@@ -1424,25 +1340,44 @@ func DecreaseUserQuota(id int, quota int, db bool) (err error) {
 	if quota < 0 {
 		return errors.New("quota 不能为负数！")
 	}
+	if err := common.ValidateWalletQuota(quota); err != nil {
+		return err
+	}
+	if !db && common.BatchUpdateEnabled {
+		var tracked int64
+		if err := DB.Model(&ReferralPaidWallet{}).Where("user_id = ?", id).Count(&tracked).Error; err != nil {
+			return err
+		}
+		if tracked == 0 {
+			addNewRecord(BatchUpdateTypeUserQuota, id, -quota)
+		} else if err := decreaseUserQuota(id, quota); err != nil {
+			return err
+		}
+	} else if err := decreaseUserQuota(id, quota); err != nil {
+		return err
+	}
 	gopool.Go(func() {
-		err := cacheDecrUserQuota(id, int64(quota))
-		if err != nil {
+		if err := cacheDecrUserQuota(id, int64(quota)); err != nil {
 			common.SysLog("failed to decrease user quota: " + err.Error())
 		}
 	})
-	if !db && common.BatchUpdateEnabled {
-		addNewRecord(BatchUpdateTypeUserQuota, id, -quota)
-		return nil
-	}
-	return decreaseUserQuota(id, quota)
+	return nil
 }
 
 func decreaseUserQuota(id int, quota int) (err error) {
-	err = DB.Model(&User{}).Where("id = ?", id).Update("quota", gorm.Expr("quota - ?", quota)).Error
-	if err != nil {
-		return err
-	}
-	return err
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := lockForUpdate(tx).Select("id", "quota").First(&user, id).Error; err != nil {
+			return err
+		}
+		if int64(user.Quota) < -common.MaxWalletQuota+int64(quota) || user.Quota > common.MaxWalletQuota {
+			return ErrWalletQuotaLimitExceeded
+		}
+		if err := consumeReferralPaidWalletTx(tx, id, int64(user.Quota), int64(quota)); err != nil {
+			return err
+		}
+		return tx.Model(&user).Update("quota", gorm.Expr("quota - ?", quota)).Error
+	})
 }
 
 func DeltaUpdateUserQuota(id int, delta int) (err error) {

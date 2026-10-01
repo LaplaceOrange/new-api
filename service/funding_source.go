@@ -35,6 +35,7 @@ var ErrInsufficientWalletQuota = errors.New("wallet quota insufficient")
 type WalletFunding struct {
 	userId   int
 	consumed int // 实际预扣的用户额度
+	sourceId string
 }
 
 func (w *WalletFunding) Source() string { return BillingSourceWallet }
@@ -43,6 +44,16 @@ func (w *WalletFunding) PreConsume(amount int) error {
 	if amount <= 0 {
 		return nil
 	}
+	if w.sourceId != "" {
+		_, err := model.SetReferralWalletSpend(w.userId, w.sourceId, int64(w.consumed)+int64(amount), true)
+		if errors.Is(err, model.ErrReferralWalletInsufficient) {
+			return ErrInsufficientWalletQuota
+		}
+		if err == nil {
+			w.consumed += amount
+		}
+		return err
+	}
 	reserved, err := model.TryReserveUserQuota(w.userId, amount)
 	if err != nil {
 		return err
@@ -50,13 +61,20 @@ func (w *WalletFunding) PreConsume(amount int) error {
 	if !reserved {
 		return ErrInsufficientWalletQuota
 	}
-	w.consumed = amount
+	w.consumed += amount
 	return nil
 }
 
 func (w *WalletFunding) Settle(delta int) error {
 	if delta == 0 {
 		return nil
+	}
+	if w.sourceId != "" {
+		_, err := model.SetReferralWalletSpend(w.userId, w.sourceId, int64(w.consumed)+int64(delta), false)
+		if err == nil {
+			w.consumed += delta
+		}
+		return err
 	}
 	if delta > 0 {
 		return model.DecreaseUserQuota(w.userId, delta, false)
@@ -67,6 +85,13 @@ func (w *WalletFunding) Settle(delta int) error {
 func (w *WalletFunding) Refund() error {
 	if w.consumed <= 0 {
 		return nil
+	}
+	if w.sourceId != "" {
+		_, err := model.SetReferralWalletSpend(w.userId, w.sourceId, 0, false)
+		if err == nil {
+			w.consumed = 0
+		}
+		return err
 	}
 	// IncreaseUserQuota 是 quota += N 的非幂等操作，不能重试，否则会多退额度。
 	// 订阅的 RefundSubscriptionPreConsume 有 requestId 幂等保护所以可以重试。

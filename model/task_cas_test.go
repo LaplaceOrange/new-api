@@ -56,6 +56,17 @@ func TestMain(m *testing.M) {
 		&ChannelContributionHealthState{},
 		&ChannelContributionRewardAccount{},
 		&ChannelContributionRewardLedger{},
+		&ReferralCampaign{},
+		&ReferralPolicy{},
+		&ReferralFriend{},
+		&ReferralPaidOrder{},
+		&ReferralPaidWallet{},
+		&ReferralWalletSpend{},
+		&ReferralSettlement{},
+		&ReferralUnlock{},
+		&ReferralAccount{},
+		&ReferralLedger{},
+		&ReferralTransfer{},
 		&QuotaData{},
 		&Ability{},
 		&TopUp{},
@@ -95,6 +106,17 @@ func truncateTables(t *testing.T) {
 		DB.Exec("DELETE FROM channel_contribution_health_states")
 		DB.Exec("DELETE FROM channel_contribution_reward_ledgers")
 		DB.Exec("DELETE FROM channel_contribution_reward_accounts")
+		DB.Exec("DELETE FROM referral_transfers")
+		DB.Exec("DELETE FROM referral_ledgers")
+		DB.Exec("DELETE FROM referral_accounts")
+		DB.Exec("DELETE FROM referral_unlocks")
+		DB.Exec("DELETE FROM referral_settlements")
+		DB.Exec("DELETE FROM referral_wallet_spends")
+		DB.Exec("DELETE FROM referral_paid_wallets")
+		DB.Exec("DELETE FROM referral_paid_orders")
+		DB.Exec("DELETE FROM referral_friends")
+		DB.Exec("DELETE FROM referral_campaigns")
+		DB.Exec("DELETE FROM referral_policies")
 		DB.Exec("DELETE FROM channel_contribution_test_results")
 		DB.Exec("DELETE FROM channel_contribution_test_runs")
 		DB.Exec("DELETE FROM channel_contribution_revisions")

@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/fxamacker/cbor/v2"
 	"github.com/gin-gonic/gin"
@@ -700,6 +701,55 @@ func TestGenerateOAuthCodeCarriesAffiliateInLoginFlow(t *testing.T) {
 	assert.Equal(t, "invite-code", payload.AffiliateCode)
 	assert.Zero(t, flow.UserId)
 	assert.Empty(t, flow.SessionId)
+}
+
+func TestReferralPasswordAndOAuthRegistrationKeepAttributionWithoutSignupRewards(t *testing.T) {
+	provider := setupAuthFlowControllerTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.ReferralCampaign{}, &model.ReferralFriend{}, &model.Log{}))
+	oldRegister, oldPasswordRegister, oldEmail := common.RegisterEnabled, common.PasswordRegisterEnabled, common.EmailVerificationEnabled
+	oldNew, oldInviter, oldInvitee := common.QuotaForNewUser, common.QuotaForInviter, common.QuotaForInvitee
+	payment := operation_setting.GetPaymentSetting()
+	oldConfirmed, oldTerms := payment.ComplianceConfirmed, payment.ComplianceTermsVersion
+	common.RegisterEnabled, common.PasswordRegisterEnabled, common.EmailVerificationEnabled = true, true, false
+	common.QuotaForNewUser, common.QuotaForInviter, common.QuotaForInvitee = 0, 500, 500
+	payment.ComplianceConfirmed, payment.ComplianceTermsVersion = true, operation_setting.CurrentComplianceTermsVersion
+	t.Cleanup(func() {
+		common.RegisterEnabled, common.PasswordRegisterEnabled, common.EmailVerificationEnabled = oldRegister, oldPasswordRegister, oldEmail
+		common.QuotaForNewUser, common.QuotaForInviter, common.QuotaForInvitee = oldNew, oldInviter, oldInvitee
+		payment.ComplianceConfirmed, payment.ComplianceTermsVersion = oldConfirmed, oldTerms
+	})
+	inviter := model.User{Username: "referrer", AffCode: "referral-code", AffQuota: 25, Status: common.UserStatusEnabled}
+	require.NoError(t, model.DB.Create(&inviter).Error)
+	now := time.Now().Unix()
+	campaign := model.ReferralCampaign{Name: "Registration", Enabled: true, StartAt: now - 60, EndAt: now + 60,
+		Direction: model.ReferralDirectionBoth, SpendBasis: model.ReferralSpendWallet,
+		RequiredFriends: 5, PaidThresholdQuota: 10, BaseBps: 200, InviterBps: 500, InviteePoolBps: 400}
+	require.NoError(t, model.DB.Create(&campaign).Error)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/user/register",
+		strings.NewReader(`{"username":"password-referral","password":"a-long-password-for-referral","aff_code":"referral-code"}`))
+	Register(c)
+	var result struct {
+		Success bool `json:"success"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &result))
+	require.True(t, result.Success, recorder.Body.String())
+	var passwordUser model.User
+	require.NoError(t, model.DB.First(&passwordUser, "username = ?", "password-referral").Error)
+	oauthUser, err := findOrCreateOAuthUser(c, provider, &oauth.OAuthUser{ProviderUserID: "referral-external", Username: "oauth-referral"}, inviter.AffCode)
+	require.NoError(t, err)
+	for _, user := range []*model.User{&passwordUser, oauthUser} {
+		assert.Zero(t, user.Quota, "no new registration referral grant")
+		var friend model.ReferralFriend
+		require.NoError(t, model.DB.First(&friend, "user_id = ?", user.Id).Error)
+		assert.Equal(t, inviter.Id, friend.InviterId)
+		assert.Equal(t, campaign.Id, friend.CampaignId)
+	}
+	require.NoError(t, model.DB.First(&inviter, inviter.Id).Error)
+	assert.Equal(t, 25, inviter.AffQuota, "unwithdrawn legacy rewards are preserved")
+	assert.Equal(t, 2, inviter.AffCount)
 }
 
 func TestGenerateOAuthCodeBindsFlowToAuthenticatedSession(t *testing.T) {

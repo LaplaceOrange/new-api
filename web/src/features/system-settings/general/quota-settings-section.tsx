@@ -78,7 +78,6 @@ type QuotaSettingsSectionProps = {
 
 export function QuotaSettingsSection({
   defaultValues,
-  complianceConfirmed = true,
 }: QuotaSettingsSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
@@ -111,15 +110,11 @@ export function QuotaSettingsSection({
     <SettingsSection title={t('Quota Settings')}>
       <FormNavigationGuard when={isDirty} />
 
-      {!complianceConfirmed ? (
-        <Alert variant='destructive'>
-          <AlertDescription>
-            {t(
-              'Non-zero invitation rewards require compliance confirmation in Payment Gateway settings.'
-            )}
-          </AlertDescription>
-        </Alert>
-      ) : null}
+      <Alert>
+        <AlertDescription>
+          {t('Registration referral rewards are discontinued')}
+        </AlertDescription>
+      </Alert>
 
       <Form {...form}>
         <SettingsForm onSubmit={handleSubmit}>
@@ -190,6 +185,7 @@ export function QuotaSettingsSection({
                   <FormLabel>{t('Inviter Reward')}</FormLabel>
                   <FormControl>
                     <Input
+                      disabled
                       type='number'
                       value={field.value ?? ''}
                       onChange={handleNumberChange(field.onChange)}
@@ -219,6 +215,7 @@ export function QuotaSettingsSection({
                   <FormLabel>{t('Invitee Reward')}</FormLabel>
                   <FormControl>
                     <Input
+                      disabled
                       type='number'
                       value={field.value ?? ''}
                       onChange={handleNumberChange(field.onChange)}
