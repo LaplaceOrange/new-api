@@ -25,6 +25,7 @@ const (
 	SystemTaskTypeChannelContributionHealth = "channel_contribution_health"
 	SystemTaskTypeUserCleanupScan           = "user_cleanup_scan"
 	SystemTaskTypeDegradationMonitor        = "degradation_monitor"
+	SystemTaskTypeDegradationCheck          = "degradation_check"
 )
 
 var ErrSystemTaskLockLost = errors.New("system task lock lost")
@@ -94,6 +95,13 @@ func GenerateSystemTaskID() (string, error) {
 }
 
 func CreateSystemTask(taskType string, payload any, state any) (*SystemTask, error) {
+	return CreateSystemTaskWithKey(taskType, taskType, payload, state)
+}
+
+func CreateSystemTaskWithKey(taskType, activeKey string, payload any, state any) (*SystemTask, error) {
+	if activeKey == "" || len(activeKey) > 64 {
+		return nil, errors.New("invalid system task active key")
+	}
 	taskID, err := GenerateSystemTaskID()
 	if err != nil {
 		return nil, err
@@ -111,7 +119,7 @@ func CreateSystemTask(taskType string, payload any, state any) (*SystemTask, err
 		TaskID:    taskID,
 		Type:      taskType,
 		Status:    SystemTaskStatusPending,
-		ActiveKey: &taskType,
+		ActiveKey: &activeKey,
 		Payload:   payloadText,
 		State:     stateText,
 	}
@@ -147,6 +155,18 @@ func GetActiveSystemTask(taskType string) (*SystemTask, error) {
 	return &task, nil
 }
 
+func GetActiveSystemTaskByKey(activeKey string) (*SystemTask, error) {
+	var task SystemTask
+	err := DB.Where("active_key = ? AND status IN ?", activeKey, activeSystemTaskStatuses()).First(&task).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
 func FindPendingSystemTasks(taskType string, limit int) ([]*SystemTask, error) {
 	var tasks []*SystemTask
 	if limit <= 0 {
@@ -168,13 +188,17 @@ func FindEarliestPendingSystemTasks(taskTypes []string) (map[string]*SystemTask,
 	subQuery := DB.Model(&SystemTask{}).
 		Select("MIN(id)").
 		Where("type IN ? AND status = ?", taskTypes, SystemTaskStatusPending).
-		Group("type")
+		Group("type, COALESCE(active_key, type)")
 	var tasks []*SystemTask
 	if err := DB.Where("id IN (?)", subQuery).Find(&tasks).Error; err != nil {
 		return nil, err
 	}
 	for _, task := range tasks {
-		tasksByType[task.Type] = task
+		key := task.Type
+		if task.ActiveKey != nil {
+			key = *task.ActiveKey
+		}
+		tasksByType[key] = task
 	}
 	return tasksByType, nil
 }
@@ -236,7 +260,11 @@ func ClaimSystemTask(id int64, taskType string, runnerID string, lockUntil int64
 		return nil, false, err
 	}
 
-	acquired, expiredTaskID, err := acquireSystemTaskLock(taskType, task.TaskID, runnerID, now, lockUntil)
+	lockKey := taskType
+	if task.ActiveKey != nil {
+		lockKey = *task.ActiveKey
+	}
+	acquired, expiredTaskID, err := acquireSystemTaskLock(lockKey, task.TaskID, runnerID, now, lockUntil)
 	if err != nil || !acquired {
 		return nil, acquired, err
 	}

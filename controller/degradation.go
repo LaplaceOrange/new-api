@@ -9,7 +9,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/degradation"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
@@ -240,6 +239,7 @@ func StartDegradationTest(c *gin.Context) {
 	}
 	payload.Group = strings.TrimSpace(payload.Group)
 	payload.Model = strings.TrimSpace(payload.Model)
+	payload.Scheduled = false
 	if payload.Group == "" || payload.Model == "" {
 		common.ApiErrorMsg(c, "group and model are required")
 		return
@@ -261,7 +261,7 @@ func StartDegradationTest(c *gin.Context) {
 		common.ApiErrorMsg(c, "model is not available for monitoring")
 		return
 	}
-	task, created, err := service.EnqueueSystemTask(model.SystemTaskTypeDegradationMonitor, payload)
+	task, created, err := enqueueDegradationCheck(payload)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -279,7 +279,7 @@ func GetDegradationTest(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if task == nil || task.Type != model.SystemTaskTypeDegradationMonitor {
+	if task == nil || (task.Type != model.SystemTaskTypeDegradationMonitor && task.Type != model.SystemTaskTypeDegradationCheck) {
 		common.ApiErrorMsg(c, "test not found")
 		return
 	}

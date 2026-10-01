@@ -199,7 +199,12 @@ func StartLogCleanupTask(targetTimestamp int64) (*model.SystemTask, error) {
 // bool is true only when a new pending row was created; false means an active
 // task of the same type already exists and was returned.
 func EnqueueSystemTask(taskType string, payload any) (*model.SystemTask, bool, error) {
-	activeTask, err := model.GetActiveSystemTask(taskType)
+	return EnqueueSystemTaskWithKey(taskType, taskType, payload)
+}
+
+// EnqueueSystemTaskWithKey isolates deduplication and leases for independent work.
+func EnqueueSystemTaskWithKey(taskType, activeKey string, payload any) (*model.SystemTask, bool, error) {
+	activeTask, err := model.GetActiveSystemTaskByKey(activeKey)
 	if err != nil {
 		return nil, false, err
 	}
@@ -207,9 +212,9 @@ func EnqueueSystemTask(taskType string, payload any) (*model.SystemTask, bool, e
 		return activeTask, false, nil
 	}
 
-	task, err := model.CreateSystemTask(taskType, payload, nil)
+	task, err := model.CreateSystemTaskWithKey(taskType, activeKey, payload, nil)
 	if err != nil {
-		activeTask, activeErr := model.GetActiveSystemTask(taskType)
+		activeTask, activeErr := model.GetActiveSystemTaskByKey(activeKey)
 		if activeErr == nil && activeTask != nil {
 			return activeTask, false, nil
 		}
@@ -219,13 +224,15 @@ func EnqueueSystemTask(taskType string, payload any) (*model.SystemTask, bool, e
 	return task, true, nil
 }
 
-// runSystemTaskClaimPass tries to claim one pending task per registered type
+// runSystemTaskClaimPass tries to claim one pending task per active key
 // and dispatches each claimed task in its own goroutine so a long-running
 // handler (e.g. channel test) never blocks another type (e.g. log cleanup).
 func runSystemTaskClaimPass(runnerID string) {
 	handlers := registeredSystemTaskHandlers()
+	handlersByType := make(map[string]SystemTaskHandler, len(handlers))
 	taskTypes := make([]string, 0, len(handlers))
 	for _, handler := range handlers {
+		handlersByType[handler.Type()] = handler
 		taskTypes = append(taskTypes, handler.Type())
 	}
 	pendingTasks, err := model.FindEarliestPendingSystemTasks(taskTypes)
@@ -233,9 +240,9 @@ func runSystemTaskClaimPass(runnerID string) {
 		logger.LogWarn(context.Background(), fmt.Sprintf("system task runner query failed: %v", err))
 		return
 	}
-	for _, handler := range handlers {
-		task := pendingTasks[handler.Type()]
-		if task == nil {
+	for _, task := range pendingTasks {
+		handler := handlersByType[task.Type]
+		if handler == nil {
 			continue
 		}
 		claimedTask, claimed, err := model.ClaimSystemTask(task.ID, handler.Type(), runnerID, systemTaskLockUntil())

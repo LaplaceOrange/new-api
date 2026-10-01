@@ -2,20 +2,49 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/degradation"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
 type degradationMonitorHandler struct{}
 
+type degradationCheckHandler struct{}
+
+func (degradationCheckHandler) Type() string { return model.SystemTaskTypeDegradationCheck }
+
+func (degradationCheckHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	var payload degradationTestPayload
+	err := task.DecodePayload(&payload)
+	if err == nil {
+		err = runManualDegradationCheck(ctx, payload)
+	}
+	if err != nil {
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, err)
+		return
+	}
+	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, nil, nil)
+}
+
+func enqueueDegradationCheck(payload degradationTestPayload) (*model.SystemTask, bool, error) {
+	raw, err := common.Marshal([]string{payload.Group, payload.Model})
+	if err != nil {
+		return nil, false, err
+	}
+	key := fmt.Sprintf("%x", sha256.Sum256(raw))
+	return service.EnqueueSystemTaskWithKey(model.SystemTaskTypeDegradationCheck, key, payload)
+}
+
 type degradationTestPayload struct {
-	Group string `json:"group"`
-	Model string `json:"model"`
+	Group     string `json:"group"`
+	Model     string `json:"model"`
+	Scheduled bool   `json:"scheduled,omitempty"`
 }
 
 func (degradationMonitorHandler) Type() string { return model.SystemTaskTypeDegradationMonitor }
@@ -39,7 +68,7 @@ func (degradationMonitorHandler) Run(ctx context.Context, task *model.SystemTask
 	if payload.Group != "" || payload.Model != "" {
 		err = runManualDegradationCheck(ctx, payload)
 	} else {
-		err = runOneDegradationCheck(ctx)
+		err = scheduleDegradationChecks(ctx)
 	}
 	if err != nil {
 		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, err)
@@ -50,6 +79,9 @@ func (degradationMonitorHandler) Run(ctx context.Context, task *model.SystemTask
 
 func runManualDegradationCheck(ctx context.Context, payload degradationTestPayload) error {
 	cfg := degradation.LoadConfig()
+	if payload.Scheduled && !cfg.Enabled {
+		return nil
+	}
 	for _, group := range cfg.Groups {
 		if group.Group != payload.Group || !ratio_setting.ContainsGroupRatio(group.Group) {
 			continue
@@ -70,6 +102,9 @@ func runManualDegradationCheck(ctx context.Context, payload degradationTestPaylo
 						break
 					}
 				}
+				if payload.Scheduled && target.NextCheckAt > time.Now().Unix() {
+					return nil
+				}
 				return executeDegradationCheck(ctx, cfg, target, item.Expected)
 			}
 		}
@@ -77,7 +112,7 @@ func runManualDegradationCheck(ctx context.Context, payload degradationTestPaylo
 	return fmt.Errorf("model %s is not monitored in group %s", payload.Model, payload.Group)
 }
 
-func runOneDegradationCheck(ctx context.Context) error {
+func scheduleDegradationChecks(ctx context.Context) error {
 	cfg := degradation.LoadConfig()
 	if !cfg.Enabled {
 		return nil
@@ -87,12 +122,7 @@ func runOneDegradationCheck(ctx context.Context) error {
 		return err
 	}
 	keys := make([][2]string, 0)
-	type scheduledModel struct {
-		group    string
-		model    string
-		expected string
-	}
-	scheduled := map[string]scheduledModel{}
+	scheduled := map[string]bool{}
 	for _, group := range cfg.Groups {
 		if !ratio_setting.ContainsGroupRatio(group.Group) {
 			continue
@@ -103,7 +133,7 @@ func runOneDegradationCheck(ctx context.Context) error {
 				continue
 			}
 			keys = append(keys, [2]string{group.Group, item.Model})
-			scheduled[group.Group+"\n"+item.Model] = scheduledModel{group: group.Group, model: item.Model, expected: item.Expected}
+			scheduled[group.Group+"\n"+item.Model] = true
 			if err := model.EnsureDegradationTarget(group.Group, item.Model, now.Add(cfg.Interval()).Unix()); err != nil {
 				return err
 			}
@@ -116,26 +146,18 @@ func runOneDegradationCheck(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var due *model.DegradationTarget
-	var dueItem scheduledModel
-	for i := range targets {
-		item, ok := scheduled[targets[i].GroupName+"\n"+targets[i].ModelName]
-		if !ok || targets[i].NextCheckAt > now.Unix() {
+	for _, target := range targets {
+		if !scheduled[target.GroupName+"\n"+target.ModelName] || target.NextCheckAt > now.Unix() {
 			continue
 		}
-		if due == nil || targets[i].NextCheckAt < due.NextCheckAt {
-			copyTarget := targets[i]
-			due = &copyTarget
-			dueItem = item
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, _, err := enqueueDegradationCheck(degradationTestPayload{Group: target.GroupName, Model: target.ModelName, Scheduled: true}); err != nil {
+			return err
 		}
 	}
-	if due == nil {
-		return nil
-	}
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	return executeDegradationCheck(ctx, cfg, *due, dueItem.expected)
+	return nil
 }
 
 func executeDegradationCheck(ctx context.Context, cfg degradation.Config, target model.DegradationTarget, expected string) error {

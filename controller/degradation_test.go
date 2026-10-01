@@ -1,10 +1,17 @@
 package controller
 
 import (
+	"github.com/glebarez/sqlite"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -48,7 +55,7 @@ func TestDegradationManualTestTargetsAndTaskStatus(t *testing.T) {
 
 	started := request(`{"group":" default ","model":" example-model "}`)
 	assert.Contains(t, started.Body.String(), `"success":true`)
-	task, err := model.GetActiveSystemTask(model.SystemTaskTypeDegradationMonitor)
+	task, err := model.GetActiveSystemTask(model.SystemTaskTypeDegradationCheck)
 	require.NoError(t, err)
 	require.NotNil(t, task)
 	var payload degradationTestPayload
@@ -116,4 +123,96 @@ func TestDegradationProbePreservesChannelMappingAndCompletionStatus(t *testing.T
 	var logs int64
 	require.NoError(t, model.LOG_DB.Model(&model.Log{}).Count(&logs).Error)
 	assert.Zero(t, logs, "degradation probes must continue to skip consume logs")
+}
+
+// Only dedicated test databases may be passed through TEST_*_DSN.
+func TestDegradationTaskIsolationDatabases(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			var driver gorm.Dialector
+			switch dialect {
+			case "sqlite":
+				driver = sqlite.Open(filepath.Join(t.TempDir(), "tasks.db"))
+			case "mysql":
+				dsn := os.Getenv("TEST_MYSQL_DSN")
+				if dsn == "" {
+					t.Skip("TEST_MYSQL_DSN not set")
+				}
+				driver = mysql.Open(dsn)
+			case "postgres":
+				dsn := os.Getenv("TEST_POSTGRES_DSN")
+				if dsn == "" {
+					t.Skip("TEST_POSTGRES_DSN not set")
+				}
+				driver = postgres.Open(dsn)
+			}
+			db, err := gorm.Open(driver, &gorm.Config{})
+			require.NoError(t, err)
+			previous := model.DB
+			model.DB = db
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			t.Cleanup(func() { model.DB = previous; _ = sqlDB.Close() })
+			require.NoError(t, db.AutoMigrate(&model.SystemTask{}, &model.SystemTaskLock{}))
+			t.Cleanup(func() { require.NoError(t, db.Migrator().DropTable(&model.SystemTaskLock{}, &model.SystemTask{})) })
+			first, created, err := enqueueDegradationCheck(degradationTestPayload{Group: "default", Model: "a"})
+			require.NoError(t, err)
+			require.True(t, created)
+			second, created, err := enqueueDegradationCheck(degradationTestPayload{Group: "default", Model: "b"})
+			require.NoError(t, err)
+			require.True(t, created)
+			duplicate, created, err := enqueueDegradationCheck(degradationTestPayload{Group: "default", Model: "a"})
+			require.NoError(t, err)
+			assert.False(t, created)
+			assert.Equal(t, first.TaskID, duplicate.TaskID)
+			pending, err := model.FindEarliestPendingSystemTasks([]string{model.SystemTaskTypeDegradationCheck})
+			require.NoError(t, err)
+			require.Len(t, pending, 2)
+			for _, task := range []*model.SystemTask{first, second} {
+				_, claimed, err := model.ClaimSystemTask(task.ID, task.Type, "runner", time.Now().Add(time.Minute).Unix())
+				require.NoError(t, err)
+				require.True(t, claimed)
+			}
+			require.NoError(t, model.FinishSystemTask(first.TaskID, "runner", model.SystemTaskStatusFailed, nil, "probe failed"))
+			require.NoError(t, model.UpdateSystemTaskState(second.TaskID, "runner", map[string]int{"progress": 50}))
+			require.NoError(t, model.RenewSystemTaskLock(second.TaskID, "runner", time.Now().Add(2*time.Minute).Unix()))
+			require.NoError(t, model.FinishSystemTask(second.TaskID, "runner", model.SystemTaskStatusSucceeded, nil, ""))
+			_, created, err = enqueueDegradationCheck(degradationTestPayload{Group: "default", Model: "a"})
+			require.NoError(t, err)
+			assert.True(t, created)
+		})
+	}
+}
+
+func TestDegradationSchedulerEnqueuesAllDueModels(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.Ability{}, &model.SystemTask{}, &model.SystemTaskLock{}, &model.DegradationTarget{}, &model.DegradationEvent{}))
+	model.InitOptionMap()
+	cfg := degradation.DefaultConfig()
+	cfg.Enabled = true
+	cfg.Groups = []degradation.GroupConfig{{Group: "default", Models: []degradation.ModelConfig{{Model: "a"}, {Model: "b"}, {Model: "later"}}}}
+	raw, err := common.Marshal(cfg)
+	require.NoError(t, err)
+	require.NoError(t, model.UpdateOption(degradation.OptionKey, string(raw)))
+	for _, name := range []string{"a", "b", "later"} {
+		require.NoError(t, db.Create(&model.Ability{Group: "default", Model: name, ChannelId: 1, Enabled: true}).Error)
+		next := time.Now().Add(-time.Minute).Unix()
+		if name == "later" {
+			next = time.Now().Add(time.Hour).Unix()
+		}
+		require.NoError(t, model.EnsureDegradationTarget("default", name, next))
+	}
+	require.NoError(t, scheduleDegradationChecks(t.Context()))
+	require.NoError(t, scheduleDegradationChecks(t.Context()))
+	tasks, err := model.FindPendingSystemTasks(model.SystemTaskTypeDegradationCheck, 10)
+	require.NoError(t, err)
+	require.Len(t, tasks, 2)
+	var names []string
+	for _, task := range tasks {
+		var p degradationTestPayload
+		require.NoError(t, task.DecodePayload(&p))
+		assert.True(t, p.Scheduled)
+		names = append(names, p.Model)
+	}
+	assert.ElementsMatch(t, []string{"a", "b"}, names)
 }
