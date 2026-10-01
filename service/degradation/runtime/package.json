@@ -1,0 +1,7 @@
+{
+  "name": "new-api-degradation-runtime",
+  "private": true,
+  "dependencies": {
+    "lmfpd": "0.0.1790801541698"
+  }
+}

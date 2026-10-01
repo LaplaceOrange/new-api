@@ -8,5 +8,8 @@ docs
 .eslintcache
 .gocache
 /web/node_modules
+/service/degradation/runtime/node_modules
+/service/degradation/runtime/.bun
+.local-tests
 /web/dist
 !THIRD-PARTY-LICENSES.md

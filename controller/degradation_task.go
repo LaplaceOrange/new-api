@@ -167,31 +167,14 @@ func runDegradationProbe(ctx context.Context, groupName, modelName, expected str
 		}
 		return false, false, ""
 	}
-	challenges, err := degradation.GenerateChallenges()
-	if err != nil {
-		common.SysError("degradation challenges: " + err.Error())
-		return false, false, ""
-	}
 	userID, err := resolveChannelTestUserID(nil)
 	if err != nil {
 		common.SysError("degradation test user: " + err.Error())
 		return false, false, ""
 	}
-	samples := make([]degradation.Sample, 0, len(challenges))
-	for _, challenge := range challenges {
-		if ctx.Err() != nil {
-			return false, false, ""
-		}
-		reqCtx, cancel := context.WithTimeout(ctx, degradationProbeTimeout)
-		text, probeErr := probeDegradationChat(reqCtx, channel, userID, groupName, modelName, challenge.Prompt)
-		cancel()
-		if probeErr != nil {
-			common.SysError(fmt.Sprintf("degradation probe failed group=%s model=%s channel_id=%d err=%v", groupName, modelName, channel.Id, probeErr))
-			return false, false, ""
-		}
-		samples = append(samples, degradation.Sample{Text: text, ExpectedCount: challenge.ExpectedCount})
-	}
-	analysis, err := degradation.Analyze(samples)
+	analysis, err := degradation.Detect(ctx, modelName, func(probeCtx context.Context, prompt string) (degradation.Completion, error) {
+		return probeDegradationChat(probeCtx, channel, userID, groupName, modelName, prompt)
+	})
 	if err != nil {
 		common.SysError("degradation analyze: " + err.Error())
 		return false, false, ""
