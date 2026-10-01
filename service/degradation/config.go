@@ -2,6 +2,7 @@ package degradation
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -129,13 +130,35 @@ func Normalize(input Config, groups map[string]struct{}, models map[string]map[s
 				return Config{}, fmt.Errorf("duplicate model %s in group %s", modelName, name)
 			}
 			seenModels[modelName] = struct{}{}
-			expected := strings.TrimSpace(item.Expected)
-			if len([]rune(expected)) > 256 {
-				return Config{}, fmt.Errorf("expected name is too long")
+			expected, err := NormalizeExpectedNames(item.Expected)
+			if err != nil {
+				return Config{}, err
 			}
 			modelsOut = append(modelsOut, ModelConfig{Model: modelName, Expected: expected, Sort: len(modelsOut)})
 		}
 		out.Groups = append(out.Groups, GroupConfig{Group: name, Sort: len(out.Groups), Models: modelsOut})
 	}
 	return out, nil
+}
+
+// NormalizeExpectedNames keeps the legacy string representation, with one exact
+// detector identity per line. A blank list uses the requested model name.
+func NormalizeExpectedNames(value string) (string, error) {
+	names := make([]string, 0)
+	for name := range strings.SplitSeq(value, "\n") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if len([]rune(name)) > 256 {
+			return "", fmt.Errorf("expected name is too long")
+		}
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+		if len(names) > 32 {
+			return "", fmt.Errorf("at most 32 expected names are allowed")
+		}
+	}
+	return strings.Join(names, "\n"), nil
 }

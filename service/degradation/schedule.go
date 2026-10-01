@@ -49,7 +49,7 @@ func ExpectedName(modelName, expected string) string {
 	return expected
 }
 
-// Match reports whether the detector identity equals the expected name.
+// Match reports whether the detector identity equals any expected name.
 // Either the raw prediction id or the display name is accepted.
 func Match(expected, prediction, predictionName, decision string) (passed bool, detected string, scored bool) {
 	expected = strings.TrimSpace(expected)
@@ -66,6 +66,11 @@ func Match(expected, prediction, predictionName, decision string) (passed bool, 
 	if prediction == "" && detected == "" {
 		return false, "", false
 	}
-	passed = expected != "" && (expected == prediction || expected == predictionName)
+	for name := range strings.SplitSeq(expected, "\n") {
+		name = strings.TrimSpace(name)
+		if name != "" && (name == prediction || name == predictionName) {
+			return true, detected, true
+		}
+	}
 	return passed, detected, true
 }

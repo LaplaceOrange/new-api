@@ -29,6 +29,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { TagInput } from '@/components/tag-input'
 import { Button } from '@/components/ui/button'
 import {
   Collapsible,
@@ -410,16 +411,25 @@ function GroupEditor(props: {
             className='grid gap-2 py-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-center'
           >
             <div className='truncate text-sm'>{model.model}</div>
-            <Input
-              value={model.expected}
-              placeholder={t('Expected detected name')}
-              onChange={(event) =>
-                updateModel(index, (current) => ({
-                  ...current,
-                  expected: event.target.value,
-                }))
-              }
-            />
+            <div className='min-w-0 space-y-1'>
+              <TagInput
+                value={model.expected
+                  .split('\n')
+                  .map((name) => name.trim())
+                  .filter(Boolean)}
+                aria-label={t('Expected detected names')}
+                placeholder={t('Expected detected names')}
+                onChange={(names) =>
+                  updateModel(index, (current) => ({
+                    ...current,
+                    expected: names.join('\n'),
+                  }))
+                }
+              />
+              <p className='text-muted-foreground text-xs'>
+                {t('Press Enter to add a name. Any matching name passes.')}
+              </p>
+            </div>
             <div className='flex items-center gap-1'>
               <Button
                 type='button'

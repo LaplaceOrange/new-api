@@ -475,3 +475,34 @@ func TestOfficialCLI(t *testing.T) {
 		assert.Equal(t, downloaded, recovered)
 	}
 }
+
+func TestMultipleExpectedNamesMatchExactly(t *testing.T) {
+	for _, tc := range []struct {
+		name, expected, prediction, display, decision string
+		passed, scored                                bool
+	}{
+		{"legacy", "model-v1", "model-v1", "Model", "ranked", true, true},
+		{"second version", "model-v1\nmodel-v2", "model-v2", "Model 2", "ranked", true, true},
+		{"display name", "model-v1\n Model 2 ", "other", "Model 2", "ranked", true, true},
+		{"no substring matching", "model-v1\nmodel-v2", "model-v20", "Model 20", "ranked", false, true},
+		{"unscorable", "model-v1\nmodel-v2", "model-v2", "Model 2", "unscorable", false, false},
+		{"empty defaults to request", " ", "request-model", "Model", "ranked", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			passed, _, scored := Match(ExpectedName("request-model", tc.expected), tc.prediction, tc.display, tc.decision)
+			assert.Equal(t, tc.passed, passed)
+			assert.Equal(t, tc.scored, scored)
+		})
+	}
+	normalized, err := NormalizeExpectedNames(" model-v1 \r\n\nmodel-v2\nmodel-v1 ")
+	require.NoError(t, err)
+	assert.Equal(t, "model-v1\nmodel-v2", normalized)
+	_, err = NormalizeExpectedNames(strings.Repeat("a", 257))
+	require.Error(t, err)
+	var names []string
+	for i := range 33 {
+		names = append(names, fmt.Sprint("model-", i))
+	}
+	_, err = NormalizeExpectedNames(strings.Join(names, "\n"))
+	require.Error(t, err)
+}

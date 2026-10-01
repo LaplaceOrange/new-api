@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 interface TagInputProps {
+  'aria-label'?: string
   value: string[]
   onChange: (tags: string[]) => void
   placeholder?: string
@@ -33,6 +34,7 @@ interface TagInputProps {
 }
 
 export function TagInput({
+  'aria-label': ariaLabel,
   value = [],
   onChange,
   placeholder,
@@ -61,7 +63,7 @@ export function TagInput({
       e.preventDefault()
       addTag(inputValue)
     } else if (e.key === 'Backspace' && !inputValue && value.length > 0) {
-      removeTag(value[value.length - 1])
+      removeTag(value.at(-1) ?? '')
     }
   }
 
@@ -100,6 +102,7 @@ export function TagInput({
         </Badge>
       ))}
       <input
+        aria-label={ariaLabel}
         ref={inputRef}
         type='text'
         value={inputValue}
