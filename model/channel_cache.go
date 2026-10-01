@@ -53,7 +53,7 @@ func GetRandomSatisfiedChannelWithConcurrencyAndFilters(ctx context.Context, gro
 	}
 
 	abilities := make([]Ability, 0)
-	if err := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, modelName, true).
+	if err := DB.Where(map[string]any{"group": group, "model": modelName, "enabled": true}).
 		Order("priority DESC").Order("weight DESC").Find(&abilities).Error; err != nil {
 		return nil, nil, err
 	}
@@ -63,7 +63,7 @@ func GetRandomSatisfiedChannelWithConcurrencyAndFilters(ctx context.Context, gro
 	if len(abilities) == 0 {
 		normalizedModel := ratio_setting.FormatMatchingModelName(modelName)
 		if normalizedModel != modelName {
-			if err := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, normalizedModel, true).
+			if err := DB.Where(map[string]any{"group": group, "model": normalizedModel, "enabled": true}).
 				Order("priority DESC").Order("weight DESC").Find(&abilities).Error; err != nil {
 				return nil, nil, err
 			}

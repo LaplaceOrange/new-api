@@ -1,21 +1,30 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	hostdto "github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/degradation"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
-	"slices"
 )
 
 const degradationHistoryWindow = 30 * 24 * time.Hour
@@ -197,23 +206,87 @@ func degradationChatText(body []byte) (string, error) {
 	return "", errors.New("missing completion")
 }
 
-func probeDegradationChat(ctx context.Context, channel *model.Channel, userID int, groupName, modelName, prompt string) (degradation.Completion, error) {
-	result := testChannelWithOptions(ctx, channel, userID, modelName, string(constant.EndpointTypeOpenAI), false, channelTestOptions{
-		SkipConsumeLog: true,
-		GroupOverride:  groupName,
-		Prompt:         prompt,
-		ForceChat:      true,
-		MaxTokens:      8192,
-		Quiet:          true,
-	})
-	if result.localErr != nil {
-		return degradation.Completion{}, result.localErr
+func probeDegradationChat(ctx context.Context, channel *model.Channel, groupName, modelName, prompt string) (degradation.Completion, int, error) {
+	if err := ctx.Err(); err != nil {
+		return degradation.Completion{}, 0, err
 	}
-	text, err := degradationChatText(result.body)
+	userID, err := resolveChannelTestUserID(nil)
 	if err != nil {
-		return degradation.Completion{}, err
+		return degradation.Completion{}, 0, err
 	}
-	return degradation.Completion{Text: text, FinishReason: gjson.GetBytes(result.body, "choices.0.finish_reason").String()}, nil
+	user, err := model.GetUserCache(userID)
+	if err != nil {
+		return degradation.Completion{}, 0, err
+	}
+	if user.Role != common.RoleRootUser || user.Status != common.UserStatusEnabled {
+		return degradation.Completion{}, 0, errors.New("degradation monitor requires an enabled root user")
+	}
+	request := dto.GeneralOpenAIRequest{
+		Model:     modelName,
+		MaxTokens: common.GetPointer(uint(8192)),
+		Messages:  []dto.Message{{Role: "user", Content: prompt}},
+	}
+	body, err := common.Marshal(request)
+	if err != nil {
+		return degradation.Completion{}, 0, err
+	}
+	w := newChannelTestResponseRecorder(int(service.StrictSSRFProtectedResponseBodyLimitBytes))
+	channelID := 0
+	router := gin.New()
+	router.Use(middleware.RequestId(), middleware.BodyStorageCleanup())
+	handlers := []gin.HandlerFunc{func(c *gin.Context) {
+		user.WriteContext(c)
+		c.Set("degradation_monitor", true)
+		if err := middleware.SetupContextForToken(c, &model.Token{
+			UserId: userID, Name: "degradation-monitor", Group: groupName, UnlimitedQuota: true,
+		}); err != nil {
+			c.AbortWithStatus(http.StatusInternalServerError)
+			return
+		}
+		common.SetContextKey(c, constant.ContextKeyUsingGroup, groupName)
+		// Explicit channel tests remain pinned, including disabled models.
+		if channel != nil {
+			service.GetChannelConstraints(c).AddPin(hostdto.ChannelPin{
+				ChannelId: channel.Id, Source: hostdto.PinSourceToken,
+				Rank: hostdto.PinRankToken, RetryMode: hostdto.PinRetrySingleAttempt,
+			})
+			common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
+			if setupErr := middleware.SetupContextForSelectedChannel(c, channel, modelName); setupErr != nil {
+				c.AbortWithStatusJSON(setupErr.StatusCode, gin.H{"error": setupErr.ToOpenAIError()})
+				return
+			}
+		}
+		c.Next()
+	}}
+	if channel == nil {
+		handlers = append(handlers, middleware.Distribute())
+	}
+	handlers = append(handlers, func(c *gin.Context) {
+		Relay(c, types.RelayFormatOpenAI)
+		channelID = common.GetContextKeyInt(c, constant.ContextKeyChannelId)
+	})
+	router.POST("/v1/chat/completions", handlers...)
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+	if err := ctx.Err(); err != nil {
+		return degradation.Completion{}, channelID, err
+	}
+	if w.Code != http.StatusOK {
+		message := gjson.GetBytes(w.Body.Bytes(), "error.message").String()
+		if message == "" {
+			message = http.StatusText(w.Code)
+		}
+		return degradation.Completion{}, channelID, fmt.Errorf("degradation relay failed (status %d): %s", w.Code, message)
+	}
+	if w.exceeded {
+		return degradation.Completion{}, channelID, errors.New("degradation relay response exceeds size limit")
+	}
+	text, err := degradationChatText(w.Body.Bytes())
+	if err != nil {
+		return degradation.Completion{}, channelID, err
+	}
+	return degradation.Completion{Text: text, FinishReason: gjson.GetBytes(w.Body.Bytes(), "choices.0.finish_reason").String()}, channelID, nil
 }
 
 func ClearDegradationHistory(c *gin.Context) {
@@ -342,11 +415,6 @@ func StartChannelDegradationTest(c *gin.Context) {
 		}
 	}
 	payload.Expected, err = degradation.NormalizeExpectedNames(payload.Expected)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	payload.UserID, err = resolveChannelTestUserID(c)
 	if err != nil {
 		common.ApiError(c, err)
 		return

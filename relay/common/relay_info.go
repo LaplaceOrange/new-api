@@ -593,7 +593,7 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		TokenId:         common.GetContextKeyInt(c, constant.ContextKeyTokenId),
 		TokenKey:        common.GetContextKeyString(c, constant.ContextKeyTokenKey),
 		TokenUnlimited:  common.GetContextKeyBool(c, constant.ContextKeyTokenUnlimited),
-		SkipTokenQuota:  c.GetBool("image_studio"),
+		SkipTokenQuota:  c.GetBool("image_studio") || c.GetBool("degradation_monitor"),
 		ForcePreConsume: c.GetBool("image_studio"),
 		TokenGroup:      tokenGroup,
 

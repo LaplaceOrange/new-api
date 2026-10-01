@@ -1,11 +1,8 @@
 package controller
 
 import (
+	"context"
 	"fmt"
-	"github.com/glebarez/sqlite"
-	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,10 +17,16 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/degradation"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func TestDegradationManualTestTargetsAndTaskStatus(t *testing.T) {
@@ -85,14 +88,32 @@ func TestDegradationManualTestTargetsAndTaskStatus(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), `"success":false`)
 }
 
-func TestDegradationProbePreservesChannelMappingAndCompletionStatus(t *testing.T) {
+func setupDegradationRelayTest(t *testing.T) (*gorm.DB, model.User) {
+	t.Helper()
 	db := setupManageUserTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.ReferralWalletSpend{}, &model.ReferralCampaign{}, &model.ReferralSettlement{}))
+	previousMemory, previousBatch, previousConsume, previousExport := common.MemoryCacheEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled, common.DataExportEnabled
+	previousErrorLog := constant.ErrorLogEnabled
+	common.MemoryCacheEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled, common.DataExportEnabled = false, false, true, false
+	constant.ErrorLogEnabled = true
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled, common.DataExportEnabled = previousMemory, previousBatch, previousConsume, previousExport
+		constant.ErrorLogEnabled = previousErrorLog
+	})
 	previousRatios := ratio_setting.ModelRatio2JSONString()
 	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"gpt-4o-mini":1}`))
 	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(previousRatios)) })
-	user := model.User{Username: "degradation-probe", Group: "default", Status: common.UserStatusEnabled, Quota: 1_000_000}
+	require.NoError(t, db.Create(&model.User{Username: "probe-admin", AffCode: "probe-admin", Role: common.RoleAdminUser, Group: "default", Quota: 1_000_000}).Error)
+	user := model.User{Username: "root", AffCode: "root", Role: common.RoleRootUser, Group: "default", Status: common.UserStatusEnabled, Quota: 10_000_000, Setting: `{"billing_preference":"wallet_only"}`}
 	require.NoError(t, db.Create(&user).Error)
 	service.InitHttpClient()
+	return db, user
+}
+
+func TestDegradationProbePreservesChannelMappingAndCompletionStatus(t *testing.T) {
+	db, user := setupDegradationRelayTest(t)
+	user.Quota = 1_000_000
+	require.NoError(t, db.Model(&user).Update("quota", user.Quota).Error)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/v1/chat/completions", r.URL.Path)
 		assert.Equal(t, "Bearer channel-only-key", r.Header.Get("Authorization"))
@@ -120,12 +141,158 @@ func TestDegradationProbePreservesChannelMappingAndCompletionStatus(t *testing.T
 	channel := &model.Channel{Id: 1, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled,
 		Key: "channel-only-key", BaseURL: &upstream.URL, ModelMapping: &mapping, Group: "default", Models: "gpt-4o-mini"}
 	channel.ChannelInfo.DisabledModels = map[string]bool{"gpt-4o-mini": true}
-	completion, err := probeDegradationChat(t.Context(), channel, user.Id, "default", "gpt-4o-mini", "challenge from official CLI")
+	require.NoError(t, db.Create(channel).Error)
+	completion, channelID, err := probeDegradationChat(t.Context(), channel, "default", "gpt-4o-mini", "challenge from official CLI")
 	require.NoError(t, err)
 	assert.Equal(t, degradation.Completion{Text: "1, 2, 3", FinishReason: "length"}, completion)
+	assert.Equal(t, channel.Id, channelID)
+	var entry model.Log
+	require.NoError(t, model.LOG_DB.Where("type = ?", model.LogTypeConsume).Take(&entry).Error)
+	assert.Equal(t, user.Id, entry.UserId)
+	assert.Equal(t, user.Username, entry.Username)
+	assert.Equal(t, "degradation-monitor", entry.TokenName)
+	assert.Equal(t, "gpt-4o-mini", entry.ModelName)
+	assert.Equal(t, channel.Id, entry.ChannelId)
+	assert.Equal(t, "default", entry.Group)
+	assert.NotEmpty(t, entry.RequestId)
+	assert.Positive(t, entry.Quota)
+	assert.Zero(t, entry.TokenId)
+	remaining, err := model.GetUserQuota(user.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, user.Quota-entry.Quota, remaining)
+}
+
+func TestDegradationProbeUsesRelayRoutingAndRetryPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		status  int
+		retry   int
+		pinned  bool
+		cached  bool
+		allFail bool
+	}{
+		{"retry another available channel", http.StatusServiceUnavailable, 1, false, false, false},
+		{"cached retry another available channel", http.StatusServiceUnavailable, 1, false, true, false},
+		{"all channels fail without repeating", http.StatusServiceUnavailable, 3, false, false, true},
+		{"retry budget exhausted", http.StatusServiceUnavailable, 0, false, false, false},
+		{"non-retryable response", http.StatusBadRequest, 1, false, false, false},
+		{"explicit channel stays pinned", http.StatusServiceUnavailable, 1, true, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, user := setupDegradationRelayTest(t)
+			previousRetries := common.RetryTimes
+			common.RetryTimes = tc.retry
+			previousRetryCodes := operation_setting.AutomaticRetryStatusCodeRanges
+			operation_setting.AutomaticRetryStatusCodeRanges = []operation_setting.StatusCodeRange{{Start: 503, End: 503}}
+			t.Cleanup(func() {
+				common.RetryTimes = previousRetries
+				operation_setting.AutomaticRetryStatusCodeRanges = previousRetryCodes
+			})
+			var primary model.Channel
+			firstCalls, fallbackCalls := 0, 0
+			first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				firstCalls++
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(`{"error":{"message":"provider unavailable","type":"server_error"}}`))
+			}))
+			defer first.Close()
+			fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fallbackCalls++
+				assert.Equal(t, "Bearer fallback-key", r.Header.Get("Authorization"))
+				w.Header().Set("Content-Type", "application/json")
+				if tc.allFail {
+					w.WriteHeader(http.StatusServiceUnavailable)
+					_, _ = w.Write([]byte(`{"error":{"message":"fallback unavailable","type":"server_error"}}`))
+					return
+				}
+				var request struct {
+					Model    string                     `json:"model"`
+					Messages []struct{ Content string } `json:"messages"`
+				}
+				if !assert.NoError(t, common.DecodeJson(r.Body, &request)) {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				assert.Equal(t, "gpt-4o-mini", request.Model)
+				if assert.Len(t, request.Messages, 1) {
+					assert.Equal(t, "probe", request.Messages[0].Content)
+				}
+				_, _ = w.Write([]byte(`{"id":"fallback","object":"chat.completion","model":"gpt-4o-mini","choices":[{"index":0,"message":{"role":"assistant","content":"fallback answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":5,"total_tokens":10}}`))
+			}))
+			defer fallback.Close()
+			primary = model.Channel{Type: constant.ChannelTypeOpenAI, Name: "primary", Key: "primary-key",
+				Status: common.ChannelStatusEnabled, BaseURL: &first.URL, Group: "default", Models: "gpt-4o-mini",
+				Priority: common.GetPointer(int64(10)), ConcurrencyLimit: common.GetPointer(1), AutoBan: common.GetPointer(0)}
+			backup := model.Channel{Type: constant.ChannelTypeOpenAI, Name: "fallback", Key: "fallback-key",
+				Status: common.ChannelStatusEnabled, BaseURL: &fallback.URL, Group: "default", Models: "gpt-4o-mini", AutoBan: common.GetPointer(0)}
+			for _, channel := range []*model.Channel{&primary, &backup} {
+				require.NoError(t, db.Create(channel).Error)
+				require.NoError(t, db.Create(&model.Ability{Group: "default", Model: "gpt-4o-mini", ChannelId: channel.Id, Enabled: true}).Error)
+			}
+			if tc.cached {
+				common.MemoryCacheEnabled = true
+				model.InitChannelCache()
+			}
+			var pinned *model.Channel
+			if tc.pinned {
+				pinned = &primary
+			}
+			completion, channelID, err := probeDegradationChat(t.Context(), pinned, "default", "gpt-4o-mini", "probe")
+			assert.Equal(t, 1, firstCalls)
+			if tc.allFail {
+				require.Error(t, err)
+				assert.Equal(t, backup.Id, channelID)
+				assert.Equal(t, 1, fallbackCalls)
+			} else if tc.retry > 0 && tc.status == http.StatusServiceUnavailable && !tc.pinned {
+				require.NoError(t, err)
+				assert.Equal(t, "fallback answer", completion.Text)
+				assert.Equal(t, backup.Id, channelID)
+				assert.Equal(t, 1, fallbackCalls)
+			} else {
+				require.Error(t, err)
+				assert.Equal(t, primary.Id, channelID)
+				assert.Zero(t, fallbackCalls)
+			}
+			var entries []model.Log
+			require.NoError(t, model.LOG_DB.Order("id").Find(&entries).Error)
+			require.Len(t, entries, 1+fallbackCalls)
+			assert.Equal(t, model.LogTypeError, entries[0].Type)
+			assert.Equal(t, primary.Id, entries[0].ChannelId)
+			for _, entry := range entries {
+				assert.Equal(t, user.Id, entry.UserId)
+				assert.Equal(t, "root", entry.Username)
+				assert.Equal(t, "degradation-monitor", entry.TokenName)
+				assert.NotEmpty(t, entry.RequestId)
+				assert.NotContains(t, entry.Other, "primary-key")
+				assert.NotContains(t, entry.Other, "fallback-key")
+				assert.Equal(t, entries[0].RequestId, entry.RequestId)
+			}
+			charged := 0
+			for _, entry := range entries {
+				charged += entry.Quota
+			}
+			remaining, err := model.GetUserQuota(user.Id, true)
+			require.NoError(t, err)
+			assert.Equal(t, user.Quota-charged, remaining, "only the successful attempt is charged")
+		})
+	}
+}
+
+func TestDegradationProbeRejectsDisabledRootAndCancelledRequests(t *testing.T) {
+	db, root := setupDegradationRelayTest(t)
+	require.NoError(t, db.Model(&root).Update("status", common.UserStatusDisabled).Error)
+	_, channelID, err := probeDegradationChat(t.Context(), nil, "default", "gpt-4o-mini", "probe")
+	require.ErrorContains(t, err, "enabled root user")
+	assert.Zero(t, channelID)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, channelID, err = probeDegradationChat(ctx, nil, "default", "gpt-4o-mini", "probe")
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Zero(t, channelID)
 	var logs int64
 	require.NoError(t, model.LOG_DB.Model(&model.Log{}).Count(&logs).Error)
-	assert.Zero(t, logs, "degradation probes must continue to skip consume logs")
+	assert.Zero(t, logs)
 }
 
 // Only dedicated test databases may be passed through TEST_*_DSN.
@@ -342,7 +509,7 @@ func TestChannelDegradationValidatesAndPinsChannel(t *testing.T) {
 	var payload degradationTestPayload
 	require.NoError(t, task.DecodePayload(&payload))
 	assert.Equal(t, channel.Id, payload.ChannelID)
-	assert.Equal(t, 99, payload.UserID)
+	assert.NotContains(t, task.Payload, "user_id")
 	assert.Equal(t, "model-v1\nmodel-v2", payload.Expected)
 	assert.Contains(t, request(`{"group":"default","model":"a"}`).Body.String(), `"success":false`)
 	assert.Contains(t, request(`{"group":"default","model":"b","expected":"B1\nB2"}`).Body.String(), `"success":true`)

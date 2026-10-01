@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -32,7 +33,7 @@ func (degradationCheckHandler) Run(ctx context.Context, task *model.SystemTask, 
 				err = fmt.Errorf("model or group is no longer available on this channel")
 			}
 			if err == nil {
-				result, err = detectChannelDegradation(ctx, channel, payload.UserID, payload.Group, payload.Model, payload.Expected)
+				result, err = detectChannelDegradation(ctx, channel, payload.Group, payload.Model, payload.Expected)
 			}
 		} else {
 			err = runManualDegradationCheck(ctx, payload)
@@ -63,7 +64,6 @@ type degradationTestPayload struct {
 	Model     string `json:"model"`
 	Scheduled bool   `json:"scheduled,omitempty"`
 	ChannelID int    `json:"channel_id,omitempty"`
-	UserID    int    `json:"user_id,omitempty"`
 	Expected  string `json:"expected,omitempty"`
 }
 
@@ -203,24 +203,12 @@ func executeDegradationCheck(ctx context.Context, cfg degradation.Config, target
 }
 
 func runDegradationProbe(ctx context.Context, groupName, modelName, expected string) (passed bool, scored bool, detected string, channelID int) {
-	channel, err := model.GetChannel(groupName, modelName, 0, nil)
-	if err != nil || channel == nil || channel.Id == 0 {
-		if err != nil {
-			common.SysError(fmt.Sprintf("degradation route failed group=%s model=%s err=%v", groupName, modelName, err))
-		}
-		return false, false, "", 0
-	}
-	userID, err := resolveChannelTestUserID(nil)
-	if err != nil {
-		common.SysError("degradation test user: " + err.Error())
-		return false, false, "", channel.Id
-	}
-	result, err := detectChannelDegradation(ctx, channel, userID, groupName, modelName, expected)
+	result, err := detectChannelDegradation(ctx, nil, groupName, modelName, expected)
 	if err != nil {
 		common.SysError("degradation analyze: " + err.Error())
-		return false, false, "", channel.Id
+		return false, false, "", result.ChannelID
 	}
-	return result.Status == degradation.StatusPassed, true, result.DetectedModel, channel.Id
+	return result.Status == degradation.StatusPassed, true, result.DetectedModel, result.ChannelID
 }
 
 type degradationCheckResult struct {
@@ -230,20 +218,27 @@ type degradationCheckResult struct {
 	Model         string `json:"model"`
 }
 
-func detectChannelDegradation(ctx context.Context, channel *model.Channel, userID int, groupName, modelName, expected string) (*degradationCheckResult, error) {
+func detectChannelDegradation(ctx context.Context, channel *model.Channel, groupName, modelName, expected string) (*degradationCheckResult, error) {
+	result := &degradationCheckResult{Model: modelName}
+	var lastChannelID atomic.Int64
 	analysis, err := degradation.Detect(ctx, modelName, func(probeCtx context.Context, prompt string) (degradation.Completion, error) {
-		return probeDegradationChat(probeCtx, channel, userID, groupName, modelName, prompt)
+		completion, channelID, err := probeDegradationChat(probeCtx, channel, groupName, modelName, prompt)
+		lastChannelID.Store(int64(channelID))
+		return completion, err
 	})
+	result.ChannelID = int(lastChannelID.Load())
 	if err != nil {
-		return nil, err
+		return result, err
 	}
 	passed, detected, scored := degradation.Match(degradation.ExpectedName(modelName, expected), analysis.Prediction, analysis.PredictionName, analysis.Decision)
 	if !scored {
-		return nil, fmt.Errorf("detector could not score the samples")
+		return result, fmt.Errorf("detector could not score the samples")
 	}
 	status := degradation.StatusSuspected
 	if passed {
 		status = degradation.StatusPassed
 	}
-	return &degradationCheckResult{Status: status, DetectedModel: detected, ChannelID: channel.Id, Model: modelName}, nil
+	result.Status = status
+	result.DetectedModel = detected
+	return result, nil
 }
