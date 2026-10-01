@@ -43,6 +43,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import type { GroupType } from '@/lib/group-types'
 import { cn } from '@/lib/utils'
 
 import { getSortLabels, type SortOption, type ViewMode } from '../constants'
@@ -74,6 +75,7 @@ export interface PricingToolbarProps {
   groups: string[]
   groupRatios?: Record<string, number>
   baseGroupRatios?: Record<string, number>
+  groupTypes?: GroupType[]
   tags: string[]
   models: PricingModel[]
   hasActiveFilters: boolean
@@ -219,6 +221,7 @@ export function PricingToolbar(props: PricingToolbarProps) {
               groups={props.groups}
               groupRatios={props.groupRatios}
               baseGroupRatios={props.baseGroupRatios}
+              groupTypes={props.groupTypes}
               tags={props.tags}
               models={props.models}
               hasActiveFilters={props.hasActiveFilters}

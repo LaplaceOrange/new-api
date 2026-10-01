@@ -21,6 +21,7 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { GroupRatioChange } from '@/components/group-ratio-change'
+import { GroupTypeSection } from '@/components/group-type-section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -28,6 +29,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import { groupByType, type GroupType } from '@/lib/group-types'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
@@ -72,6 +74,7 @@ export interface PricingSidebarProps {
   groups: string[]
   groupRatios?: Record<string, number>
   baseGroupRatios?: Record<string, number>
+  groupTypes?: GroupType[]
   tags: string[]
   models: PricingModel[]
   hasActiveFilters: boolean
@@ -142,6 +145,55 @@ function FilterSection(props: FilterSectionProps) {
               active={props.value === option.value}
               onClick={() => props.onChange(option.value)}
             />
+          ))}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+function GroupFilterSection(props: {
+  value: string
+  options: FilterOption[]
+  types: GroupType[]
+  onChange: (value: string) => void
+}) {
+  const { t } = useTranslation()
+  const sections = groupByType(props.options.slice(1), props.types)
+
+  return (
+    <Collapsible defaultOpen className='border-border/70 border-b pb-3'>
+      <CollapsibleTrigger className='group flex w-full items-center justify-between py-2.5 text-left'>
+        <span className='text-foreground text-sm font-semibold'>
+          {t('Groups')}
+        </span>
+        <ChevronDown className='text-muted-foreground size-4 transition-transform group-data-[panel-open]:rotate-180' />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className='space-y-2'>
+          <FilterChip
+            option={props.options[0]}
+            active={props.value === props.options[0].value}
+            onClick={() => props.onChange(props.options[0].value)}
+          />
+          {sections.map((section) => (
+            <GroupTypeSection
+              key={section.type ? `type:${section.type.name}` : 'unassigned'}
+              type={section.type}
+              count={section.options.length}
+              defaultOpen={props.types.length === 0}
+            >
+              <div className='flex flex-wrap gap-1.5 py-1 pl-2'>
+                {section.options.map((option) => (
+                  <FilterChip
+                    key={option.value}
+                    option={option}
+                    active={props.value === option.value}
+                    onClick={() => props.onChange(option.value)}
+                  />
+                ))}
+              </div>
+            </GroupTypeSection>
           ))}
         </div>
       </CollapsibleContent>
@@ -284,10 +336,10 @@ export function PricingSidebar(props: PricingSidebarProps) {
       )}
 
       <div className='space-y-1'>
-        <FilterSection
-          title={t('Groups')}
+        <GroupFilterSection
           value={props.groupFilter}
           options={groupOptions}
+          types={props.groupTypes ?? []}
           onChange={props.onGroupChange}
         />
         <FilterSection

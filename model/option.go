@@ -165,6 +165,7 @@ func InitOptionMap() {
 	common.OptionMap["CacheRatio"] = ratio_setting.CacheRatio2JSONString()
 	common.OptionMap["CreateCacheRatio"] = ratio_setting.CreateCacheRatio2JSONString()
 	common.OptionMap["GroupRatio"] = ratio_setting.GroupRatio2JSONString()
+	common.OptionMap["GroupTypes"] = "[]"
 	common.OptionMap["GroupGroupRatio"] = ratio_setting.GroupGroupRatio2JSONString()
 	common.OptionMap["UserUsableGroups"] = setting.UserUsableGroups2JSONString()
 	common.OptionMap["CompletionRatio"] = ratio_setting.CompletionRatio2JSONString()
@@ -291,6 +292,9 @@ func validateOptionValue(key string, value string) error {
 		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 			return fmt.Errorf("group chat link must be an http or https URL")
 		}
+	}
+	if key == "GroupTypes" {
+		return setting.ValidateGroupTypes(value)
 	}
 	return nil
 }

@@ -40,6 +40,7 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from '@/components/ui/empty'
+import type { GroupType } from '@/lib/group-types'
 import { cn } from '@/lib/utils'
 
 import {
@@ -52,6 +53,7 @@ type AutoGroupOrderEditorProps = Omit<ComponentProps<'div'>, 'onChange'> & {
   value: string[]
   mode: 'inherit' | 'custom'
   options: ApiKeyGroupOption[]
+  groupTypes?: GroupType[]
   globalOptions: ApiKeyGroupOption[]
   maxCount: number
   onChange: (value: { groups: string[]; mode: 'inherit' | 'custom' }) => void
@@ -230,6 +232,7 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
 
       <ApiKeyGroupCombobox
         options={candidates}
+        groupTypes={props.groupTypes}
         value={undefined}
         onValueChange={handleAdd}
         placeholder={

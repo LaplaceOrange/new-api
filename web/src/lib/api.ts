@@ -1,3 +1,4 @@
+import type { GroupType } from '@/lib/group-types'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -69,6 +70,7 @@ export async function getUserGroups(): Promise<{
       topup_ratio?: number | string
     }
   >
+  group_types?: GroupType[]
 }> {
   const res = await api.get('/api/user/self/groups')
   return res.data

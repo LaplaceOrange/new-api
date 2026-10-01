@@ -36,6 +36,7 @@ import {
   type ModelPricingConfig,
 } from '@/features/model-pricing/api'
 import { pricingOptions } from '@/features/model-pricing/pricing'
+import { groupTypesSchema } from '@/lib/group-types'
 import { handleServerError } from '@/lib/handle-server-error'
 
 import { SettingsPageTitleStatusPortal } from '../components/settings-page-context'
@@ -145,6 +146,10 @@ const createGroupSchema = (t: Translate) =>
     MaxTokenAutoGroups: positiveIntegerSchema(t('Enter a positive integer')),
     DefaultUseAutoGroup: z.boolean(),
     GroupSpecialUsableGroup: createJsonStringField(t),
+    GroupTypes: createJsonStringField(t, {
+      predicate: (parsed) => groupTypesSchema.safeParse(parsed).success,
+      predicateMessage: 'Invalid group type configuration',
+    }),
   })
 
 type ModelFormValues = z.infer<ReturnType<typeof createModelSchema>>
@@ -252,6 +257,7 @@ export function RatioSettingsCard({
     GroupSpecialUsableGroup: normalizeJsonString(
       groupDefaults.GroupSpecialUsableGroup
     ),
+    GroupTypes: normalizeJsonString(groupDefaults.GroupTypes),
   })
   const modelSchema = useMemo(() => createModelSchema(t), [t])
   const groupSchema = useMemo(() => createGroupSchema(t), [t])
@@ -290,6 +296,7 @@ export function RatioSettingsCard({
       GroupSpecialUsableGroup: formatJsonForTextarea(
         groupDefaults.GroupSpecialUsableGroup
       ),
+      GroupTypes: formatJsonForTextarea(groupDefaults.GroupTypes),
     },
   })
 
@@ -342,6 +349,7 @@ export function RatioSettingsCard({
       GroupSpecialUsableGroup: normalizeJsonString(
         groupDefaults.GroupSpecialUsableGroup
       ),
+      GroupTypes: normalizeJsonString(groupDefaults.GroupTypes),
     }
 
     groupForm.reset({
@@ -354,6 +362,7 @@ export function RatioSettingsCard({
       GroupSpecialUsableGroup: formatJsonForTextarea(
         groupDefaults.GroupSpecialUsableGroup
       ),
+      GroupTypes: formatJsonForTextarea(groupDefaults.GroupTypes),
     })
   }, [groupDefaults, groupForm])
 
@@ -420,6 +429,7 @@ export function RatioSettingsCard({
         GroupSpecialUsableGroup: normalizeJsonString(
           values.GroupSpecialUsableGroup
         ),
+        GroupTypes: normalizeJsonString(values.GroupTypes),
       }
 
       // Map form field names to API keys (most are 1:1, except GroupSpecialUsableGroup)

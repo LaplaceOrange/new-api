@@ -20,6 +20,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
+import { PricingSidebar } from '../components/pricing-sidebar'
 import {
   PricingToolbar,
   type PricingToolbarProps,
@@ -60,6 +61,27 @@ function toolbarProps(): PricingToolbarProps {
 }
 
 describe('pricing controls', () => {
+  it('keeps every type visible and preserves personal ratios after expansion', async () => {
+    const user = userEvent.setup()
+    const props = toolbarProps()
+    props.groupTypes = [
+      { name: 'Priority', icon: 'star', color: '#059669', groups: ['premium'] },
+      { name: 'Empty tier', icon: 'shield', color: '#2563eb', groups: [] },
+    ]
+    render(<PricingSidebar {...props} />)
+    const priority = screen.getByRole('button', { name: 'Priority' })
+    expect(priority).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: 'Empty tier' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Other groups' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /premium/ })).toBeNull()
+    await user.click(priority)
+    const premium = screen.getByRole('button', { name: /premium/ })
+    expect(within(premium).getByText('2x', { selector: 'del' })).toBeVisible()
+    expect(within(premium).getByText('3x')).toBeVisible()
+    await user.click(premium)
+    expect(props.onGroupChange).toHaveBeenCalledWith('premium')
+  })
+
   it('shows the original group multiplier struck through in the filter', async () => {
     const user = userEvent.setup()
     render(<PricingToolbar {...toolbarProps()} />)

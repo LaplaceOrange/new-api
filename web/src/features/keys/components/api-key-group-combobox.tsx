@@ -20,6 +20,7 @@ import { Check, ChevronsUpDown } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { GroupTypeSection } from '@/components/group-type-section'
 import { Button } from '@/components/ui/button'
 import {
   Command,
@@ -35,6 +36,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { useMediaQuery } from '@/hooks'
+import { groupByType, type GroupType } from '@/lib/group-types'
 import { cn } from '@/lib/utils'
 
 import {
@@ -54,6 +56,7 @@ export type ApiKeyGroupOption = {
 
 type ApiKeyGroupComboboxProps = {
   options: ApiKeyGroupOption[]
+  groupTypes?: GroupType[]
   value?: string
   onValueChange: (value: string) => void
   placeholder?: string
@@ -62,6 +65,7 @@ type ApiKeyGroupComboboxProps = {
 
 export function ApiKeyGroupCombobox({
   options,
+  groupTypes = [],
   value,
   onValueChange,
   placeholder,
@@ -70,6 +74,9 @@ export function ApiKeyGroupCombobox({
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [searchValue, setSearchValue] = useState('')
+  const [expandedTypes, setExpandedTypes] = useState<Record<string, boolean>>(
+    {}
+  )
   const shouldReduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const selectedOption = options.find((option) => option.value === value)
   const isAutoSelected = selectedOption?.value === 'auto'
@@ -79,15 +86,23 @@ export function ApiKeyGroupCombobox({
     if (!search) return options
 
     return options.filter((option) => {
+      const typeName = groupTypes.find((type) =>
+        type.groups.includes(option.value)
+      )?.name
       const ratioText = String(option.ratio ?? '').toLowerCase()
       return (
         option.value.toLowerCase().includes(search) ||
         option.label.toLowerCase().includes(search) ||
         option.desc?.toLowerCase().includes(search) ||
-        ratioText.includes(search)
+        ratioText.includes(search) ||
+        typeName?.toLowerCase().includes(search)
       )
     })
-  }, [options, searchValue])
+  }, [options, groupTypes, searchValue])
+  const sections = useMemo(
+    () => groupByType(filteredOptions, groupTypes),
+    [filteredOptions, groupTypes]
+  )
 
   const handleSelect = (selectedValue: string) => {
     onValueChange(selectedValue)
@@ -96,7 +111,13 @@ export function ApiKeyGroupCombobox({
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) setSearchValue('')
+      }}
+    >
       <PopoverTrigger
         render={
           <Button
@@ -159,59 +180,87 @@ export function ApiKeyGroupCombobox({
             onValueChange={setSearchValue}
           />
           <CommandList className='max-h-[360px]'>
-            <CommandEmpty>{t('No group found.')}</CommandEmpty>
-            <CommandGroup>
-              {filteredOptions.map((option) => {
-                const isAutoOption = option.value === 'auto'
+            {filteredOptions.length === 0 && (
+              <CommandEmpty>{t('No group found.')}</CommandEmpty>
+            )}
+            {sections.map((section) => (
+              <GroupTypeSection
+                key={section.type ? `type:${section.type.name}` : 'unassigned'}
+                type={section.type}
+                count={section.options.length}
+                open={
+                  searchValue.trim()
+                    ? section.options.length > 0
+                    : (expandedTypes[
+                        section.type
+                          ? `type:${section.type.name}`
+                          : 'unassigned'
+                      ] ?? groupTypes.length === 0)
+                }
+                onOpenChange={(expanded) =>
+                  setExpandedTypes((current) => ({
+                    ...current,
+                    [section.type ? `type:${section.type.name}` : 'unassigned']:
+                      expanded,
+                  }))
+                }
+              >
+                <CommandGroup>
+                  {section.options.map((option) => {
+                    const isAutoOption = option.value === 'auto'
 
-                return (
-                  <CommandItem
-                    key={option.value}
-                    value={option.value}
-                    data-auto-group-effect={isAutoOption ? 'option' : undefined}
-                    onSelect={() => handleSelect(option.value)}
-                    className={cn(
-                      'data-[selected=true]:bg-muted items-start gap-3 rounded-lg px-3 py-3 transition-colors',
-                      isAutoOption &&
-                        cn(
-                          AUTO_GROUP_FRAME_CLASS_NAME,
-                          'border-primary/35 data-[selected=true]:border-primary/55'
-                        )
-                    )}
-                  >
-                    {isAutoOption && (
-                      <AutoGroupFlowBorder
-                        shouldReduceMotion={shouldReduceMotion}
-                      />
-                    )}
-                    <Check
-                      aria-hidden='true'
-                      className={cn(
-                        'mt-0.5 size-4',
-                        value === option.value ? 'opacity-100' : 'opacity-0'
-                      )}
-                    />
-                    <span className='min-w-0 flex-1'>
-                      <span className='block truncate font-medium'>
-                        {option.label}
-                      </span>
-                      {option.desc && (
-                        <span className='text-muted-foreground block truncate text-xs'>
-                          {option.desc}
+                    return (
+                      <CommandItem
+                        key={option.value}
+                        value={option.value}
+                        data-auto-group-effect={
+                          isAutoOption ? 'option' : undefined
+                        }
+                        onSelect={() => handleSelect(option.value)}
+                        className={cn(
+                          'data-[selected=true]:bg-muted items-start gap-3 rounded-lg px-3 py-3 transition-colors',
+                          isAutoOption &&
+                            cn(
+                              AUTO_GROUP_FRAME_CLASS_NAME,
+                              'border-primary/35 data-[selected=true]:border-primary/55'
+                            )
+                        )}
+                      >
+                        {isAutoOption && (
+                          <AutoGroupFlowBorder
+                            shouldReduceMotion={shouldReduceMotion}
+                          />
+                        )}
+                        <Check
+                          aria-hidden='true'
+                          className={cn(
+                            'mt-0.5 size-4',
+                            value === option.value ? 'opacity-100' : 'opacity-0'
+                          )}
+                        />
+                        <span className='min-w-0 flex-1'>
+                          <span className='block truncate font-medium'>
+                            {option.label}
+                          </span>
+                          {option.desc && (
+                            <span className='text-muted-foreground block truncate text-xs'>
+                              {option.desc}
+                            </span>
+                          )}
                         </span>
-                      )}
-                    </span>
-                    <GroupRatioBadge
-                      ratio={option.ratio}
-                      baseRatio={option.baseRatio}
-                      topupRatio={option.topupRatio}
-                      isAuto={isAutoOption}
-                      shouldReduceMotion={shouldReduceMotion}
-                    />
-                  </CommandItem>
-                )
-              })}
-            </CommandGroup>
+                        <GroupRatioBadge
+                          ratio={option.ratio}
+                          baseRatio={option.baseRatio}
+                          topupRatio={option.topupRatio}
+                          isAuto={isAutoOption}
+                          shouldReduceMotion={shouldReduceMotion}
+                        />
+                      </CommandItem>
+                    )
+                  })}
+                </CommandGroup>
+              </GroupTypeSection>
+            ))}
           </CommandList>
         </Command>
       </PopoverContent>

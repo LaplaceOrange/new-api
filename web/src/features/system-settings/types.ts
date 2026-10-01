@@ -252,6 +252,7 @@ export type ModelSettings = {
   'tool_price_setting.prices': string
   TopupGroupRatio: string
   GroupRatio: string
+  GroupTypes: string
   UserUsableGroups: string
   GroupGroupRatio: string
   AutoGroups: string
@@ -314,6 +315,7 @@ export type BillingSettings = {
   'tool_price_setting.prices': string
   TopupGroupRatio: string
   GroupRatio: string
+  GroupTypes: string
   UserUsableGroups: string
   GroupGroupRatio: string
   AutoGroups: string
@@ -406,9 +408,9 @@ export type OperationsSettings = {
 }
 
 export type SecuritySettings = {
-	RegionRestrictionEnabled: boolean
-	RegionRestrictionCountries: string
-	RegionRestrictionRedirectURL: string
+  RegionRestrictionEnabled: boolean
+  RegionRestrictionCountries: string
+  RegionRestrictionRedirectURL: string
   ModelRequestRateLimitEnabled: boolean
   ModelRequestRateLimitCount: number
   ModelRequestRateLimitSuccessCount: number

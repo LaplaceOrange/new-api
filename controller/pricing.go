@@ -2,10 +2,12 @@ package controller
 
 import (
 	"maps"
+	"slices"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -69,6 +71,7 @@ func GetPricing(c *gin.Context) {
 		"vendors":            model.GetVendors(),
 		"group_ratio":        groupRatio,
 		"base_group_ratio":   baseGroupRatio,
+		"group_types":        setting.GetGroupTypes(slices.Collect(maps.Keys(usableGroup))),
 		"usable_group":       usableGroup,
 		"supported_endpoint": model.GetSupportedEndpointMap(),
 		"auto_groups":        service.GetUserAutoGroup(group),

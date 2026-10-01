@@ -503,6 +503,72 @@ func TestListModelsTokenLimitUsesResolvedCustomAutoGroups(t *testing.T) {
 	require.Empty(t, anthropicResponse.LastID)
 }
 
+func TestGroupTypesOptionIsValidatedAndPublishedToBothGroupViews(t *testing.T) {
+	originalGroups := setting.UserUsableGroups2JSONString()
+	originalRatios := ratio_setting.GroupRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalGroups))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
+	})
+
+	for _, dialect := range []struct{ kind, env string }{{"sqlite", ""}, {"mysql", "TEST_MYSQL_DSN"}, {"postgres", "TEST_POSTGRES_DSN"}} {
+		t.Run(dialect.kind, func(t *testing.T) {
+			if dialect.env != "" && os.Getenv(dialect.env) == "" {
+				t.Skip("set " + dialect.env + " to run this database")
+			}
+			db := modelManagementDB(t, dialect.kind, os.Getenv(dialect.env))
+			require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Standard","vip":"Priority"}`))
+			require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":1}`))
+
+			value := `[{"name":"Priority","icon":"star","color":"#059669","groups":["vip","private-group"]},{"name":"Restricted","icon":"shield","color":"#2563eb","groups":["admin-only"]}]`
+			require.NoError(t, model.UpdateOption("GroupTypes", value))
+			for _, invalid := range []string{
+				`null`,
+				`{}`,
+				`[null]`,
+				`[{"name":"","icon":"star","color":"#059669","groups":[]}]`,
+				`[{"name":"A","icon":"invalid","color":"#059669","groups":[]}]`,
+				`[{"name":"A","icon":"star","color":"red","groups":[]}]`,
+				`[{"name":"A","icon":"star","color":"#059669","groups":null}]`,
+				`[{"name":"A","icon":"star","color":"#gggggg","groups":[]}]`,
+				`[{"name":"A","icon":"star","color":"#059669","groups":[" "]}]`,
+				`[{"name":"A","icon":"star","color":"#059669","groups":["vip","vip"]}]`,
+				`[{"name":"A","icon":"star","color":"#059669","groups":["vip"]},{"name":"B","icon":"star","color":"#059669","groups":["vip"]}]`,
+				`[{"name":"A","icon":"star","color":"#059669","groups":[]},{"name":" A ","icon":"star","color":"#059669","groups":[]}]`,
+			} {
+				require.Error(t, model.UpdateOption("GroupTypes", invalid))
+			}
+			var persisted model.Option
+			require.NoError(t, db.Where(&model.Option{Key: "GroupTypes"}).First(&persisted).Error)
+			assert.Equal(t, value, persisted.Value)
+
+			for range 2 {
+				model.InitOptionMap()
+				for _, handler := range []func(*gin.Context){GetPricing, GetUserGroups} {
+					recorder := httptest.NewRecorder()
+					ctx, _ := gin.CreateTestContext(recorder)
+					ctx.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+					handler(ctx)
+					require.Equal(t, http.StatusOK, recorder.Code)
+					var result struct {
+						GroupTypes []setting.GroupType `json:"group_types"`
+					}
+					require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &result))
+					assert.Equal(t, []setting.GroupType{
+						{Name: "Priority", Icon: "star", Color: "#059669", Groups: []string{"vip"}},
+						{Name: "Restricted", Icon: "shield", Color: "#2563eb", Groups: []string{}},
+					}, result.GroupTypes)
+					assert.NotContains(t, recorder.Body.String(), "private-group")
+					assert.NotContains(t, recorder.Body.String(), "admin-only")
+				}
+			}
+			require.NoError(t, model.UpdateOption("GroupTypes", "[]"))
+			model.InitOptionMap()
+			assert.Empty(t, setting.GetGroupTypes([]string{"vip"}))
+		})
+	}
+}
+
 func TestSetupLoginDoesNotTouchPasswordWhenPasswordFieldOmitted(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Log{}, &model.AuditLog{}, &model.UserSession{}, &model.TwoFA{}, &model.PasskeyCredential{}))

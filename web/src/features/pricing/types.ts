@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 // ----------------------------------------------------------------------------
 // Pricing Types
 // ----------------------------------------------------------------------------
+import type { GroupType } from '@/lib/group-types'
 
 export type PricingVendor = {
   id: number
@@ -128,6 +129,7 @@ export type PricingData = {
   vendors: PricingVendor[]
   group_ratio: Record<string, number>
   base_group_ratio?: Record<string, number>
+  group_types?: GroupType[]
   usable_group: Record<string, { desc: string; ratio: number }>
   supported_endpoint: Record<string, string>
   auto_groups: string[]

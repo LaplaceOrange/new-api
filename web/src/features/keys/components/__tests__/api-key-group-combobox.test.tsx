@@ -16,7 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  within,
+  waitFor,
+} from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, test } from 'vitest'
 
 let shouldReduceMotion = false
@@ -75,13 +82,18 @@ const options = [
   },
 ]
 
-function Harness(props: { initialValue: string; options?: typeof options }) {
+function Harness(props: {
+  initialValue: string
+  options?: typeof options
+  groupTypes?: React.ComponentProps<typeof ApiKeyGroupCombobox>['groupTypes']
+}) {
   const [value, setValue] = useState(props.initialValue)
 
   return (
     <I18nextProvider i18n={i18n}>
       <ApiKeyGroupCombobox
         options={props.options ?? options}
+        groupTypes={props.groupTypes}
         value={value}
         onValueChange={setValue}
       />
@@ -121,6 +133,113 @@ describe('API key group combobox Auto effect', () => {
     expect(
       within(getCommandItem('vip')).getByText('2x', { selector: 'del' })
     ).toBeInTheDocument()
+  })
+
+  test('shows type headers and expands an assigned group without changing the selected key group', async () => {
+    const user = userEvent.setup()
+    render(
+      <Harness
+        initialValue='auto'
+        groupTypes={[
+          {
+            name: 'Priority tier',
+            icon: 'star',
+            color: '#059669',
+            groups: ['vip'],
+          },
+          {
+            name: 'Standard tier',
+            icon: 'layers',
+            color: '#2563eb',
+            groups: ['default'],
+          },
+          {
+            name: 'Empty tier',
+            icon: 'shield',
+            color: '#2563eb',
+            groups: [],
+          },
+        ]}
+      />
+    )
+    await user.click(getTrigger())
+    const priority = screen.getByRole('button', { name: /Priority tier/ })
+    expect(priority).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('Priority group')).toBeNull()
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /Standard tier/ })
+      ).toBeVisible()
+    )
+    expect(screen.getByRole('button', { name: /Other groups/ })).toBeVisible()
+
+    priority.focus()
+    await user.keyboard('{Enter}')
+    expect(priority).toHaveAttribute('aria-expanded', 'true')
+    await user.click(getCommandItem('Priority group'))
+    expect(screen.getByTestId('selected-group')).toHaveTextContent('vip')
+    expect(getTrigger()).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  test('search expands matching type groups and allows selecting a hidden result', async () => {
+    const user = userEvent.setup()
+    render(
+      <Harness
+        initialValue='auto'
+        groupTypes={[
+          {
+            name: 'Priority tier',
+            icon: 'star',
+            color: '#059669',
+            groups: ['vip'],
+          },
+          {
+            name: 'Empty tier',
+            icon: 'shield',
+            color: '#2563eb',
+            groups: [],
+          },
+        ]}
+      />
+    )
+    await user.click(getTrigger())
+    fireEvent.input(screen.getByPlaceholderText('Search...'), {
+      target: { value: 'priority tier' },
+    })
+    await waitFor(() => expect(getCommandItem('Priority group')).toBeVisible())
+    expect(screen.getByRole('button', { name: 'Empty tier' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    )
+    expect(screen.queryByText('User group')).toBeNull()
+    await user.click(getCommandItem('Priority group'))
+    expect(screen.getByTestId('selected-group')).toHaveTextContent('vip')
+  })
+
+  test('keeps every type visible when searching finds no groups and restores focus on escape', async () => {
+    const user = userEvent.setup()
+    render(
+      <Harness
+        initialValue='auto'
+        groupTypes={[
+          {
+            name: 'Priority tier',
+            icon: 'star',
+            color: '#059669',
+            groups: ['vip'],
+          },
+          { name: 'Empty tier', icon: 'shield', color: '#2563eb', groups: [] },
+        ]}
+      />
+    )
+    await user.click(getTrigger())
+    await user.type(screen.getByPlaceholderText('Search...'), 'not-found')
+    expect(screen.getByText('No group found.')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Priority tier' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Empty tier' })).toBeVisible()
+    await user.keyboard('{Escape}')
+    expect(getTrigger()).toHaveFocus()
+    expect(screen.getByTestId('selected-group')).toHaveTextContent('auto')
   })
 
   test('uses the compact table capsules in the selected group and dropdown options', () => {

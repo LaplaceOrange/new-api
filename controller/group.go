@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"maps"
 	"net/http"
+	"slices"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -57,8 +59,9 @@ func GetUserGroups(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    usableGroups,
+		"success":     true,
+		"message":     "",
+		"data":        usableGroups,
+		"group_types": setting.GetGroupTypes(slices.Collect(maps.Keys(usableGroups))),
 	})
 }

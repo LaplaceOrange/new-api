@@ -52,6 +52,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import {
   SettingsForm,
@@ -63,6 +64,7 @@ import { safeJsonParse } from '../utils/json-parser'
 import { safeNumberFieldProps } from '../utils/numeric-field'
 import { GroupRatioVisualEditor } from './group-ratio-visual-editor'
 import { GroupSpecialUsableRulesEditor } from './group-special-usable-editor'
+import { GroupTypeEditor } from './group-type-editor'
 
 type GroupFormValues = {
   GroupRatio: string
@@ -73,6 +75,7 @@ type GroupFormValues = {
   MaxTokenAutoGroups: number
   DefaultUseAutoGroup: boolean
   GroupSpecialUsableGroup: string
+  GroupTypes: string
 }
 
 type GroupRatioFormProps = {
@@ -89,6 +92,7 @@ export const GroupRatioForm = memo(function GroupRatioForm({
   const { t } = useTranslation()
   const [editMode, setEditMode] = useState<'visual' | 'json'>('visual')
   const [guideOpen, setGuideOpen] = useState(false)
+  const [section, setSection] = useState('ratios')
 
   const handleFieldChange = useCallback(
     (field: keyof GroupFormValues, value: string) => {
@@ -158,85 +162,115 @@ export const GroupRatioForm = memo(function GroupRatioForm({
           <Button
             type='button'
             size='sm'
-            onClick={form.handleSubmit(onSave)}
+            onClick={form.handleSubmit(onSave, (errors) => {
+              if (errors.GroupTypes) {
+                setEditMode('visual')
+                setSection('types')
+              }
+            })}
             disabled={isSaving}
           >
             {isSaving ? t('Saving...') : t('Save group ratios')}
           </Button>
         </SettingsPageActionsPortal>
         {editMode === 'visual' ? (
-          <div className='space-y-6'>
-            <GroupRatioVisualEditor
-              groupRatio={form.watch('GroupRatio')}
-              topupGroupRatio={form.watch('TopupGroupRatio')}
-              userUsableGroups={form.watch('UserUsableGroups')}
-              groupGroupRatio={form.watch('GroupGroupRatio')}
-              autoGroups={form.watch('AutoGroups')}
-              maxTokenAutoGroupsField={
-                <FormField
-                  control={form.control}
-                  name='MaxTokenAutoGroups'
-                  render={({ field, fieldState }) => (
-                    <FormItem data-invalid={fieldState.invalid}>
-                      <FormLabel>
-                        {t('Maximum custom groups per token')}
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          {...safeNumberFieldProps(field)}
-                          type='number'
-                          min={1}
-                          step={1}
-                          aria-invalid={fieldState.invalid}
-                        />
-                      </FormControl>
+          <Tabs
+            value={section}
+            onValueChange={(value) => setSection(value as string)}
+          >
+            <TabsList aria-label={t('Group ratios')} className='w-full'>
+              <TabsTrigger value='ratios'>{t('Group ratios')}</TabsTrigger>
+              <TabsTrigger value='types'>{t('Group types')}</TabsTrigger>
+            </TabsList>
+            <TabsContent value='ratios' keepMounted className='space-y-6'>
+              <GroupRatioVisualEditor
+                groupRatio={form.watch('GroupRatio')}
+                topupGroupRatio={form.watch('TopupGroupRatio')}
+                userUsableGroups={form.watch('UserUsableGroups')}
+                groupGroupRatio={form.watch('GroupGroupRatio')}
+                autoGroups={form.watch('AutoGroups')}
+                maxTokenAutoGroupsField={
+                  <FormField
+                    control={form.control}
+                    name='MaxTokenAutoGroups'
+                    render={({ field, fieldState }) => (
+                      <FormItem data-invalid={fieldState.invalid}>
+                        <FormLabel>
+                          {t('Maximum custom groups per token')}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            {...safeNumberFieldProps(field)}
+                            type='number'
+                            min={1}
+                            step={1}
+                            aria-invalid={fieldState.invalid}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Limits only token-specific Auto snapshots. Global Auto inheritance remains unlimited.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                }
+                groupSpecialUsableGroup={form.watch('GroupSpecialUsableGroup')}
+                onChange={(field, value) =>
+                  handleFieldChange(field as keyof GroupFormValues, value)
+                }
+              />
+
+              <GroupSpecialUsableRulesEditor
+                value={form.watch('GroupSpecialUsableGroup')}
+                groupOptions={groupNames}
+                onChange={(value) =>
+                  handleFieldChange('GroupSpecialUsableGroup', value)
+                }
+              />
+
+              <FormField
+                control={form.control}
+                name='DefaultUseAutoGroup'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Default to auto groups')}</FormLabel>
                       <FormDescription>
                         {t(
-                          'Limits only token-specific Auto snapshots. Global Auto inheritance remains unlimited.'
+                          'When enabled, newly created tokens start in the first auto group.'
                         )}
                       </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              }
-              groupSpecialUsableGroup={form.watch('GroupSpecialUsableGroup')}
-              onChange={(field, value) =>
-                handleFieldChange(field as keyof GroupFormValues, value)
-              }
-            />
-
-            <GroupSpecialUsableRulesEditor
-              value={form.watch('GroupSpecialUsableGroup')}
-              groupOptions={groupNames}
-              onChange={(value) =>
-                handleFieldChange('GroupSpecialUsableGroup', value)
-              }
-            />
-
-            <FormField
-              control={form.control}
-              name='DefaultUseAutoGroup'
-              render={({ field }) => (
-                <SettingsSwitchItem>
-                  <SettingsSwitchContent>
-                    <FormLabel>{t('Default to auto groups')}</FormLabel>
-                    <FormDescription>
-                      {t(
-                        'When enabled, newly created tokens start in the first auto group.'
-                      )}
-                    </FormDescription>
-                  </SettingsSwitchContent>
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
+            </TabsContent>
+            <TabsContent value='types' keepMounted>
+              <FormField
+                control={form.control}
+                name='GroupTypes'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormMessage />
+                    <GroupTypeEditor
+                      value={field.value}
+                      groups={groupNames}
+                      onChange={field.onChange}
                     />
-                  </FormControl>
-                </SettingsSwitchItem>
-              )}
-            />
-          </div>
+                  </FormItem>
+                )}
+              />
+            </TabsContent>
+          </Tabs>
         ) : (
           <SettingsForm onSubmit={form.handleSubmit(onSave)}>
             <FormField
@@ -415,6 +449,26 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                       'Nested JSON defining per-group rules for adding (+:), removing (-:), or appending usable groups.'
                     )}
                   </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='GroupTypes'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Group types')}</FormLabel>
+                  <FormControl>
+                    <JsonCodeEditor
+                      value={field.value}
+                      onChange={field.onChange}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      textareaRef={field.ref}
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
