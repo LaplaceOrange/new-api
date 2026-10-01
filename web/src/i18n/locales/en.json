@@ -3216,6 +3216,7 @@
     "Include quota": "Include quota",
     "Include reward": "Include reward",
     "Include Rule Name": "Include Rule Name",
+    "Includes {{fee}} payment fee": "Includes {{fee}} payment fee",
     "Includes request rules": "Includes request rules",
     "Includes tool-call surcharge": "Includes tool-call surcharge",
     "Including failed requests, 0 = unlimited": "Including failed requests, 0 = unlimited",

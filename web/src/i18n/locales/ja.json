@@ -3216,6 +3216,7 @@
     "Include quota": "クォータを含める",
     "Include reward": "特典を含める",
     "Include Rule Name": "ルール名を含む",
+    "Includes {{fee}} payment fee": "決済手数料 {{fee}} を含む",
     "Includes request rules": "リクエストルールを含む",
     "Includes tool-call surcharge": "ツール呼び出しの追加料金を含む",
     "Including failed requests, 0 = unlimited": "失敗したリクエストを含む、0 = 無制限",

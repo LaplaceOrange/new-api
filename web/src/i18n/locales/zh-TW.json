@@ -3216,6 +3216,7 @@
     "Include quota": "包含額度",
     "Include reward": "包含獎勵",
     "Include Rule Name": "包含規則名",
+    "Includes {{fee}} payment fee": "包含手續費{{fee}}元",
     "Includes request rules": "包含請求規則",
     "Includes tool-call surcharge": "包含工具呼叫附加費",
     "Including failed requests, 0 = unlimited": "包括失敗的請求，0 = 無限制",

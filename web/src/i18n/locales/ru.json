@@ -3216,6 +3216,7 @@
     "Include quota": "Включить квоту",
     "Include reward": "Включить награду",
     "Include Rule Name": "Включить имя правила",
+    "Includes {{fee}} payment fee": "Включая комиссию {{fee}}",
     "Includes request rules": "Включает правила запросов",
     "Includes tool-call surcharge": "Включает доплату за вызов инструмента",
     "Including failed requests, 0 = unlimited": "Включая неудачные запросы, 0 = без ограничений",

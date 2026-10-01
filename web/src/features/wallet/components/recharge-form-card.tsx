@@ -61,6 +61,7 @@ interface RechargeFormCardProps {
   topupAmount: number
   onTopupAmountChange: (amount: number) => void
   paymentAmount: number
+  paymentFee?: number
   calculating: boolean
   onPaymentMethodSelect: (method: PaymentMethod) => void
   paymentLoading: string | null
@@ -91,6 +92,7 @@ export function RechargeFormCard({
   topupAmount,
   onTopupAmountChange,
   paymentAmount,
+  paymentFee = 0,
   calculating,
   onPaymentMethodSelect,
   paymentLoading,
@@ -298,16 +300,25 @@ export function RechargeFormCard({
                     placeholder={`Minimum ${minTopup}`}
                     className='h-9 text-base sm:h-10 sm:text-lg'
                   />
-                  <div className='bg-muted/30 flex min-h-9 items-center justify-between gap-2 rounded-md border px-3 lg:min-w-52'>
+                  <div className='bg-muted/30 flex min-h-9 flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-md border px-3 py-1 lg:min-w-52'>
                     <span className='text-muted-foreground truncate text-xs'>
                       {t('Amount to pay:')}
                     </span>
                     {calculating ? (
                       <Skeleton className='h-5 w-16' />
                     ) : (
-                      <span className='text-sm font-semibold'>
-                        {formatCurrency(paymentAmount)}
-                      </span>
+                      <div className='flex flex-wrap items-baseline justify-end gap-x-2 gap-y-1'>
+                        <span className='text-sm font-semibold'>
+                          {formatCurrency(paymentAmount)}
+                        </span>
+                        {paymentFee > 0 && (
+                          <span className='text-muted-foreground text-xs'>
+                            {t('Includes {{fee}} payment fee', {
+                              fee: formatCurrency(paymentFee),
+                            })}
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>

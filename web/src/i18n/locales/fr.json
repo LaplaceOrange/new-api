@@ -3216,6 +3216,7 @@
     "Include quota": "Inclure le quota",
     "Include reward": "Inclure la récompense",
     "Include Rule Name": "Inclure le nom de la règle",
+    "Includes {{fee}} payment fee": "Dont {{fee}} de frais de paiement",
     "Includes request rules": "Inclut des règles de requête",
     "Includes tool-call surcharge": "Inclut un supplément pour appel d’outil",
     "Including failed requests, 0 = unlimited": "Y compris les requêtes échouées, 0 = illimité",
