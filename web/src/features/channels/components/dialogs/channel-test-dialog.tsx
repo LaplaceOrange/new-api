@@ -77,9 +77,17 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import {
+  getDegradationTest,
+  startChannelDegradationTest,
+} from '@/features/degradation/api'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { handleServerError } from '@/lib/handle-server-error'
+import {
+  getServerErrorMessage,
+  requireServerSuccess,
+} from '@/lib/server-error-message'
 
 import { updateChannel } from '../../api'
 import {
@@ -102,6 +110,7 @@ type ChannelTestDialogProps = {
 
 type ChannelTestDialogContentProps = ChannelTestDialogProps & {
   currentRow: Channel
+  degradation?: boolean
 }
 
 type ModelRow = {
@@ -116,6 +125,7 @@ type TestResult = {
   completedAt?: number
   error?: string
   errorCode?: string
+  detectedModel?: string
 }
 
 type BatchProgress = {
@@ -280,6 +290,8 @@ function getTestTableColumnClass(columnId: string) {
       return 'w-10 min-w-10'
     case 'model':
       return 'w-auto min-w-48 whitespace-nowrap'
+    case 'expected':
+      return 'w-64 min-w-64'
     case 'status':
       return 'w-28 min-w-28 whitespace-nowrap'
     case 'result':
@@ -311,15 +323,29 @@ export function ChannelTestDialog({
   )
 }
 
-function ChannelTestDialogContent({
+export function ChannelTestDialogContent({
   open,
   onOpenChange,
   currentRow,
+  degradation = false,
 }: ChannelTestDialogContentProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const currentChannelId = currentRow.id
+  const expectedNamesRef = useRef<Record<string, string>>({})
+  const degradationTasksRef = useRef<Record<string, string>>({})
+  const [degradationGroup, setDegradationGroup] = useState(
+    currentRow.group.split(',')[0]?.trim() ?? 'default'
+  )
   const batchStopRequestedRef = useRef(false)
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      batchStopRequestedRef.current = true
+    }
+  }, [])
   const batchProgressToastIdRef = useRef<ReturnType<
     typeof toast.loading
   > | null>(null)
@@ -545,6 +571,61 @@ function ChannelTestDialogContent({
       let finalResult: TestResult | undefined
 
       try {
+        if (degradation) {
+          const startedAt = Date.now()
+          const scope = `${degradationGroup}\n${model}`
+          let taskId = degradationTasksRef.current[scope]
+          if (!taskId) {
+            const expected = expectedNamesRef.current[model]?.trim()
+            const response = await startChannelDegradationTest(currentRow.id, {
+              group: degradationGroup,
+              model,
+              ...(expected
+                ? {
+                    expected: expected
+                      .split(',')
+                      .map((name) => name.trim())
+                      .filter(Boolean)
+                      .join('\n'),
+                  }
+                : {}),
+            })
+            taskId = response.data.task_id
+            degradationTasksRef.current[scope] = taskId
+          }
+          while (mountedRef.current) {
+            const polled = await getDegradationTest(taskId)
+            if (!polled.success) delete degradationTasksRef.current[scope]
+            const response = requireServerSuccess(polled)
+            if (response.data.status === 'failed') {
+              delete degradationTasksRef.current[scope]
+              throw new Error(response.data.error || t('Test failed'))
+            }
+            if (response.data.status === 'succeeded') {
+              delete degradationTasksRef.current[scope]
+              const result = response.data.result
+              if (!result) throw new Error(t('Test failed'))
+              finalResult = {
+                status: result.status === 'passed' ? 'success' : 'error',
+                completedAt: Date.now(),
+                detectedModel: result.detected_model,
+                error:
+                  result.status === 'passed'
+                    ? undefined
+                    : t('Suspected degradation: {{model}}', {
+                        model: result.detected_model,
+                      }),
+              }
+              updateTestResult(model, finalResult)
+              return finalResult
+            }
+            if (Date.now() - startedAt > 15 * 60 * 1000) {
+              throw new Error(t('Test timed out'))
+            }
+            await sleep(1500)
+          }
+          return undefined
+        }
         await handleTestChannel(
           currentRow.id,
           {
@@ -570,12 +651,12 @@ function ChannelTestDialogContent({
         finalResult = {
           status: 'error',
           completedAt: Date.now(),
-          error: error instanceof Error ? error.message : t('Test failed'),
+          error: getServerErrorMessage(error, t('Test failed')),
         }
         updateTestResult(model, finalResult)
       } finally {
         markModelTesting(model, false)
-        if (refreshList) {
+        if (refreshList && !degradation) {
           refreshChannelLists(
             createChannelTestCachePatch(
               finalResult?.responseTime,
@@ -588,6 +669,8 @@ function ChannelTestDialogContent({
     },
     [
       currentRow,
+      degradation,
+      degradationGroup,
       endpointType,
       effectiveStreamTest,
       markModelTesting,
@@ -732,10 +815,11 @@ function ChannelTestDialogContent({
         setIsBatchStopRequested(false)
         setBatchProgress(null)
         setRowSelection({})
-        refreshChannelLists(resultPatch)
+        if (!degradation) refreshChannelLists(resultPatch)
       }
     },
     [
+      degradation,
       dismissBatchProgressToast,
       refreshChannelLists,
       t,
@@ -803,9 +887,9 @@ function ChannelTestDialogContent({
   }, [currentRow.id, models, refreshChannelLists, t, testResults])
 
   const handleClose = useCallback(() => {
-    resetState()
+    if (!degradation) resetState()
     onOpenChange(false)
-  }, [onOpenChange, resetState])
+  }, [degradation, onOpenChange, resetState])
 
   const handleDialogOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -873,6 +957,36 @@ function ChannelTestDialogContent({
           )
         },
       },
+      ...(degradation
+        ? [
+            {
+              id: 'expected',
+              header: t('Expected detected name'),
+              cell: ({ row }: { row: { original: ModelRow } }) => (
+                <Input
+                  aria-label={`${t('Expected detected name')} · ${row.original.model}`}
+                  placeholder={t('Optional')}
+                  defaultValue={
+                    expectedNamesRef.current[row.original.model] ?? ''
+                  }
+                  disabled={
+                    testingModels.has(row.original.model) ||
+                    isBatchTesting ||
+                    !!degradationTasksRef.current[
+                      `${degradationGroup}\n${row.original.model}`
+                    ]
+                  }
+                  onChange={(event) => {
+                    expectedNamesRef.current[row.original.model] =
+                      event.target.value
+                  }}
+                />
+              ),
+              enableSorting: false,
+              size: 256,
+            },
+          ]
+        : []),
       {
         id: 'status',
         header: t('Status'),
@@ -917,7 +1031,11 @@ function ChannelTestDialogContent({
                     size='icon-sm'
                     onClick={() => testSingleModel(model)}
                     disabled={isTestingModel || isBatchTesting}
-                    aria-label={t('Test Connection')}
+                    aria-label={
+                      degradation
+                        ? `${t('Test degradation')} · ${model}`
+                        : t('Test Connection')
+                    }
                   />
                 }
               >
@@ -927,7 +1045,9 @@ function ChannelTestDialogContent({
                   <Gauge className='size-4' />
                 )}
               </TooltipTrigger>
-              <TooltipContent>{t('Test Connection')}</TooltipContent>
+              <TooltipContent>
+                {degradation ? t('Test degradation') : t('Test Connection')}
+              </TooltipContent>
             </Tooltip>
           )
         },
@@ -936,6 +1056,8 @@ function ChannelTestDialogContent({
     ],
     [
       defaultTestModel,
+      degradation,
+      degradationGroup,
       isBatchTesting,
       t,
       testResults,
@@ -965,7 +1087,12 @@ function ChannelTestDialogContent({
         onOpenChange={handleDialogOpenChange}
         title={
           <span className='inline-flex max-w-full min-w-0 items-center gap-1.5'>
-            <span className='shrink-0'>{t('Test Channel Connection')}:</span>
+            <span className='shrink-0'>
+              {degradation
+                ? t('Test degradation')
+                : t('Test Channel Connection')}
+              :
+            </span>
             <span className='min-w-0 truncate'>{currentRow.name}</span>
           </span>
         }
@@ -979,41 +1106,68 @@ function ChannelTestDialogContent({
         }
       >
         <div className='max-h-[78vh] space-y-4 overflow-y-auto py-4 pr-1'>
-          <div className='grid gap-4 md:grid-cols-2'>
+          {degradation ? (
             <div className='grid gap-2'>
-              <Label htmlFor='endpoint-type'>{t('Endpoint Type')}</Label>
+              <Label htmlFor='degradation-test-group'>{t('Group')}</Label>
               <Combobox
-                options={endpointSelectItems}
-                value={endpointType}
-                onValueChange={handleEndpointTypeChange}
-                id='endpoint-type'
-                className='w-full min-w-0'
-                placeholder={t('Auto detect (default)')}
+                id='degradation-test-group'
+                aria-label={t('Group')}
+                openOnFocus={false}
+                disabled={
+                  isAnyTesting ||
+                  Object.keys(degradationTasksRef.current).length > 0
+                }
+                options={currentRow.group.split(',').map((value) => ({
+                  value: value.trim(),
+                  label: value.trim(),
+                }))}
+                value={degradationGroup}
+                onValueChange={(value) => setDegradationGroup(value ?? '')}
+                className='sm:w-64'
               />
               <p className='text-muted-foreground text-xs'>
                 {t(
-                  'Override the endpoint used for testing. Leave empty to auto detect.'
+                  'Expected names are optional. Separate multiple names with commas.'
                 )}
               </p>
             </div>
-            <div className='grid gap-2'>
-              <Label htmlFor='stream-toggle'>{t('Stream Mode')}</Label>
-              <div className='flex items-center gap-2'>
-                <Switch
-                  id='stream-toggle'
-                  checked={effectiveStreamTest}
-                  onCheckedChange={setIsStreamTest}
-                  disabled={streamDisabled}
+          ) : (
+            <div className='grid gap-4 md:grid-cols-2'>
+              <div className='grid gap-2'>
+                <Label htmlFor='endpoint-type'>{t('Endpoint Type')}</Label>
+                <Combobox
+                  options={endpointSelectItems}
+                  value={endpointType}
+                  onValueChange={handleEndpointTypeChange}
+                  id='endpoint-type'
+                  className='w-full min-w-0'
+                  placeholder={t('Auto detect (default)')}
                 />
-                <span className='text-sm'>
-                  {effectiveStreamTest ? t('Enabled') : t('Disabled')}
-                </span>
+                <p className='text-muted-foreground text-xs'>
+                  {t(
+                    'Override the endpoint used for testing. Leave empty to auto detect.'
+                  )}
+                </p>
               </div>
-              <p className='text-muted-foreground text-xs'>
-                {t('Enable streaming mode for the test request.')}
-              </p>
+              <div className='grid gap-2'>
+                <Label htmlFor='stream-toggle'>{t('Stream Mode')}</Label>
+                <div className='flex items-center gap-2'>
+                  <Switch
+                    id='stream-toggle'
+                    checked={effectiveStreamTest}
+                    onCheckedChange={setIsStreamTest}
+                    disabled={streamDisabled}
+                  />
+                  <span className='text-sm'>
+                    {effectiveStreamTest ? t('Enabled') : t('Disabled')}
+                  </span>
+                </div>
+                <p className='text-muted-foreground text-xs'>
+                  {t('Enable streaming mode for the test request.')}
+                </p>
+              </div>
             </div>
-          </div>
+          )}
 
           <div className='space-y-3 max-sm:has-[div[role="toolbar"]]:pb-16'>
             <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
@@ -1055,7 +1209,7 @@ function ChannelTestDialogContent({
                           })}
                         </Button>
                       )}
-                      {failedModels.length > 0 && (
+                      {!degradation && failedModels.length > 0 && (
                         <Button
                           variant='outline'
                           size='sm'
@@ -1102,6 +1256,7 @@ function ChannelTestDialogContent({
                   <colgroup>
                     <col className='w-10 min-w-10' />
                     <col className='w-auto' />
+                    {degradation && <col className='w-64' />}
                     <col className='w-28' />
                     <col className='w-80' />
                     <col className='w-px' />
@@ -1121,7 +1276,11 @@ function ChannelTestDialogContent({
               <DataTablePagination table={table} />
             </div>
 
-            <TestModelsBulkActions table={table} />
+            <TestModelsBulkActions
+              table={table}
+              onTest={degradation ? handleBatchTest : undefined}
+              disabled={isAnyTesting}
+            />
           </div>
         </div>
       </Dialog>
@@ -1200,6 +1359,14 @@ function TestResultCell({
         <Loader2 className='size-4 shrink-0 animate-spin' />
         <span className='truncate'>{t('Testing...')}</span>
       </div>
+    )
+  }
+
+  if (result.status === 'success' && result.detectedModel) {
+    return (
+      <span className='text-muted-foreground text-sm break-all'>
+        {t('Detected model: {{model}}', { model: result.detectedModel })}
+      </span>
     )
   }
 
@@ -1354,7 +1521,15 @@ function FailureDetailsSheet({
   )
 }
 
-function TestModelsBulkActions({ table }: { table: TanStackTable<ModelRow> }) {
+function TestModelsBulkActions({
+  table,
+  onTest,
+  disabled,
+}: {
+  table: TanStackTable<ModelRow>
+  onTest?: (models: string[]) => Promise<void>
+  disabled?: boolean
+}) {
   const { t } = useTranslation()
   const { copyToClipboard } = useCopyToClipboard()
   const selectedRows = table.getFilteredSelectedRowModel().rows
@@ -1367,6 +1542,17 @@ function TestModelsBulkActions({ table }: { table: TanStackTable<ModelRow> }) {
 
   return (
     <BulkActionsToolbar table={table} entityName='model'>
+      {onTest && (
+        <Button
+          size='sm'
+          disabled={disabled || selectedModels.length === 0}
+          onClick={() => {
+            void onTest(selectedModels)
+          }}
+        >
+          {t('Test selected models')}
+        </Button>
+      )}
       <Tooltip>
         <TooltipTrigger
           render={

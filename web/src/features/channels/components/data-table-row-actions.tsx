@@ -20,6 +20,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import type { Row } from '@tanstack/react-table'
 import {
   MoreHorizontal,
+  Brain,
   Boxes,
   Pencil,
   PlugZap,
@@ -278,6 +279,25 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
             {t('Test Connection')}
             <DropdownMenuShortcut>
               <PlugZap size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+
+          <DropdownMenuItem
+            disabled={
+              !hasPermission(
+                currentUser,
+                ADMIN_PERMISSION_RESOURCES.CHANNEL,
+                ADMIN_PERMISSION_ACTIONS.OPERATE
+              )
+            }
+            onClick={() => {
+              setCurrentRow(channel)
+              setOpen('test-degradation')
+            }}
+          >
+            {t('Test degradation')}
+            <DropdownMenuShortcut>
+              <Brain size={16} />
             </DropdownMenuShortcut>
           </DropdownMenuItem>
 

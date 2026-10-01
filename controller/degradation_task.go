@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -22,18 +23,34 @@ func (degradationCheckHandler) Type() string { return model.SystemTaskTypeDegrad
 func (degradationCheckHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
 	var payload degradationTestPayload
 	err := task.DecodePayload(&payload)
+	var result *degradationCheckResult
 	if err == nil {
-		err = runManualDegradationCheck(ctx, payload)
+		if payload.ChannelID > 0 {
+			channel, loadErr := model.GetChannelById(payload.ChannelID, true)
+			err = loadErr
+			if err == nil && (!slices.Contains(channel.GetModels(), payload.Model) || !slices.Contains(channel.GetGroups(), payload.Group)) {
+				err = fmt.Errorf("model or group is no longer available on this channel")
+			}
+			if err == nil {
+				result, err = detectChannelDegradation(ctx, channel, payload.UserID, payload.Group, payload.Model, payload.Expected)
+			}
+		} else {
+			err = runManualDegradationCheck(ctx, payload)
+		}
 	}
 	if err != nil {
 		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, err)
 		return
 	}
-	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, nil, nil)
+	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, result, nil)
 }
 
 func enqueueDegradationCheck(payload degradationTestPayload) (*model.SystemTask, bool, error) {
-	raw, err := common.Marshal([]string{payload.Group, payload.Model})
+	scope := []any{payload.Group, payload.Model}
+	if payload.ChannelID > 0 {
+		scope = append(scope, payload.ChannelID)
+	}
+	raw, err := common.Marshal(scope)
 	if err != nil {
 		return nil, false, err
 	}
@@ -45,6 +62,9 @@ type degradationTestPayload struct {
 	Group     string `json:"group"`
 	Model     string `json:"model"`
 	Scheduled bool   `json:"scheduled,omitempty"`
+	ChannelID int    `json:"channel_id,omitempty"`
+	UserID    int    `json:"user_id,omitempty"`
+	Expected  string `json:"expected,omitempty"`
 }
 
 func (degradationMonitorHandler) Type() string { return model.SystemTaskTypeDegradationMonitor }
@@ -195,13 +215,35 @@ func runDegradationProbe(ctx context.Context, groupName, modelName, expected str
 		common.SysError("degradation test user: " + err.Error())
 		return false, false, "", channel.Id
 	}
-	analysis, err := degradation.Detect(ctx, modelName, func(probeCtx context.Context, prompt string) (degradation.Completion, error) {
-		return probeDegradationChat(probeCtx, channel, userID, groupName, modelName, prompt)
-	})
+	result, err := detectChannelDegradation(ctx, channel, userID, groupName, modelName, expected)
 	if err != nil {
 		common.SysError("degradation analyze: " + err.Error())
 		return false, false, "", channel.Id
 	}
-	passed, detected, scored = degradation.Match(degradation.ExpectedName(modelName, expected), analysis.Prediction, analysis.PredictionName, analysis.Decision)
-	return passed, scored, detected, channel.Id
+	return result.Status == degradation.StatusPassed, true, result.DetectedModel, channel.Id
+}
+
+type degradationCheckResult struct {
+	Status        string `json:"status"`
+	DetectedModel string `json:"detected_model"`
+	ChannelID     int    `json:"channel_id"`
+	Model         string `json:"model"`
+}
+
+func detectChannelDegradation(ctx context.Context, channel *model.Channel, userID int, groupName, modelName, expected string) (*degradationCheckResult, error) {
+	analysis, err := degradation.Detect(ctx, modelName, func(probeCtx context.Context, prompt string) (degradation.Completion, error) {
+		return probeDegradationChat(probeCtx, channel, userID, groupName, modelName, prompt)
+	})
+	if err != nil {
+		return nil, err
+	}
+	passed, detected, scored := degradation.Match(degradation.ExpectedName(modelName, expected), analysis.Prediction, analysis.PredictionName, analysis.Decision)
+	if !scored {
+		return nil, fmt.Errorf("detector could not score the samples")
+	}
+	status := degradation.StatusSuspected
+	if passed {
+		status = degradation.StatusPassed
+	}
+	return &degradationCheckResult{Status: status, DetectedModel: detected, ChannelID: channel.Id, Model: modelName}, nil
 }

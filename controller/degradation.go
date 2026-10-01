@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -238,14 +239,15 @@ func ClearDegradationHistory(c *gin.Context) {
 }
 
 func StartDegradationTest(c *gin.Context) {
-	var payload degradationTestPayload
-	if err := common.DecodeJson(c.Request.Body, &payload); err != nil {
+	var input struct {
+		Group string `json:"group"`
+		Model string `json:"model"`
+	}
+	if err := common.DecodeJson(c.Request.Body, &input); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	payload.Group = strings.TrimSpace(payload.Group)
-	payload.Model = strings.TrimSpace(payload.Model)
-	payload.Scheduled = false
+	payload := degradationTestPayload{Group: strings.TrimSpace(input.Group), Model: strings.TrimSpace(input.Model)}
 	if payload.Group == "" || payload.Model == "" {
 		common.ApiErrorMsg(c, "group and model are required")
 		return
@@ -289,5 +291,74 @@ func GetDegradationTest(c *gin.Context) {
 		common.ApiErrorMsg(c, "test not found")
 		return
 	}
-	common.ApiSuccess(c, gin.H{"status": task.Status, "error": task.Error})
+	var result *degradationCheckResult
+	if task.Result != "" && task.Result != "null" {
+		if err := common.UnmarshalJsonStr(task.Result, &result); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
+	common.ApiSuccess(c, gin.H{"status": task.Status, "error": task.Error, "result": result})
+}
+
+func StartChannelDegradationTest(c *gin.Context) {
+	channelID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || channelID <= 0 {
+		common.ApiErrorMsg(c, "invalid channel ID")
+		return
+	}
+	var input struct {
+		Group    string  `json:"group"`
+		Model    string  `json:"model"`
+		Expected *string `json:"expected"`
+	}
+	if err := common.DecodeJson(c.Request.Body, &input); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	channel, err := model.GetChannelById(channelID, true)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	payload := degradationTestPayload{ChannelID: channelID, Group: strings.TrimSpace(input.Group), Model: strings.TrimSpace(input.Model)}
+	if !slices.Contains(channel.GetModels(), payload.Model) || !slices.Contains(channel.GetGroups(), payload.Group) || !ratio_setting.ContainsGroupRatio(payload.Group) {
+		common.ApiErrorMsg(c, "model or group is not available on this channel")
+		return
+	}
+	if input.Expected != nil {
+		payload.Expected = *input.Expected
+	} else {
+		for _, group := range degradation.LoadConfig().Groups {
+			if group.Group != payload.Group {
+				continue
+			}
+			for _, item := range group.Models {
+				if item.Model == payload.Model {
+					payload.Expected = item.Expected
+					break
+				}
+			}
+		}
+	}
+	payload.Expected, err = degradation.NormalizeExpectedNames(payload.Expected)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	payload.UserID, err = resolveChannelTestUserID(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	task, created, err := enqueueDegradationCheck(payload)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !created {
+		common.ApiErrorMsg(c, "a degradation test is already running")
+		return
+	}
+	common.ApiSuccess(c, gin.H{"task_id": task.TaskID})
 }

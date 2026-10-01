@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -306,4 +307,59 @@ func TestDegradationChannelHistoryVisibleOnlyToAdmins(t *testing.T) {
 			assert.NotContains(t, w.Body.String(), `channel_id`)
 		}
 	}
+}
+
+func TestChannelDegradationValidatesAndPinsChannel(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Option{}, &model.SystemTask{}, &model.SystemTaskLock{}, &model.DegradationTarget{}, &model.DegradationEvent{}))
+	model.InitOptionMap()
+	cfg := degradation.DefaultConfig()
+	cfg.Groups = []degradation.GroupConfig{{Group: "default", Models: []degradation.ModelConfig{{Model: "a", Expected: "model-v1\nmodel-v2"}}}}
+	raw, err := common.Marshal(cfg)
+	require.NoError(t, err)
+	require.NoError(t, model.UpdateOption(degradation.OptionKey, string(raw)))
+	channel := model.Channel{Type: constant.ChannelTypeOpenAI, Key: "secret", Name: "channel", Models: "a,b", Group: "default", Status: common.ChannelStatusEnabled}
+	require.NoError(t, db.Create(&channel).Error)
+	request := func(body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Params = gin.Params{{Key: "id", Value: strconv.Itoa(channel.Id)}}
+		c.Set("id", 99)
+		c.Request = httptest.NewRequest(http.MethodPost, "/api/channel/1/degradation", strings.NewReader(body))
+		StartChannelDegradationTest(c)
+		return w
+	}
+	for _, body := range []string{`{"group":"default","model":"absent"}`, `{"group":"absent","model":"a"}`} {
+		assert.Contains(t, request(body).Body.String(), `"success":false`)
+	}
+	response := request(`{"group":"default","model":"a","channel_id":999,"user_id":999}`)
+	require.Contains(t, response.Body.String(), `"success":true`)
+	task, err := model.GetActiveSystemTask(model.SystemTaskTypeDegradationCheck)
+	require.NoError(t, err)
+	require.NotNil(t, task)
+	var payload degradationTestPayload
+	require.NoError(t, task.DecodePayload(&payload))
+	assert.Equal(t, channel.Id, payload.ChannelID)
+	assert.Equal(t, 99, payload.UserID)
+	assert.Equal(t, "model-v1\nmodel-v2", payload.Expected)
+	assert.Contains(t, request(`{"group":"default","model":"a"}`).Body.String(), `"success":false`)
+	assert.Contains(t, request(`{"group":"default","model":"b","expected":"B1\nB2"}`).Body.String(), `"success":true`)
+	_, created, err := enqueueDegradationCheck(degradationTestPayload{Group: "default", Model: "a"})
+	require.NoError(t, err)
+	assert.True(t, created, "channel tests must not block monitored routing")
+	_, claimed, err := model.ClaimSystemTask(task.ID, task.Type, "runner", time.Now().Add(time.Minute).Unix())
+	require.NoError(t, err)
+	require.True(t, claimed)
+	result := degradationCheckResult{Status: "passed", DetectedModel: "model-v2", Model: "a", ChannelID: channel.Id}
+	require.NoError(t, model.FinishSystemTask(task.TaskID, "runner", model.SystemTaskStatusSucceeded, result, ""))
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
+	GetDegradationTest(c)
+	assert.Contains(t, w.Body.String(), `"detected_model":"model-v2"`)
+	assert.NotContains(t, w.Body.String(), "secret")
+	assert.NotContains(t, w.Body.String(), "user_id")
+	var count int64
+	require.NoError(t, db.Model(&model.DegradationEvent{}).Count(&count).Error)
+	assert.Zero(t, count)
 }

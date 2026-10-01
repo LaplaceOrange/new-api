@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 import type { DegradationConfig, DegradationPage } from './types'
 
@@ -73,7 +74,28 @@ export async function getDegradationTest(taskId: string) {
   const res = await api.get<{
     success: boolean
     message?: string
-    data: { status: string; error: string }
+    data: {
+      status: string
+      error: string
+      result?: {
+        status: string
+        detected_model: string
+        channel_id: number
+        model: string
+      } | null
+    }
   }>(`/api/degradation/test/${encodeURIComponent(taskId)}`)
   return res.data
+}
+
+export async function startChannelDegradationTest(
+  channelId: number,
+  input: { group: string; model: string; expected?: string }
+) {
+  const res = await api.post<{
+    success: boolean
+    message?: string
+    data: { task_id: string }
+  }>(`/api/channel/${channelId}/degradation`, input)
+  return requireServerSuccess(res.data)
 }

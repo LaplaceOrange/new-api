@@ -60,3 +60,12 @@ func assertChannelRoutePermission(t *testing.T, method string, path string, perm
 	}
 	t.Fatalf("route %s %s not found", method, path)
 }
+
+func TestChannelDegradationRequiresOperatePermission(t *testing.T) {
+	assertChannelRoutePermission(t, http.MethodPost, "/:id/degradation", authz.ChannelOperate, controller.StartChannelDegradationTest)
+	engine := gin.New()
+	registerChannelRoutes(engine.Group("/api"))
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/channel/1/degradation", nil))
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}

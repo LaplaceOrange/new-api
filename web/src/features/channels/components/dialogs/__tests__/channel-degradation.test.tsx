@@ -1,0 +1,238 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { expect, it, vi } from 'vitest'
+
+import { api } from '@/lib/api'
+
+import { channelSchema } from '../../../types'
+import { ChannelDegradationDialog } from '../channel-degradation-dialog'
+import { ChannelTestDialogContent } from '../channel-test-dialog'
+
+const channel = channelSchema.parse({
+  id: 42,
+  type: 1,
+  key: '',
+  status: 1,
+  name: 'Channel A',
+  models: 'model-a,model-b',
+  group: 'default',
+  created_time: 0,
+  test_time: 0,
+  response_time: 0,
+  balance_updated_time: 0,
+})
+function renderDialog(models = channel.models) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  return render(
+    <QueryClientProvider client={client}>
+      <ChannelDegradationDialog
+        channel={{ ...channel, models }}
+        open
+        onOpenChange={() => {}}
+      />
+    </QueryClientProvider>
+  )
+}
+it('lists optional expected names after model names and tests all models independently', async () => {
+  const user = userEvent.setup()
+  const post = vi
+    .spyOn(api, 'post')
+    .mockImplementation(async (_url, input) => ({
+      data: {
+        success: true,
+        data: { task_id: (input as { model: string }).model },
+      },
+    }))
+  vi.spyOn(api, 'get').mockImplementation(async (url) => ({
+    data: {
+      success: true,
+      data: {
+        status: 'succeeded',
+        error: '',
+        result: {
+          status: url.endsWith('model-a') ? 'passed' : 'suspected',
+          detected_model: url.endsWith('model-a') ? 'Model A' : 'Model C',
+          model: url.split('/').at(-1),
+          channel_id: 42,
+        },
+      },
+    },
+  }))
+  renderDialog()
+  const headers = screen
+    .getAllByRole('columnheader')
+    .map((item) => item.textContent)
+  expect(headers.indexOf('Expected detected name')).toBe(
+    headers.indexOf('Model') + 1
+  )
+  await user.type(
+    screen.getByRole('textbox', { name: 'Expected detected name · model-b' }),
+    'Model B1,Model B2'
+  )
+  await user.click(screen.getByRole('button', { name: 'Test all 2 models' }))
+  await waitFor(() => expect(post).toHaveBeenCalledTimes(2))
+  expect(post).toHaveBeenCalledWith('/api/channel/42/degradation', {
+    group: 'default',
+    model: 'model-a',
+  })
+  expect(post).toHaveBeenCalledWith('/api/channel/42/degradation', {
+    group: 'default',
+    model: 'model-b',
+    expected: 'Model B1\nModel B2',
+  })
+  expect(await screen.findByText('Detected model: Model A')).toBeInTheDocument()
+  expect(
+    await screen.findByText('Suspected degradation: Model C')
+  ).toBeInTheDocument()
+  expect(
+    screen.getByRole('button', { name: 'Test all 2 models' })
+  ).toBeEnabled()
+})
+it('runs only the requested row when its test button is clicked', async () => {
+  const post = vi
+    .spyOn(api, 'post')
+    .mockResolvedValue({ data: { success: true, data: { task_id: 'single' } } })
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        status: 'succeeded',
+        result: {
+          status: 'passed',
+          detected_model: 'B',
+          model: 'model-b',
+          channel_id: 42,
+        },
+      },
+    },
+  })
+  renderDialog()
+  await userEvent
+    .setup()
+    .click(screen.getByRole('button', { name: 'Test degradation · model-b' }))
+  expect(await screen.findByText('Detected model: B')).toBeInTheDocument()
+  expect(post).toHaveBeenCalledTimes(1)
+  expect(post).toHaveBeenCalledWith('/api/channel/42/degradation', {
+    group: 'default',
+    model: 'model-b',
+  })
+})
+it('shows a failed row without blocking another model and permits a new attempt after a missing task', async () => {
+  const post = vi.spyOn(api, 'post').mockResolvedValue({
+    data: { success: true, data: { task_id: 'missing-task' } },
+  })
+  const get = vi
+    .spyOn(api, 'get')
+    .mockResolvedValue({ data: { success: false, message: 'test not found' } })
+  renderDialog()
+  const user = userEvent.setup()
+  await user.click(
+    screen.getByRole('button', { name: 'Test degradation · model-a' })
+  )
+  expect(await screen.findByText('test not found')).toBeInTheDocument()
+  expect(
+    screen.getByRole('button', { name: 'Test degradation · model-b' })
+  ).toBeEnabled()
+  get.mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        status: 'succeeded',
+        result: {
+          status: 'passed',
+          detected_model: 'A',
+          model: 'model-a',
+          channel_id: 42,
+        },
+      },
+    },
+  })
+  await user.click(
+    screen.getByRole('button', { name: 'Test degradation · model-a' })
+  )
+  expect(await screen.findByText('Detected model: A')).toBeInTheDocument()
+  expect(post).toHaveBeenCalledTimes(2)
+})
+it('disables testing when the channel has no models', () => {
+  renderDialog('')
+  expect(
+    screen.getByText('This channel has no configured models.')
+  ).toBeInTheDocument()
+  expect(
+    screen.getByRole('button', { name: 'Test all 0 models' })
+  ).toBeDisabled()
+})
+it('preserves the connection test layout without expected-name fields', () => {
+  const client = new QueryClient()
+  render(
+    <QueryClientProvider client={client}>
+      <ChannelTestDialogContent
+        currentRow={channel}
+        open
+        onOpenChange={() => {}}
+      />
+    </QueryClientProvider>
+  )
+  expect(
+    screen.queryByRole('columnheader', { name: 'Expected detected name' })
+  ).not.toBeInTheDocument()
+  expect(screen.getByText('Endpoint Type')).toBeInTheDocument()
+  expect(screen.getByText('Stream Mode')).toBeInTheDocument()
+  expect(
+    within(screen.getByRole('region', { name: 'Channel models' })).getAllByRole(
+      'button',
+      { name: 'Test Connection' }
+    )
+  ).toHaveLength(2)
+})
+it('locks submitted expectations while resuming a task after a network error', async () => {
+  const post = vi
+    .spyOn(api, 'post')
+    .mockResolvedValue({
+      data: { success: true, data: { task_id: 'resume-task' } },
+    })
+  const get = vi
+    .spyOn(api, 'get')
+    .mockRejectedValueOnce(new Error('Network unavailable'))
+  renderDialog()
+  const user = userEvent.setup()
+  const input = screen.getByRole('textbox', {
+    name: 'Expected detected name · model-a',
+  })
+  await user.type(input, 'Model A')
+  await user.click(
+    screen.getByRole('button', { name: 'Test degradation · model-a' })
+  )
+  expect(await screen.findByText('Network unavailable')).toBeInTheDocument()
+  expect(
+    screen.getByRole('textbox', { name: 'Expected detected name · model-a' })
+  ).toBeDisabled()
+  expect(
+    screen.getByRole('textbox', { name: 'Expected detected name · model-a' })
+  ).toHaveValue('Model A')
+  get.mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        status: 'succeeded',
+        result: {
+          status: 'passed',
+          detected_model: 'Model A',
+          model: 'model-a',
+          channel_id: 42,
+        },
+      },
+    },
+  })
+  await user.click(
+    screen.getByRole('button', { name: 'Test degradation · model-a' })
+  )
+  expect(await screen.findByText('Detected model: Model A')).toBeInTheDocument()
+  expect(post).toHaveBeenCalledTimes(1)
+  expect(
+    screen.getByRole('textbox', { name: 'Expected detected name · model-a' })
+  ).toBeEnabled()
+})

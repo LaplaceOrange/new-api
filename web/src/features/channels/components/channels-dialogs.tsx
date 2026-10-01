@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useChannels } from './channels-provider'
 import { BalanceQueryDialog } from './dialogs/balance-query-dialog'
+import { ChannelDegradationDialog } from './dialogs/channel-degradation-dialog'
 import { ChannelTestDialog } from './dialogs/channel-test-dialog'
 import { CopyChannelDialog } from './dialogs/copy-channel-dialog'
 import { EditTagDialog } from './dialogs/edit-tag-dialog'
@@ -45,6 +46,15 @@ export function ChannelsDialogs() {
         open={open === 'test-channel'}
         onOpenChange={(v) => !v && setOpen(null)}
       />
+
+      {currentRow && (
+        <ChannelDegradationDialog
+          key={currentRow.id}
+          channel={currentRow}
+          open={open === 'test-degradation'}
+          onOpenChange={(v) => !v && setOpen(null)}
+        />
+      )}
 
       {/* Balance Query Dialog */}
       <BalanceQueryDialog
