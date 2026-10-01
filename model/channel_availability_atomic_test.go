@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -241,4 +242,67 @@ func TestFixAbilityRollsBackAtomicRebuildOnFailure(t *testing.T) {
 	require.NoError(t, DB.Where("channel_id = ?", channel.Id).Find(&abilities).Error)
 	require.Len(t, abilities, 1)
 	assert.Equal(t, "gpt-4", abilities[0].Model)
+}
+
+func TestChannelModelStatusRollsBackWhenAbilityRebuildFails(t *testing.T) {
+	db := useChannelAvailabilityTestDB(t)
+	channel := newMultiKeyChannel(1, common.ChannelStatusEnabled, "key", nil)
+	require.NoError(t, channel.Insert())
+	forcedErr := errors.New("forced ability recreate failure")
+	const callback = "test:fail-model-status-abilities"
+	require.NoError(t, db.Callback().Create().Before("gorm:create").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement.Table == "abilities" {
+			tx.AddError(forcedErr)
+		}
+	}))
+	t.Cleanup(func() { _ = db.Callback().Create().Remove(callback) })
+
+	_, err := SetChannelModelsEnabled(channel.Id, []string{"gpt-4"}, false)
+	require.ErrorIs(t, err, forcedErr)
+	require.NoError(t, db.First(&channel, channel.Id).Error)
+	assert.Empty(t, channel.ChannelInfo.DisabledModels)
+	assert.True(t, IsChannelEnabledForGroupModel("default", "gpt-4", channel.Id))
+}
+
+func TestChannelModelStatusPreservesKeyStateAndPrunesRemovedModels(t *testing.T) {
+	useChannelAvailabilityTestDB(t)
+	channel := newMultiKeyChannel(1, common.ChannelStatusEnabled, "key-a\nkey-b", map[int]int{0: common.ChannelStatusManuallyDisabled})
+	require.NoError(t, channel.Insert())
+	updated, err := SetChannelModelsEnabled(channel.Id, []string{"gpt-4"}, false)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusManuallyDisabled, updated.ChannelInfo.MultiKeyStatusList[0])
+	updated, err = UpdateChannelAtomically(channel.Id, func(current *Channel) error {
+		current.Models = "other"
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Empty(t, updated.ChannelInfo.DisabledModels)
+}
+
+func TestDisabledModelRoutingNames(t *testing.T) {
+	channel := Channel{Models: "qwen3-max,qwen3-max@thinking:on", ChannelInfo: ChannelInfo{
+		DisabledModels: map[string]bool{"qwen3-max": true},
+	}}
+	assert.True(t, channel.IsModelDisabled("qwen3-max"))
+	assert.True(t, channel.IsModelDisabled("qwen3-max@thinking:off"))
+	assert.False(t, channel.IsModelDisabled("qwen3-max@thinking:on"), "an enabled exact name takes precedence")
+}
+
+func TestStaleKeyPollingPreservesDisabledModels(t *testing.T) {
+	db := useChannelAvailabilityTestDB(t)
+	channel := newMultiKeyChannel(1, common.ChannelStatusEnabled, "key-a\nkey-b", nil)
+	channel.ChannelInfo.MultiKeyMode = constant.MultiKeyModePolling
+	require.NoError(t, channel.Insert())
+	stale, err := GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	_, err = SetChannelModelsEnabled(channel.Id, []string{"gpt-4"}, false)
+	require.NoError(t, err)
+
+	key, _, apiErr := stale.GetNextEnabledKey()
+	require.Nil(t, apiErr)
+	assert.Equal(t, "key-a", key)
+	var stored Channel
+	require.NoError(t, db.First(&stored, channel.Id).Error)
+	assert.True(t, stored.ChannelInfo.DisabledModels["gpt-4"])
+	assert.Equal(t, 1, stored.ChannelInfo.MultiKeyPollingIndex)
 }

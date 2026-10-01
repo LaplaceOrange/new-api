@@ -119,6 +119,7 @@ func TestDegradationProbePreservesChannelMappingAndCompletionStatus(t *testing.T
 	mapping := `{"gpt-4o-mini":"gpt-4o"}`
 	channel := &model.Channel{Id: 1, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled,
 		Key: "channel-only-key", BaseURL: &upstream.URL, ModelMapping: &mapping, Group: "default", Models: "gpt-4o-mini"}
+	channel.ChannelInfo.DisabledModels = map[string]bool{"gpt-4o-mini": true}
 	completion, err := probeDegradationChat(t.Context(), channel, user.Id, "default", "gpt-4o-mini", "challenge from official CLI")
 	require.NoError(t, err)
 	assert.Equal(t, degradation.Completion{Text: "1, 2, 3", FinishReason: "length"}, completion)
@@ -319,6 +320,7 @@ func TestChannelDegradationValidatesAndPinsChannel(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, model.UpdateOption(degradation.OptionKey, string(raw)))
 	channel := model.Channel{Type: constant.ChannelTypeOpenAI, Key: "secret", Name: "channel", Models: "a,b", Group: "default", Status: common.ChannelStatusEnabled}
+	channel.ChannelInfo.DisabledModels = map[string]bool{"a": true}
 	require.NoError(t, db.Create(&channel).Error)
 	request := func(body string) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()

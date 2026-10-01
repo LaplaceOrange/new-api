@@ -23,12 +23,14 @@ export function ChannelDegradationDialog(props: {
   channel: Channel
   open: boolean
   onOpenChange: (open: boolean) => void
+  onModelsStatusChange?: (disabledModels: Record<string, boolean>) => void
 }) {
   return (
     <ChannelTestDialogContent
       currentRow={props.channel}
       open={props.open}
       onOpenChange={props.onOpenChange}
+      onModelsStatusChange={props.onModelsStatusChange}
       degradation
     />
   )

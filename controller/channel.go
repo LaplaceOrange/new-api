@@ -1311,6 +1311,33 @@ func UpdateChannel(c *gin.Context) {
 	return
 }
 
+func UpdateChannelModelsStatus(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	var request struct {
+		Models  []string `json:"models"`
+		Enabled *bool    `json:"enabled"`
+	}
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil || request.Enabled == nil || len(request.Models) == 0 {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	channel, err := model.SetChannelModelsEnabled(id, request.Models, *request.Enabled)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	model.InitChannelCache()
+	syncModelChannelAvailabilityAfterMutation("channel.models.status")
+	recordManageAudit(c, "channel.models.status", map[string]any{
+		"id": id, "models": request.Models, "enabled": *request.Enabled,
+	})
+	common.ApiSuccess(c, gin.H{"disabled_models": channel.ChannelInfo.DisabledModels})
+}
+
 func UpdateChannelStatus(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {

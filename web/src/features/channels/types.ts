@@ -23,6 +23,7 @@ import { z } from 'zod'
 // ============================================================================
 
 export const channelInfoSchema = z.object({
+  disabled_models: z.record(z.string(), z.boolean()).optional(),
   is_multi_key: z.boolean().default(false),
   multi_key_size: z.number().default(0),
   multi_key_status_list: z.record(z.string(), z.number()).optional(),

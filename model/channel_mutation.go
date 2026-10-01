@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -66,6 +67,12 @@ func UpdateChannelAtomically(channelID int, apply func(*Channel) error) (*Channe
 			return ErrChannelContributionRequiresReview
 		}
 		channel.normalizeMultiKeyAvailability()
+		configuredModels := channel.GetModels()
+		for modelName := range channel.ChannelInfo.DisabledModels {
+			if !slices.Contains(configuredModels, modelName) {
+				delete(channel.ChannelInfo.DisabledModels, modelName)
+			}
+		}
 
 		if err := tx.Model(&Channel{}).
 			Where("id = ?", channelID).
@@ -91,6 +98,41 @@ func UpdateChannelAtomically(channelID int, apply func(*Channel) error) (*Channe
 	if err != nil {
 		return nil, err
 	}
+	return channel, nil
+}
+
+// SetChannelModelsEnabled changes only the selected models on the latest row.
+func SetChannelModelsEnabled(channelID int, models []string, enabled bool) (*Channel, error) {
+	if len(models) == 0 {
+		return nil, fmt.Errorf("at least one model is required")
+	}
+	pollingLock := GetChannelPollingLock(channelID)
+	pollingLock.Lock()
+	defer pollingLock.Unlock()
+
+	channel, err := UpdateChannelAtomically(channelID, func(current *Channel) error {
+		configured := current.GetModels()
+		for _, modelName := range models {
+			if modelName == "" || !slices.Contains(configured, modelName) {
+				return fmt.Errorf("model %q is not configured on this channel", modelName)
+			}
+		}
+		if current.ChannelInfo.DisabledModels == nil {
+			current.ChannelInfo.DisabledModels = make(map[string]bool)
+		}
+		for _, modelName := range models {
+			if enabled {
+				delete(current.ChannelInfo.DisabledModels, modelName)
+			} else {
+				current.ChannelInfo.DisabledModels[modelName] = true
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	CacheUpdateChannel(channel)
 	return channel, nil
 }
 

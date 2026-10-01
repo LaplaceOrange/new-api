@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"slices"
 	"strings"
 	"sync"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -63,6 +65,7 @@ type Channel struct {
 }
 
 type ChannelInfo struct {
+	DisabledModels         map[string]bool       `json:"disabled_models,omitempty"`
 	IsMultiKey             bool                  `json:"is_multi_key"`                        // 是否多Key模式
 	MultiKeySize           int                   `json:"multi_key_size"`                      // 多Key模式下的Key数量
 	MultiKeyStatusList     map[int]int           `json:"multi_key_status_list"`               // key状态列表，key index -> status
@@ -288,7 +291,9 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 				logger.LogDebug(nil, "channel %d polling index: %d", channel.Id, channel.ChannelInfo.MultiKeyPollingIndex)
 			}
 			if !common.MemoryCacheEnabled {
-				_ = channel.SaveChannelInfo()
+				// Preserve the latest model/key state, not the request snapshot.
+				channelInfo.MultiKeyPollingIndex = channel.ChannelInfo.MultiKeyPollingIndex
+				_ = DB.Model(channel).Update("channel_info", channelInfo).Error
 			} else {
 				// CacheUpdateChannel(channel)
 			}
@@ -323,6 +328,21 @@ func (channel *Channel) GetModels() []string {
 		return []string{}
 	}
 	return strings.Split(strings.Trim(channel.Models, ","), ",")
+}
+
+// IsModelDisabled follows the same exact-name precedence as channel routing.
+func (channel *Channel) IsModelDisabled(modelName string) bool {
+	if len(channel.ChannelInfo.DisabledModels) == 0 {
+		return false
+	}
+	if channel.ChannelInfo.DisabledModels[modelName] {
+		return true
+	}
+	if slices.Contains(channel.GetModels(), modelName) {
+		return false
+	}
+	return channel.ChannelInfo.DisabledModels[ratio_setting.RoutingMatchModelName(modelName)] ||
+		channel.ChannelInfo.DisabledModels[ratio_setting.FormatMatchingModelName(modelName)]
 }
 
 func (channel *Channel) GetGroups() []string {
@@ -1051,6 +1071,9 @@ func UpdateChannelStatusWithError(channelId int, usingKey string, status int, re
 				return err
 			}
 			if channelAbilitiesEnabled(channel) {
+				if err := reapplyDisabledChannelModelsTx(tx, []int{channelId}); err != nil {
+					return err
+				}
 				if err := reapplyContributionHealthToAbilitiesTx(tx, []int{channelId}); err != nil {
 					return err
 				}
@@ -1108,7 +1131,7 @@ func EnableChannelByTag(tag string) error {
 			} else {
 				channel.Status = common.ChannelStatusEnabled
 			}
-			if err := tx.Model(&Channel{}).Where("id = ?", channel.Id).Updates(map[string]interface{}{
+			if err := tx.Model(&Channel{}).Where("id = ?", channel.Id).Updates(map[string]any{
 				"status":       channel.Status,
 				"other_info":   channel.OtherInfo,
 				"channel_info": channel.ChannelInfo,
@@ -1126,6 +1149,9 @@ func EnableChannelByTag(tag string) error {
 				return err
 			}
 			if channelAbilitiesEnabled(channel) {
+				if err := reapplyDisabledChannelModelsTx(tx, []int{channel.Id}); err != nil {
+					return err
+				}
 				if err := reapplyContributionHealthToAbilitiesTx(tx, []int{channel.Id}); err != nil {
 					return err
 				}

@@ -140,6 +140,24 @@ func TestApplyChannelContributionHealthCycleDisablesOnlyFailedModels(t *testing.
 	assert.Equal(t, ChannelContributionStatusApproved, reloadedContribution.Status)
 }
 
+func TestContributionHealthRecoveryPreservesManualModelDisable(t *testing.T) {
+	prepareChannelContributionFeatureTables(t)
+	contribution, revision, channel := seedApprovedContributionHealthFixture(t, "model-a", "model-b")
+	_, err := SetChannelModelsEnabled(channel.Id, []string{"model-a"}, false)
+	require.NoError(t, err)
+	_, err = ApplyChannelContributionHealthCycle(
+		contribution.Id, channel.Id, revision.Id, revision.ConfigHash,
+		[]ChannelContributionModelObservation{
+			{Model: "model-a", Healthy: true},
+			{Model: "model-b", Healthy: true},
+		}, 1_000, 48*60*60,
+	)
+	require.NoError(t, err)
+	abilities := loadContributionAbilities(t, channel.Id)
+	assert.False(t, abilities["model-a"].Enabled)
+	assert.True(t, abilities["model-b"].Enabled)
+}
+
 func TestApplyChannelContributionHealthCyclePausesManualDisableAndDeletesAfterActiveFailureWindow(t *testing.T) {
 	prepareChannelContributionFeatureTables(t)
 	contribution, revision, channel := seedApprovedContributionHealthFixture(t, "model-a", "model-b")

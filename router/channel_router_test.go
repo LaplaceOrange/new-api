@@ -27,6 +27,7 @@ func TestChannelDefaultBaseURLsRequireReadPermission(t *testing.T) {
 func TestChannelStatusRoutesUseOperatePermission(t *testing.T) {
 	assertChannelRoutePermission(t, http.MethodPost, "/:id/status", authz.ChannelOperate, controller.UpdateChannelStatus)
 	assertChannelRoutePermission(t, http.MethodPost, "/status/batch", authz.ChannelOperate, controller.BatchUpdateChannelStatus)
+	assertChannelRoutePermission(t, http.MethodPost, "/:id/models/status", authz.ChannelOperate, controller.UpdateChannelModelsStatus)
 	assertChannelRoutePermission(t, http.MethodPut, "/", authz.ChannelWrite, controller.UpdateChannel)
 }
 

@@ -16,7 +16,7 @@ var filterEvalOrder = []dto.ChannelFilterKind{
 // On false, it returns the kind of the first violated filter (request_path
 // then task_plugin_identity) for error attribution.
 func ChannelSatisfiesFilters(ch *Channel, modelName string, filters []dto.ChannelFilter) (bool, dto.ChannelFilterKind) {
-	if ch == nil {
+	if ch == nil || ch.IsModelDisabled(modelName) {
 		return false, ""
 	}
 	for _, kind := range filterEvalOrder {
@@ -40,7 +40,13 @@ func filterCandidateIDs(ids []int, modelName string, filters []dto.ChannelFilter
 	if len(ids) == 0 {
 		return ids, ""
 	}
-	kept = ids
+	kept = make([]int, 0, len(ids))
+	for _, id := range ids {
+		channel := channelsIDM[id]
+		if channel == nil || !channel.IsModelDisabled(modelName) {
+			kept = append(kept, id)
+		}
+	}
 	for _, kind := range filterEvalOrder {
 		kindFilters := filtersByKind(filters, kind)
 		if len(kindFilters) == 0 {

@@ -54,7 +54,7 @@ type ChannelsContextType = {
   open: DialogType
   setOpen: (open: DialogType) => void
   currentRow: Channel | null
-  setCurrentRow: (row: Channel | null) => void
+  setCurrentRow: React.Dispatch<React.SetStateAction<Channel | null>>
   currentTag: string | null
   setCurrentTag: (tag: string | null) => void
   enableTagMode: boolean

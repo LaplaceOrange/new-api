@@ -36,9 +36,7 @@ func GetRandomSatisfiedChannelWithConcurrencyAndFilters(ctx context.Context, gro
 			normalizedModel := ratio_setting.FormatMatchingModelName(modelName)
 			channelIDs = filterChannelsByRequestPathAndModel(group2model2channels[group][normalizedModel], requestPath, modelName)
 		}
-		if len(filters) > 0 {
-			channelIDs, _ = filterCandidateIDs(channelIDs, modelName, filters)
-		}
+		channelIDs, _ = filterCandidateIDs(channelIDs, modelName, filters)
 		channels := make([]*Channel, 0, len(channelIDs))
 		for _, channelID := range channelIDs {
 			channel, ok := channelsIDM[channelID]
@@ -207,7 +205,7 @@ func InitChannelCache() {
 		}
 		for _, ability := range enabledAbilities {
 			channel := newChannelId2channel[ability.ChannelId]
-			if !channelIsRoutable(channel) {
+			if !channelIsRoutable(channel) || channel.IsModelDisabled(ability.Model) {
 				continue // skip disabled channels and multi-key channels without a usable key
 			}
 			if _, ok := newGroup2model2channels[ability.Group]; !ok {
@@ -526,6 +524,9 @@ func refreshChannelRoutingCacheLocked(channel *Channel, enabledAbilities []Abili
 	}
 
 	for _, ability := range enabledAbilities {
+		if channel.IsModelDisabled(ability.Model) {
+			continue
+		}
 		group := ability.Group
 		if group2model2channels[group] == nil {
 			group2model2channels[group] = make(map[string][]int)

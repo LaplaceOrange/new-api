@@ -295,7 +295,7 @@ func createChannelAbilitiesTx(tx *gorm.DB, channel *Channel, abilityEnabled bool
 				Group:     group,
 				Model:     model,
 				ChannelId: channel.Id,
-				Enabled:   abilityEnabled && !unhealthy,
+				Enabled:   abilityEnabled && !unhealthy && !channel.ChannelInfo.DisabledModels[model],
 				Priority:  channel.Priority,
 				Weight:    uint(channel.GetWeight()),
 				Tag:       channel.Tag,
@@ -387,6 +387,9 @@ func UpdateAbilityStatus(channelId int, status bool) error {
 		if !status {
 			return nil
 		}
+		if err := reapplyDisabledChannelModelsTx(tx, []int{channelId}); err != nil {
+			return err
+		}
 		return applyContributionUnhealthyAbilitiesTx(tx, unhealthy)
 	})
 }
@@ -413,8 +416,37 @@ func UpdateAbilityStatusByTag(tag string, status bool) error {
 		if !status {
 			return nil
 		}
+		if err := reapplyDisabledChannelModelsTx(tx, channelIds); err != nil {
+			return err
+		}
 		return applyContributionUnhealthyAbilitiesTx(tx, unhealthy)
 	})
+}
+
+func reapplyDisabledChannelModelsTx(tx *gorm.DB, channelIDs []int) error {
+	if len(channelIDs) == 0 {
+		return nil
+	}
+	var channels []Channel
+	if err := tx.Select("id", "channel_info").Where("id IN ?", channelIDs).Find(&channels).Error; err != nil {
+		return err
+	}
+	for _, channel := range channels {
+		var disabled []string
+		for modelName, disabledModel := range channel.ChannelInfo.DisabledModels {
+			if disabledModel {
+				disabled = append(disabled, modelName)
+			}
+		}
+		if len(disabled) == 0 {
+			continue
+		}
+		if err := tx.Model(&Ability{}).Where("channel_id = ? AND model IN ?", channel.Id, disabled).
+			Update("enabled", false).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func UpdateAbilityByTag(tag string, newTag *string, priority *int64, weight *uint) error {

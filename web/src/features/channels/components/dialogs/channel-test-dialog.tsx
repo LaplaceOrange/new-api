@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type {
   ColumnDef,
   RowSelectionState,
@@ -29,6 +29,8 @@ import {
   Gauge,
   Info,
   Loader2,
+  Power,
+  PowerOff,
   Settings,
   Trash2,
 } from 'lucide-react'
@@ -83,13 +85,19 @@ import {
 } from '@/features/degradation/api'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useIsMobile } from '@/hooks/use-mobile'
+import {
+  ADMIN_PERMISSION_ACTIONS,
+  ADMIN_PERMISSION_RESOURCES,
+  hasPermission,
+} from '@/lib/admin-permissions'
 import { handleServerError } from '@/lib/handle-server-error'
 import {
   getServerErrorMessage,
   requireServerSuccess,
 } from '@/lib/server-error-message'
+import { useAuthStore } from '@/stores/auth-store'
 
-import { updateChannel } from '../../api'
+import { updateChannel, updateChannelModelsStatus } from '../../api'
 import {
   channelsQueryKeys,
   formatResponseTime,
@@ -111,6 +119,7 @@ type ChannelTestDialogProps = {
 type ChannelTestDialogContentProps = ChannelTestDialogProps & {
   currentRow: Channel
   degradation?: boolean
+  onModelsStatusChange?: (disabledModels: Record<string, boolean>) => void
 }
 
 type ModelRow = {
@@ -215,6 +224,7 @@ const MODEL_PRICE_ERROR_CODE = 'model_price_error'
 const FAILURE_SUMMARY_MAX_LENGTH = 96
 const BATCH_TEST_CONCURRENCY = 5
 const BATCH_TEST_DELAY_MS = 100
+const EMPTY_DISABLED_MODELS: Record<string, boolean> = {}
 
 type FailureStatusDisplay = {
   summary: string
@@ -293,6 +303,7 @@ function getTestTableColumnClass(columnId: string) {
     case 'expected':
       return 'w-64 min-w-64'
     case 'status':
+    case 'routing':
       return 'w-28 min-w-28 whitespace-nowrap'
     case 'result':
       return 'w-80 min-w-80 max-w-80 whitespace-normal'
@@ -307,7 +318,7 @@ export function ChannelTestDialog({
   open,
   onOpenChange,
 }: ChannelTestDialogProps) {
-  const { currentRow } = useChannels()
+  const { currentRow, setCurrentRow } = useChannels()
 
   if (!currentRow) {
     return null
@@ -319,6 +330,19 @@ export function ChannelTestDialog({
       open={open}
       onOpenChange={onOpenChange}
       currentRow={currentRow}
+      onModelsStatusChange={(disabledModels) =>
+        setCurrentRow((selected) =>
+          selected?.id === currentRow.id
+            ? {
+                ...selected,
+                channel_info: {
+                  ...selected.channel_info,
+                  disabled_models: disabledModels,
+                },
+              }
+            : selected
+        )
+      }
     />
   )
 }
@@ -328,9 +352,16 @@ export function ChannelTestDialogContent({
   onOpenChange,
   currentRow,
   degradation = false,
+  onModelsStatusChange,
 }: ChannelTestDialogContentProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const currentUser = useAuthStore((state) => state.auth.user)
+  const canOperate = hasPermission(
+    currentUser,
+    ADMIN_PERMISSION_RESOURCES.CHANNEL,
+    ADMIN_PERMISSION_ACTIONS.OPERATE
+  )
   const currentChannelId = currentRow.id
   const expectedNamesRef = useRef<Record<string, string>>({})
   const degradationTasksRef = useRef<Record<string, string>>({})
@@ -353,6 +384,13 @@ export function ChannelTestDialogContent({
   const [isStreamTest, setIsStreamTest] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [testResults, setTestResults] = useState<Record<string, TestResult>>({})
+  const [savedDisabledModels, setSavedDisabledModels] =
+    useState<Record<string, boolean>>()
+  const disabledModels = onModelsStatusChange
+    ? (currentRow.channel_info.disabled_models ?? EMPTY_DISABLED_MODELS)
+    : (savedDisabledModels ??
+      currentRow.channel_info.disabled_models ??
+      EMPTY_DISABLED_MODELS)
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [testingModels, setTestingModels] = useState<Set<string>>(
     () => new Set()
@@ -557,6 +595,47 @@ export function ChannelTestDialogContent({
     },
     [queryClient, updateChannelTestCache]
   )
+
+  const modelStatusMutation = useMutation({
+    mutationFn: (input: { models: string[]; enabled: boolean }) =>
+      updateChannelModelsStatus(currentChannelId, input.models, input.enabled),
+    onSuccess: (disabled, input) => {
+      setSavedDisabledModels(disabled)
+      onModelsStatusChange?.(disabled)
+      queryClient.setQueriesData<ChannelListCache>(
+        { queryKey: channelsQueryKeys.lists() },
+        (oldData) => {
+          if (!oldData?.data) return oldData
+          return {
+            ...oldData,
+            data: {
+              ...oldData.data,
+              items: oldData.data.items.map((channel) =>
+                channel.id === currentChannelId
+                  ? {
+                      ...channel,
+                      channel_info: {
+                        ...channel.channel_info,
+                        disabled_models: disabled,
+                      },
+                    }
+                  : channel
+              ),
+            },
+          }
+        }
+      )
+      toast.success(
+        input.enabled
+          ? t('Enabled {{count}} models', { count: input.models.length })
+          : t('Disabled {{count}} models', { count: input.models.length })
+      )
+      refreshChannelLists()
+    },
+    onError: (error) => handleServerError(error, t('Failed to update models')),
+  })
+  const setModelsEnabled = modelStatusMutation.mutate
+  const isUpdatingModelStatus = modelStatusMutation.isPending
 
   const testSingleModel = useCallback(
     async (
@@ -988,6 +1067,34 @@ export function ChannelTestDialogContent({
           ]
         : []),
       {
+        id: 'routing',
+        header: t('Routing'),
+        cell: ({ row }) => {
+          const model = row.original.model
+          const enabled = !disabledModels[model]
+          return (
+            <div className='flex items-center gap-2 whitespace-nowrap'>
+              <Switch
+                size='sm'
+                checked={enabled}
+                aria-label={t('Enable routing for {{model}}', { model })}
+                disabled={
+                  !canOperate || isUpdatingModelStatus || isDeletingFailed
+                }
+                onCheckedChange={(checked) =>
+                  setModelsEnabled({ models: [model], enabled: checked })
+                }
+              />
+              <span className='text-muted-foreground text-xs'>
+                {enabled ? t('Enabled') : t('Disabled')}
+              </span>
+            </div>
+          )
+        },
+        enableSorting: false,
+        size: 112,
+      },
+      {
         id: 'status',
         header: t('Status'),
         cell: ({ row }) => {
@@ -1056,9 +1163,14 @@ export function ChannelTestDialogContent({
     ],
     [
       defaultTestModel,
+      canOperate,
+      disabledModels,
       degradation,
       degradationGroup,
       isBatchTesting,
+      isDeletingFailed,
+      isUpdatingModelStatus,
+      setModelsEnabled,
       t,
       testResults,
       testingModels,
@@ -1201,6 +1313,52 @@ export function ChannelTestDialogContent({
                         <Button
                           variant='outline'
                           size='sm'
+                          disabled={
+                            !canOperate ||
+                            isAnyTesting ||
+                            isUpdatingModelStatus ||
+                            isDeletingFailed
+                          }
+                          onClick={() =>
+                            setModelsEnabled({
+                              models: successModels,
+                              enabled: true,
+                            })
+                          }
+                        >
+                          <Power data-icon='inline-start' />
+                          {t('Enable successful models ({{count}})', {
+                            count: successModels.length,
+                          })}
+                        </Button>
+                      )}
+                      {failedModels.length > 0 && (
+                        <Button
+                          variant='outline'
+                          size='sm'
+                          disabled={
+                            !canOperate ||
+                            isAnyTesting ||
+                            isUpdatingModelStatus ||
+                            isDeletingFailed
+                          }
+                          onClick={() =>
+                            setModelsEnabled({
+                              models: failedModels,
+                              enabled: false,
+                            })
+                          }
+                        >
+                          <PowerOff data-icon='inline-start' />
+                          {t('Disable failed models ({{count}})', {
+                            count: failedModels.length,
+                          })}
+                        </Button>
+                      )}
+                      {successModels.length > 0 && (
+                        <Button
+                          variant='outline'
+                          size='sm'
                           onClick={handleSelectSuccessfulModels}
                         >
                           <CheckCircle2 data-icon='inline-start' />
@@ -1214,6 +1372,7 @@ export function ChannelTestDialogContent({
                           variant='outline'
                           size='sm'
                           onClick={() => setIsDeleteFailedDialogOpen(true)}
+                          disabled={isAnyTesting || isUpdatingModelStatus}
                         >
                           <Trash2 data-icon='inline-start' />
                           {t('Delete failed models ({{count}})', {
@@ -1258,6 +1417,7 @@ export function ChannelTestDialogContent({
                     <col className='w-auto' />
                     {degradation && <col className='w-64' />}
                     <col className='w-28' />
+                    <col className='w-28' />
                     <col className='w-80' />
                     <col className='w-px' />
                   </colgroup>
@@ -1294,6 +1454,7 @@ export function ChannelTestDialogContent({
         )}
         destructive
         isLoading={isDeletingFailed}
+        disabled={isUpdatingModelStatus || isAnyTesting}
         confirmText={t('Delete')}
         handleConfirm={handleDeleteFailedModels}
       />

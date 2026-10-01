@@ -30,7 +30,7 @@ import { UpstreamUpdateDialog } from './dialogs/upstream-update-dialog'
 import { ChannelMutateDrawer } from './drawers/channel-mutate-drawer'
 
 export function ChannelsDialogs() {
-  const { open, setOpen, currentRow, upstream } = useChannels()
+  const { open, setOpen, currentRow, setCurrentRow, upstream } = useChannels()
 
   return (
     <>
@@ -53,6 +53,19 @@ export function ChannelsDialogs() {
           channel={currentRow}
           open={open === 'test-degradation'}
           onOpenChange={(v) => !v && setOpen(null)}
+          onModelsStatusChange={(disabledModels) =>
+            setCurrentRow((selected) =>
+              selected?.id === currentRow.id
+                ? {
+                    ...selected,
+                    channel_info: {
+                      ...selected.channel_info,
+                      disabled_models: disabledModels,
+                    },
+                  }
+                : selected
+            )
+          }
         />
       )}
 

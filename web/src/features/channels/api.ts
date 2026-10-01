@@ -185,6 +185,26 @@ export async function updateChannel(
 }
 
 /**
+ * Update routing availability for selected models on a channel.
+ */
+export async function updateChannelModelsStatus(
+  id: number,
+  models: string[],
+  enabled: boolean
+): Promise<Record<string, boolean>> {
+  const response = await api.post<{
+    success: boolean
+    message?: string
+    data: { disabled_models: Record<string, boolean> | null }
+  }>(
+    `/api/channel/${id}/models/status`,
+    { models, enabled },
+    channelActionConfig()
+  )
+  return requireServerSuccess(response.data).data.disabled_models ?? {}
+}
+
+/**
  * Update channel enabled/disabled status.
  */
 export async function updateChannelStatus(

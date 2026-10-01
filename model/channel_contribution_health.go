@@ -477,9 +477,10 @@ func ApplyChannelContributionHealthCycle(
 			}
 			for _, modelName := range models {
 				observation := observationByModel[modelName]
+				abilityEnabled := observation.Healthy && !channel.ChannelInfo.DisabledModels[modelName]
 				abilityResult := tx.Model(&Ability{}).
-					Where("channel_id = ? AND model = ? AND enabled <> ?", channelId, modelName, observation.Healthy).
-					Update("enabled", observation.Healthy)
+					Where("channel_id = ? AND model = ? AND enabled <> ?", channelId, modelName, abilityEnabled).
+					Update("enabled", abilityEnabled)
 				if abilityResult.Error != nil {
 					return abilityResult.Error
 				}
