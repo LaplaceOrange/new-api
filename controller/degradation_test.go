@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -129,30 +130,7 @@ func TestDegradationProbePreservesChannelMappingAndCompletionStatus(t *testing.T
 func TestDegradationTaskIsolationDatabases(t *testing.T) {
 	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
 		t.Run(dialect, func(t *testing.T) {
-			var driver gorm.Dialector
-			switch dialect {
-			case "sqlite":
-				driver = sqlite.Open(filepath.Join(t.TempDir(), "tasks.db"))
-			case "mysql":
-				dsn := os.Getenv("TEST_MYSQL_DSN")
-				if dsn == "" {
-					t.Skip("TEST_MYSQL_DSN not set")
-				}
-				driver = mysql.Open(dsn)
-			case "postgres":
-				dsn := os.Getenv("TEST_POSTGRES_DSN")
-				if dsn == "" {
-					t.Skip("TEST_POSTGRES_DSN not set")
-				}
-				driver = postgres.Open(dsn)
-			}
-			db, err := gorm.Open(driver, &gorm.Config{})
-			require.NoError(t, err)
-			previous := model.DB
-			model.DB = db
-			sqlDB, err := db.DB()
-			require.NoError(t, err)
-			t.Cleanup(func() { model.DB = previous; _ = sqlDB.Close() })
+			db := openDegradationTestDatabase(t, dialect)
 			require.NoError(t, db.AutoMigrate(&model.SystemTask{}, &model.SystemTaskLock{}))
 			t.Cleanup(func() { require.NoError(t, db.Migrator().DropTable(&model.SystemTaskLock{}, &model.SystemTask{})) })
 			first, created, err := enqueueDegradationCheck(degradationTestPayload{Group: "default", Model: "a"})
@@ -215,4 +193,117 @@ func TestDegradationSchedulerEnqueuesAllDueModels(t *testing.T) {
 		names = append(names, p.Model)
 	}
 	assert.ElementsMatch(t, []string{"a", "b"}, names)
+}
+
+func openDegradationTestDatabase(t *testing.T, dialect string) *gorm.DB {
+	t.Helper()
+	var driver gorm.Dialector
+	switch dialect {
+	case "sqlite":
+		driver = sqlite.Open(filepath.Join(t.TempDir(), "tasks.db"))
+	case "mysql":
+		dsn := os.Getenv("TEST_MYSQL_DSN")
+		if dsn == "" {
+			t.Skip("TEST_MYSQL_DSN not set")
+		}
+		driver = mysql.Open(dsn)
+	case "postgres":
+		dsn := os.Getenv("TEST_POSTGRES_DSN")
+		if dsn == "" {
+			t.Skip("TEST_POSTGRES_DSN not set")
+		}
+		driver = postgres.Open(dsn)
+	}
+	db, err := gorm.Open(driver, &gorm.Config{})
+	require.NoError(t, err)
+	previous := model.DB
+	model.DB = db
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { model.DB = previous; _ = sqlDB.Close() })
+
+	var version string
+	query := "SELECT VERSION()"
+	if dialect == "sqlite" {
+		query = "SELECT sqlite_version()"
+	}
+	require.NoError(t, db.Raw(query).Scan(&version).Error)
+	t.Logf("database: %s %s", dialect, version)
+	return db
+}
+
+// Schema immediately before channel attribution was added. The latest release
+// v1.0.0-rc.41 has no degradation tables, covered by the fresh case.
+type degradationEventBeforeChannel struct {
+	ID            int    `gorm:"primaryKey"`
+	GroupName     string `gorm:"type:varchar(64);index:idx_degradation_event,priority:1"`
+	ModelName     string `gorm:"type:varchar(255);index:idx_degradation_event,priority:2"`
+	Status        string `gorm:"type:varchar(32)"`
+	DetectedModel string `gorm:"type:varchar(255)"`
+	CreatedAt     int64  `gorm:"bigint;index"`
+}
+
+func TestDegradationChannelHistoryDatabases(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			for _, upgrade := range []bool{false, true} {
+				t.Run(fmt.Sprint("upgrade=", upgrade), func(t *testing.T) {
+					db := openDegradationTestDatabase(t, dialect)
+					t.Cleanup(func() {
+						require.NoError(t, db.Migrator().DropTable(&model.DegradationEvent{}, &model.DegradationTarget{}))
+					})
+					if upgrade {
+						require.NoError(t, db.Table("degradation_events").AutoMigrate(&degradationEventBeforeChannel{}))
+						require.NoError(t, db.Table("degradation_events").Create(&degradationEventBeforeChannel{GroupName: "default", ModelName: "a", Status: "passed", DetectedModel: "a", CreatedAt: 1}).Error)
+					}
+					for range 2 {
+						require.NoError(t, db.AutoMigrate(&model.DegradationEvent{}, &model.DegradationTarget{}))
+					}
+					require.NoError(t, model.SaveDegradationAttempt(model.DegradationTarget{GroupName: "default", ModelName: "a", Status: "passed"}, model.DegradationEvent{GroupName: "default", ModelName: "a", Status: "passed", DetectedModel: "a", ChannelID: 42}))
+					require.NoError(t, model.SaveDegradationAttempt(model.DegradationTarget{GroupName: "default", ModelName: "a", Status: "failed"}, model.DegradationEvent{GroupName: "default", ModelName: "a", Status: "failed", ChannelID: 43}))
+					events, err := model.ListDegradationEvents("default", "a", 0)
+					require.NoError(t, err)
+					expectedCount := 2
+					if upgrade {
+						expectedCount++
+					}
+					require.Len(t, events, expectedCount)
+					assert.Equal(t, 43, events[0].ChannelID)
+					assert.Equal(t, 42, events[1].ChannelID)
+					if upgrade {
+						assert.Zero(t, events[2].ChannelID)
+						assert.Equal(t, "passed", events[2].Status)
+						assert.Equal(t, "a", events[2].DetectedModel)
+					}
+					targets, err := model.ListDegradationTargets()
+					require.NoError(t, err)
+					require.Len(t, targets, 1)
+					assert.Equal(t, "failed", targets[0].Status)
+					assert.True(t, db.Migrator().HasIndex(&model.DegradationEvent{}, "idx_degradation_event"))
+				})
+			}
+		})
+	}
+}
+func TestDegradationChannelHistoryVisibleOnlyToAdmins(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.Ability{}, &model.DegradationTarget{}, &model.DegradationEvent{}))
+	model.InitOptionMap()
+	cfg := degradation.DefaultConfig()
+	cfg.Groups = []degradation.GroupConfig{{Group: "default", Models: []degradation.ModelConfig{{Model: "a"}}}}
+	raw, err := common.Marshal(cfg)
+	require.NoError(t, err)
+	require.NoError(t, model.UpdateOption(degradation.OptionKey, string(raw)))
+	require.NoError(t, model.SaveDegradationAttempt(model.DegradationTarget{GroupName: "default", ModelName: "a"}, model.DegradationEvent{GroupName: "default", ModelName: "a", ChannelID: 42}))
+	for _, role := range []int{0, common.RoleCommonUser, common.RoleAdminUser} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Set("role", role)
+		GetDegradationPage(c)
+		if role >= common.RoleAdminUser {
+			assert.Contains(t, w.Body.String(), `"channel_id":42`)
+		} else {
+			assert.NotContains(t, w.Body.String(), `channel_id`)
+		}
+	}
 }

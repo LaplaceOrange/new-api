@@ -289,6 +289,11 @@ function StatusStrip(props: {
                   <span>
                     {statusLabel(t, event.status, event.detected_model)}
                   </span>
+                  {props.canClear && !!event.channel_id && (
+                    <span className='text-xs tabular-nums'>
+                      #{event.channel_id}
+                    </span>
+                  )}
                 </TooltipContent>
               </Tooltip>
             ) : (

@@ -23,6 +23,7 @@ type degradationEventView struct {
 	Status        string `json:"status"`
 	DetectedModel string `json:"detected_model"`
 	CreatedAt     int64  `json:"created_at"`
+	ChannelID     int    `json:"channel_id,omitempty"`
 }
 
 type degradationModelView struct {
@@ -46,6 +47,7 @@ type degradationPage struct {
 }
 
 func GetDegradationPage(c *gin.Context) {
+	isAdmin := c.GetInt("role") >= common.RoleAdminUser
 	cfg := degradation.LoadConfig()
 	targets, err := model.ListDegradationTargets()
 	if err != nil {
@@ -83,18 +85,22 @@ func GetDegradationPage(c *gin.Context) {
 				return
 			}
 			for _, event := range events {
-				view.Timeline = append(view.Timeline, degradationEventView{
+				eventView := degradationEventView{
 					Status:        event.Status,
 					DetectedModel: event.DetectedModel,
 					CreatedAt:     event.CreatedAt,
-				})
+				}
+				if isAdmin {
+					eventView.ChannelID = event.ChannelID
+				}
+				view.Timeline = append(view.Timeline, eventView)
 			}
 			models = append(models, view)
 		}
 		groups = append(groups, degradationGroupView{Group: group.Group, Sort: group.Sort, Models: models})
 	}
 	page := degradationPage{Groups: groups}
-	if c.GetInt("role") >= common.RoleAdminUser {
+	if isAdmin {
 		page.Config = &cfg
 	}
 	common.ApiSuccess(c, page)

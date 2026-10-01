@@ -24,6 +24,7 @@ type DegradationEvent struct {
 	ModelName     string `json:"model_name" gorm:"type:varchar(255);index:idx_degradation_event,priority:2"`
 	Status        string `json:"status" gorm:"type:varchar(32)"`
 	DetectedModel string `json:"detected_model" gorm:"type:varchar(255)"`
+	ChannelID     int    `json:"channel_id"`
 	CreatedAt     int64  `json:"created_at" gorm:"bigint;index"`
 }
 

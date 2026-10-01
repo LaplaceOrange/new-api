@@ -139,3 +139,28 @@ it('starts a test for the selected model and refreshes after completion', async 
     ).toBeGreaterThan(1)
   )
 })
+
+it.each([10, 1])(
+  'shows the routed channel in the tooltip only for admins (role %s)',
+  async (role) => {
+    const data = structuredClone(page)
+    Object.assign(data.data.groups[0].models[0], {
+      timeline: [
+        {
+          status: 'passed',
+          detected_model: 'example-model',
+          created_at: 1700000000,
+          channel_id: 42,
+        },
+      ],
+    })
+    vi.spyOn(api, 'get').mockResolvedValue({ data })
+    renderMonitor(role)
+    await screen.findByText('example-model')
+    const trigger = screen.getAllByRole('button')[0]
+    await userEvent.setup().hover(trigger)
+    await screen.findByText(/2023-11-1[45]/)
+    if (role === 10) expect(screen.getByText('#42')).toBeInTheDocument()
+    else expect(screen.queryByText('#42')).not.toBeInTheDocument()
+  }
+)

@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 export type DegradationEvent = {
+  channel_id?: number
   status: string
   detected_model: string
   created_at: number

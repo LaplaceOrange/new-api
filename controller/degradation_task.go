@@ -161,7 +161,7 @@ func scheduleDegradationChecks(ctx context.Context) error {
 }
 
 func executeDegradationCheck(ctx context.Context, cfg degradation.Config, target model.DegradationTarget, expected string) error {
-	passed, scored, detected := runDegradationProbe(ctx, target.GroupName, target.ModelName, expected)
+	passed, scored, detected, channelID := runDegradationProbe(ctx, target.GroupName, target.ModelName, expected)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -174,6 +174,7 @@ func executeDegradationCheck(ctx context.Context, cfg degradation.Config, target
 		Failures:      verdict.Failures,
 		NextCheckAt:   verdict.Next.Unix(),
 	}, model.DegradationEvent{
+		ChannelID:     channelID,
 		GroupName:     target.GroupName,
 		ModelName:     target.ModelName,
 		Status:        verdict.Status,
@@ -181,26 +182,26 @@ func executeDegradationCheck(ctx context.Context, cfg degradation.Config, target
 	})
 }
 
-func runDegradationProbe(ctx context.Context, groupName, modelName, expected string) (passed bool, scored bool, detected string) {
+func runDegradationProbe(ctx context.Context, groupName, modelName, expected string) (passed bool, scored bool, detected string, channelID int) {
 	channel, err := model.GetChannel(groupName, modelName, 0, nil)
 	if err != nil || channel == nil || channel.Id == 0 {
 		if err != nil {
 			common.SysError(fmt.Sprintf("degradation route failed group=%s model=%s err=%v", groupName, modelName, err))
 		}
-		return false, false, ""
+		return false, false, "", 0
 	}
 	userID, err := resolveChannelTestUserID(nil)
 	if err != nil {
 		common.SysError("degradation test user: " + err.Error())
-		return false, false, ""
+		return false, false, "", channel.Id
 	}
 	analysis, err := degradation.Detect(ctx, modelName, func(probeCtx context.Context, prompt string) (degradation.Completion, error) {
 		return probeDegradationChat(probeCtx, channel, userID, groupName, modelName, prompt)
 	})
 	if err != nil {
 		common.SysError("degradation analyze: " + err.Error())
-		return false, false, ""
+		return false, false, "", channel.Id
 	}
 	passed, detected, scored = degradation.Match(degradation.ExpectedName(modelName, expected), analysis.Prediction, analysis.PredictionName, analysis.Decision)
-	return passed, scored, detected
+	return passed, scored, detected, channel.Id
 }
