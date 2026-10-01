@@ -2,37 +2,29 @@ package degradation
 
 import (
 	"bytes"
-	"compress/gzip"
+	"context"
 	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
-
-	_ "embed"
-	"github.com/grafana/sobek"
 )
 
-//go:embed data/unified_bank.json.gz
-var bankGzip []byte
-
-//go:embed data/shared_detector.json.gz
-var detectorGzip []byte
-
-//go:embed detector.bundle.js
-var detectorBundle string
-
-type Challenge struct {
-	ID            string `json:"id"`
-	ExpectedCount int    `json:"expected_count"`
-	Prompt        string `json:"prompt"`
-}
-
-type Sample struct {
-	Text          string `json:"text"`
-	ExpectedCount int    `json:"expected_count"`
-}
+const (
+	probeTimeout = 180 * time.Second
+	maxCLIOutput = 4 << 20
+)
 
 type Analysis struct {
 	Prediction     string `json:"prediction"`
@@ -40,160 +32,225 @@ type Analysis struct {
 	Decision       string `json:"decision"`
 }
 
-var (
-	engineOnce sync.Once
-	engineErr  error
-	engineVM   *sobek.Runtime
-	engineMu   sync.Mutex
-)
-
-func gunzip(data []byte) ([]byte, error) {
-	reader, err := gzip.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	defer reader.Close()
-	return io.ReadAll(reader)
+// Completion preserves the host relay's completion status. A length-limited
+// or filtered answer must not be presented to the CLI as complete.
+type Completion struct {
+	Text         string
+	FinishReason string
 }
 
-func randomUUID() string {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "00000000-0000-4000-8000-000000000000"
-	}
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+type Probe func(context.Context, string) (Completion, error)
+
+type detectionResult struct {
+	Schema          string `json:"schema"`
+	Cancelled       bool   `json:"cancelled"`
+	RequestedRounds int    `json:"requested_rounds"`
+	CompletedRounds int    `json:"completed_rounds"`
+	ScoredRounds    int    `json:"scored_rounds"`
+	Bank            struct {
+		ReferenceSHA256 string `json:"reference_sha256"`
+		Models          int    `json:"models"`
+	} `json:"bank"`
+	Rounds []struct {
+		Error   string `json:"error"`
+		Samples []struct {
+			State string `json:"state"`
+		} `json:"samples"`
+	} `json:"rounds"`
+	Analysis Analysis `json:"analysis"`
 }
 
-func initEngine() {
-	bank, err := gunzip(bankGzip)
-	if err != nil {
-		engineErr = fmt.Errorf("decode fingerprint bank: %w", err)
-		return
+func parseDetection(raw []byte) (detectionResult, error) {
+	var result detectionResult
+	if err := common.Unmarshal(raw, &result); err != nil {
+		return result, errors.New("lmfpd returned invalid JSON")
 	}
-	detector, err := gunzip(detectorGzip)
-	if err != nil {
-		engineErr = fmt.Errorf("decode fingerprint detector: %w", err)
-		return
+	if result.Schema != "fpd-detection-v1" || result.Cancelled || result.RequestedRounds != 1 ||
+		result.CompletedRounds != 1 || result.ScoredRounds != 1 || len(result.Rounds) != 1 ||
+		result.Bank.Models <= 0 || len(result.Bank.ReferenceSHA256) != 64 {
+		return result, errors.New("lmfpd returned an incompatible or unscorable result")
 	}
-	vm := sobek.New()
-	if err = vm.Set("goRandomBytes", func(n int) []int {
-		if n < 0 || n > 1<<20 {
-			return []int{}
+	if _, err := hex.DecodeString(result.Bank.ReferenceSHA256); err != nil {
+		return result, errors.New("lmfpd returned an invalid bank identity")
+	}
+	round := result.Rounds[0]
+	if round.Error != "" || len(round.Samples) != 3 {
+		return result, errors.New("lmfpd did not complete three samples")
+	}
+	for _, sample := range round.Samples {
+		if sample.State != "complete" && sample.State != "truncated" {
+			return result, errors.New("lmfpd sample failed")
 		}
-		buf := make([]byte, n)
-		if _, readErr := rand.Read(buf); readErr != nil {
-			return []int{}
+	}
+	if strings.TrimSpace(result.Analysis.Prediction) == "" || result.Analysis.Decision == "" || result.Analysis.Decision == "unscorable" {
+		return result, errors.New("lmfpd could not score the samples")
+	}
+	return result, nil
+}
+
+// boundedOutput prevents a faulty package from exhausting host memory. Stderr
+// is never logged: it may contain echoed samples or credentials.
+type boundedOutput struct{ buffer bytes.Buffer }
+
+func (b *boundedOutput) Write(p []byte) (int, error) {
+	if len(p) > maxCLIOutput-b.buffer.Len() {
+		return 0, errors.New("lmfpd output limit exceeded")
+	}
+	return b.buffer.Write(p)
+}
+
+func runBun(ctx context.Context, bun, dir string, args, extraEnv []string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, bun, args...)
+	cmd.Dir = dir
+	// Do not inherit DB credentials, channel secrets, NODE_OPTIONS, Bun preload
+	// options, or proxy settings into the detector. Its only HTTP peer is loopback.
+	cmd.Env = []string{"CI=1", "NO_COLOR=1", "FPD_NO_UPDATE_CHECK=1", "BUN_BE_BUN=1", "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0", "NO_PROXY=*", "HOME=" + dir, "USERPROFILE=" + dir}
+	for _, name := range []string{"PATH", "SystemRoot", "WINDIR", "TEMP", "TMP", "TMPDIR"} {
+		if value, ok := os.LookupEnv(name); ok {
+			cmd.Env = append(cmd.Env, name+"="+value)
 		}
-		out := make([]int, n)
-		for i, value := range buf {
-			out[i] = int(value)
+	}
+	cmd.Env = append(cmd.Env, extraEnv...)
+	var output boundedOutput
+	cmd.Stdout = &output
+	cmd.Stderr = io.Discard
+	cmd.WaitDelay = 2 * time.Second
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
 		}
-		return out
-	}); err != nil {
-		engineErr = err
-		return
+		return nil, fmt.Errorf("lmfpd process failed: %w", err)
 	}
-	if err = vm.Set("goRandomUUID", randomUUID); err != nil {
-		engineErr = err
-		return
-	}
-	if _, err = vm.RunString(`globalThis.crypto = {
-  getRandomValues(buffer) {
-    const bytes = goRandomBytes(buffer.byteLength);
-    const view = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-    for (let i = 0; i < bytes.length; i++) view[i] = bytes[i];
-    return buffer;
-  },
-  randomUUID() { return goRandomUUID(); }
-};`); err != nil {
-		engineErr = fmt.Errorf("install crypto: %w", err)
-		return
-	}
-	if _, err = vm.RunString(detectorBundle); err != nil {
-		engineErr = fmt.Errorf("load detector: %w", err)
-		return
-	}
-	if err = vm.Set("bankJSON", string(bank)); err != nil {
-		engineErr = err
-		return
-	}
-	if err = vm.Set("detectorJSON", string(detector)); err != nil {
-		engineErr = err
-		return
-	}
-	if _, err = vm.RunString(`globalThis.lmBank = JSON.parse(bankJSON);
-globalThis.lmDetector = JSON.parse(detectorJSON);
-bankJSON = "";
-detectorJSON = "";`); err != nil {
-		engineErr = fmt.Errorf("parse fingerprint data: %w", err)
-		return
-	}
-	engineVM = vm
+	return output.buffer.Bytes(), nil
 }
 
-func ensureEngine() error {
-	engineOnce.Do(initEngine)
-	return engineErr
+type probeBridge struct {
+	model, token string
+	probe        Probe
+	mu           sync.Mutex
+	requests     int
+	failed       bool
+	seen         map[string]bool
+	authFailure  sync.Once
 }
 
-func callJSON(script string) ([]byte, error) {
-	if err := ensureEngine(); err != nil {
-		return nil, err
+// Following OWASP ASVS 5.0.0 and the Authentication/Session Management cheat
+// sheets, this capability is random, short-lived, scoped and never logged.
+// It is local process IPC, independent of browser sessions and API tokens.
+func (b *probeBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+b.token)) != 1 || r.Header.Get("Origin") != "" {
+		b.authFailure.Do(func() {
+			common.SysError(fmt.Sprintf("degradation probe authorization rejected model=%q", b.model))
+		})
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
 	}
-	engineMu.Lock()
-	defer engineMu.Unlock()
-	value, err := engineVM.RunString(script)
+	if r.Method != http.MethodPost || r.URL.Path != "/v1/chat/completions" || r.URL.RawQuery != "" {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	var request struct {
+		Model    string `json:"model"`
+		Stream   bool   `json:"stream"`
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
+	if err != nil || common.Unmarshal(raw, &request) != nil ||
+		request.Model != b.model || request.Stream || len(request.Messages) != 1 ||
+		request.Messages[0].Role != "user" || strings.TrimSpace(request.Messages[0].Content) == "" {
+		http.Error(w, "invalid probe", http.StatusBadRequest)
+		return
+	}
+	// Serialize even if a future CLI ignores --parallel 1. Failed requests and
+	// replayed prompts cannot dispatch another upstream call in this attempt.
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	prompt := request.Messages[0].Content
+	if b.failed || b.requests >= 3 || b.seen[prompt] || r.Context().Err() != nil {
+		http.Error(w, "probe exhausted", http.StatusTooManyRequests)
+		return
+	}
+	b.requests++
+	b.seen[prompt] = true
+	ctx, cancel := context.WithTimeout(r.Context(), probeTimeout)
+	defer cancel()
+	completion, err := b.probe(ctx, prompt)
+	if err != nil || ctx.Err() != nil || len(completion.Text) > 1<<20 {
+		b.failed = true
+		http.Error(w, "upstream probe failed", http.StatusBadGateway)
+		return
+	}
+	payload, err := common.Marshal(map[string]any{
+		"model": b.model,
+		"choices": []any{map[string]any{
+			"index": 0, "finish_reason": completion.FinishReason,
+			"message": map[string]any{"role": "assistant", "content": completion.Text},
+		}},
+	})
 	if err != nil {
-		return nil, err
+		b.failed = true
+		http.Error(w, "invalid completion", http.StatusInternalServerError)
+		return
 	}
-	exported, ok := value.Export().(string)
-	if !ok {
-		return nil, fmt.Errorf("detector returned %T", value.Export())
-	}
-	return []byte(exported), nil
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(payload)
 }
 
-func GenerateChallenges() ([]Challenge, error) {
-	raw, err := callJSON(`JSON.stringify(lmGenerateChallenges())`)
-	if err != nil {
-		return nil, err
-	}
-	var challenges []Challenge
-	if err := common.Unmarshal(raw, &challenges); err != nil {
-		return nil, err
-	}
-	if len(challenges) != 3 {
-		return nil, fmt.Errorf("detector generated %d challenges", len(challenges))
-	}
-	return challenges, nil
-}
-
-func Analyze(samples []Sample) (Analysis, error) {
-	payload, err := common.Marshal(samples)
-	if err != nil {
-		return Analysis{}, err
-	}
-	if err = ensureEngine(); err != nil {
-		return Analysis{}, err
-	}
-	engineMu.Lock()
-	defer engineMu.Unlock()
-	if err = engineVM.Set("outputsJSON", string(payload)); err != nil {
-		return Analysis{}, err
-	}
-	value, err := engineVM.RunString("JSON.stringify(lmAnalyze(JSON.parse(outputsJSON), lmBank, lmDetector))")
+// Detect pins one immutable installation for the entire challenge/score cycle.
+func Detect(ctx context.Context, model string, probe Probe) (Analysis, error) {
+	runtime := detectorRuntime()
+	installed, err := runtime.ready(ctx)
 	if err != nil {
 		return Analysis{}, err
 	}
-	exported, ok := value.Export().(string)
-	if !ok {
-		return Analysis{}, fmt.Errorf("detector returned %T", value.Export())
-	}
-	var analysis Analysis
-	if err = common.Unmarshal([]byte(exported), &analysis); err != nil {
+	return runtime.detect(ctx, installed, model, probe)
+}
+
+func (r *cliRuntime) detect(ctx context.Context, installed installation, model string, probe Probe) (Analysis, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*probeTimeout+30*time.Second)
+	defer cancel()
+	var secret [32]byte
+	if _, err := rand.Read(secret[:]); err != nil {
 		return Analysis{}, err
 	}
-	return analysis, nil
+	bridge := &probeBridge{model: model, token: hex.EncodeToString(secret[:]), probe: probe, seen: map[string]bool{}}
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		return Analysis{}, err
+	}
+	server := &http.Server{
+		Handler: bridge, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
+		WriteTimeout: probeTimeout + 5*time.Second, IdleTimeout: 5 * time.Second, MaxHeaderBytes: 8 << 10,
+		BaseContext: func(net.Listener) context.Context { return ctx },
+	}
+	defer server.Close()
+	go func() { _ = server.Serve(listener) }()
+	args := []string{filepath.Join(installed.Directory, "node_modules", "lmfpd", "bin", "fpd.js"),
+		"--api", "chatcompletion", "--count", "3", "--parallel", "1", "--repeat", "1",
+		"--no-stream", "--timeout", "180", "--json", "--no-update-check"}
+	output, err := runBun(ctx, r.bun, installed.Directory, args, []string{
+		"API_KEY=" + bridge.token, "MODEL=" + model, "BASE_URL=http://" + listener.Addr().String() + "/v1",
+	})
+	if err != nil {
+		return Analysis{}, err
+	}
+	bridge.mu.Lock()
+	complete := bridge.requests == 3 && !bridge.failed
+	bridge.mu.Unlock()
+	if !complete {
+		return Analysis{}, errors.New("lmfpd did not execute all three probes")
+	}
+	result, err := parseDetection(output)
+	if err != nil {
+		return Analysis{}, err
+	}
+	if result.Bank.ReferenceSHA256 != installed.ReferenceSHA256 {
+		return Analysis{}, errors.New("lmfpd bank changed during detection")
+	}
+	common.SysLog(fmt.Sprintf("degradation detection version=%s bank=%s", installed.Version, installed.ReferenceSHA256))
+	return result.Analysis, nil
 }

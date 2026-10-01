@@ -13,6 +13,8 @@ build
 logs
 web/dist
 web/node_modules
+service/degradation/runtime/node_modules/
+service/degradation/runtime/.bun/
 .env
 one-api
 new-api

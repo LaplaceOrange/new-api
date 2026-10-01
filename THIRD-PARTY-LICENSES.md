@@ -8,6 +8,13 @@ Transitive dependencies should be audited before a final external release.
 
 ## Dependency Inventory
 
+The degradation monitor executes the official `lmfpd` npm CLI from
+Ikaleio/lm-detector (MIT, copyright 2026 xqy2006). Its original notice is retained
+in `third_party/lm-detector/LICENSE`. Docker ships the version pinned in
+`service/degradation/runtime/package.json` and `bun.lock`, including its license
+and dependency notices. Runtime updates retain each installed package's notices.
+The project no longer embeds a modified copy of its detector or fingerprint bank.
+
 | Area        | Scope       | Ecosystem | Dependency                                            | Version                              | License                                            |
 |-------------|-------------|-----------|-------------------------------------------------------|--------------------------------------|----------------------------------------------------|
 | backend     | production  | Go        | `github.com/Calcium-Ion/go-epay`                      | `v0.0.4`                             | Proprietary/Internal - owned by project maintainer |

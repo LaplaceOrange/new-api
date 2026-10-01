@@ -18,7 +18,6 @@ import (
 	"slices"
 )
 
-const degradationProbeTimeout = 180 * time.Second
 const degradationHistoryWindow = 30 * 24 * time.Hour
 
 type degradationEventView struct {
@@ -192,7 +191,7 @@ func degradationChatText(body []byte) (string, error) {
 	return "", errors.New("missing completion")
 }
 
-func probeDegradationChat(ctx context.Context, channel *model.Channel, userID int, groupName, modelName, prompt string) (string, error) {
+func probeDegradationChat(ctx context.Context, channel *model.Channel, userID int, groupName, modelName, prompt string) (degradation.Completion, error) {
 	result := testChannelWithOptions(ctx, channel, userID, modelName, string(constant.EndpointTypeOpenAI), false, channelTestOptions{
 		SkipConsumeLog: true,
 		GroupOverride:  groupName,
@@ -202,9 +201,13 @@ func probeDegradationChat(ctx context.Context, channel *model.Channel, userID in
 		Quiet:          true,
 	})
 	if result.localErr != nil {
-		return "", result.localErr
+		return degradation.Completion{}, result.localErr
 	}
-	return degradationChatText(result.body)
+	text, err := degradationChatText(result.body)
+	if err != nil {
+		return degradation.Completion{}, err
+	}
+	return degradation.Completion{Text: text, FinishReason: gjson.GetBytes(result.body, "choices.0.finish_reason").String()}, nil
 }
 
 func ClearDegradationHistory(c *gin.Context) {
