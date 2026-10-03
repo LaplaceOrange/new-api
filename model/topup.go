@@ -193,7 +193,8 @@ func applyTopUpGroupUpgrade(tx *gorm.DB, topUp *TopUp) (bool, error) {
 		if user.Group == targetGroup {
 			return false, nil
 		}
-		if groups[targetGroup] <= ratio_setting.GetGroupRatio(user.Group) {
+		// Lower ratios are cheaper; equal ratios still allow a group upgrade.
+		if groups[targetGroup] > ratio_setting.GetGroupRatio(user.Group) {
 			return false, nil
 		}
 		if err := tx.Model(&User{}).Where("id = ?", user.Id).Update("group", targetGroup).Error; err != nil {

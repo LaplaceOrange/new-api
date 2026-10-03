@@ -58,8 +58,8 @@ func TestRechargeEpayAppliesFirstMatchingTopUpGroupUpgradeAndRefreshesCache(t *t
 	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
 	configureTopUpGroupUpgradeTest(t, map[string]float64{
 		"default": 1,
-		"vip":     2,
-		"svip":    3,
+		"vip":     0.8,
+		"svip":    0.5,
 	}, []operation_setting.TopUpGroupUpgradeRule{
 		{Type: operation_setting.TopUpGroupUpgradeRuleTypeSingle, Amount: "50.00", Group: "vip"},
 		{Type: operation_setting.TopUpGroupUpgradeRuleTypeCumulative, Amount: "1.00", Group: "svip"},
@@ -96,7 +96,7 @@ func TestRechargeEpayAppliesCumulativeTopUpGroupUpgradeIncludingCurrentPayment(t
 	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
 	configureTopUpGroupUpgradeTest(t, map[string]float64{
 		"default": 1,
-		"vip":     2,
+		"vip":     0.8,
 	}, []operation_setting.TopUpGroupUpgradeRule{
 		{Type: operation_setting.TopUpGroupUpgradeRuleTypeCumulative, Amount: "100.00", Group: "vip"},
 	})
@@ -149,7 +149,7 @@ func TestRechargeEpayDoesNotUpgradeBelowSingleTopUpThreshold(t *testing.T) {
 	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
 	configureTopUpGroupUpgradeTest(t, map[string]float64{
 		"default": 1,
-		"vip":     2,
+		"vip":     0.8,
 	}, []operation_setting.TopUpGroupUpgradeRule{
 		{Type: operation_setting.TopUpGroupUpgradeRuleTypeSingle, Amount: "100.00", Group: "vip"},
 	})
@@ -172,8 +172,8 @@ func TestRechargeEpayTopUpGroupUpgradeNeverDowngradesGroup(t *testing.T) {
 	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
 	configureTopUpGroupUpgradeTest(t, map[string]float64{
 		"default": 1,
-		"vip":     2,
-		"svip":    3,
+		"vip":     0.8,
+		"svip":    0.5,
 	}, []operation_setting.TopUpGroupUpgradeRule{
 		{Type: operation_setting.TopUpGroupUpgradeRuleTypeSingle, Amount: "1.00", Group: "vip"},
 	})
@@ -187,4 +187,47 @@ func TestRechargeEpayTopUpGroupUpgradeNeverDowngradesGroup(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "svip", getUserGroupForTopUpGroupUpgradeTest(t, user.Id))
 	assert.Equal(t, 1, getUserQuotaForPaymentGuardTest(t, user.Id))
+}
+
+func TestRechargeEpayTopUpGroupUpgradeWithEqualOrLowerRatio(t *testing.T) {
+	tests := []struct {
+		name  string
+		ratio float64
+	}{
+		{name: "same ratio as default", ratio: 1},
+		{name: "discounted ratio", ratio: 0.8},
+		{name: "free group", ratio: 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			truncateTables(t)
+			useUserCacheMiniRedis(t)
+
+			oldQuotaPerUnit := common.QuotaPerUnit
+			common.QuotaPerUnit = 1
+			t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
+			configureTopUpGroupUpgradeTest(t, map[string]float64{
+				"default": 1,
+				"vip":     tc.ratio,
+			}, []operation_setting.TopUpGroupUpgradeRule{
+				{Type: operation_setting.TopUpGroupUpgradeRuleTypeSingle, Amount: "100.00", Group: "vip"},
+			})
+
+			user := insertUserForPaymentGuardTest(t, 805, 0)
+			require.NoError(t, populateUserCache(*user))
+			createTopUpGroupUpgradeEpayOrder(t, user.Id, "EPAY-GROUP-RATIO", 1, 100)
+
+			alreadyDone, err := RechargeEpay("EPAY-GROUP-RATIO", "alipay", "127.0.0.1")
+			require.NoError(t, err)
+			assert.False(t, alreadyDone)
+			assert.Equal(t, "vip", getUserGroupForTopUpGroupUpgradeTest(t, user.Id))
+			assert.Equal(t, 1, getUserQuotaForPaymentGuardTest(t, user.Id))
+			assert.Equal(t, common.TopUpStatusSuccess, getTopUpStatusForPaymentGuardTest(t, "EPAY-GROUP-RATIO"))
+
+			cached, err := cacheGetUserBase(user.Id)
+			require.NoError(t, err)
+			assert.Equal(t, "vip", cached.Group)
+		})
+	}
 }
