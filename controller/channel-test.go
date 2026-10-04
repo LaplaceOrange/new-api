@@ -37,10 +37,22 @@ import (
 )
 
 type testResult struct {
-	context     *gin.Context
-	localErr    error
-	newAPIError *types.NewAPIError
-	body        []byte
+	context      *gin.Context
+	localErr     error
+	newAPIError  *types.NewAPIError
+	body         []byte
+	priceMonitor *channelPriceMonitorResult
+}
+
+type channelPriceMonitorResult struct {
+	Checked        bool     `json:"checked"`
+	RateMultiplier *float64 `json:"rate_multiplier,omitempty"`
+	Limit          *float64 `json:"limit,omitempty"`
+	Exceeded       bool     `json:"exceeded"`
+	Disabled       bool     `json:"disabled"`
+	Enabled        bool     `json:"enabled"`
+	Error          string   `json:"error,omitempty"`
+	source         *model.Channel
 }
 
 type channelTestOptions struct {
@@ -52,6 +64,7 @@ type channelTestOptions struct {
 	ForceChat              bool
 	MaxTokens              uint
 	Quiet                  bool
+	SkipPriceRecovery      bool
 }
 
 type channelTestResponseRecorder struct {
@@ -122,7 +135,19 @@ func testChannelWithOptions(ctx context.Context, channel *model.Channel, testUse
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	checkAndPersistChannelRateMultiplier(ctx, channel)
+	priceMonitor := checkAndPersistChannelRateMultiplier(ctx, channel)
+	if priceMonitor != nil && priceMonitor.source != nil {
+		channel = priceMonitor.source
+	}
+	result := runChannelTestWithOptions(ctx, channel, testUserID, testModel, endpointType, isStream, options)
+	result.priceMonitor = priceMonitor
+	if !options.SkipPriceRecovery && ctx.Err() == nil && result.localErr == nil && result.newAPIError == nil {
+		recoverChannelPriceMonitor(priceMonitor)
+	}
+	return result
+}
+
+func runChannelTestWithOptions(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool, options channelTestOptions) testResult {
 	if options.UseSSRFProtectedClient {
 		ctx = context.WithValue(ctx, constant.ContextKeySuppressUpstreamResponseLog, true)
 	}
@@ -608,41 +633,70 @@ func testChannelWithOptions(ctx context.Context, channel *model.Channel, testUse
 
 const channelRateMultiplierResponseBodyLimit = 1 << 20
 
-func checkAndPersistChannelRateMultiplier(ctx context.Context, channel *model.Channel) {
+func checkAndPersistChannelRateMultiplier(ctx context.Context, channel *model.Channel) *channelPriceMonitorResult {
 	if channel == nil {
-		return
+		return nil
 	}
 	settings := channel.GetOtherSettings()
 	if !settings.UpstreamRateMultiplierCheckEnabled {
-		return
+		return nil
 	}
+	result := &channelPriceMonitorResult{Limit: settings.UpstreamRateMultiplierLimit}
 	if settings.UpstreamRateMultiplierCheckType != dto.UpstreamRateMultiplierCheckTypeSub2API {
 		common.SysError(fmt.Sprintf("channel rate multiplier check has unsupported type: channel_id=%d type=%s", channel.Id, settings.UpstreamRateMultiplierCheckType))
-		return
+		result.Error = "Unsupported upstream rate multiplier check type"
+		return result
 	}
 
 	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	rateMultiplier, err := fetchSub2APIRateMultiplier(checkCtx, channel, nil)
-	if err != nil {
+	if err != nil || checkCtx.Err() != nil {
 		common.SysError(fmt.Sprintf("failed to fetch channel rate multiplier: channel_id=%d name=%s error=%v", channel.Id, channel.Name, err))
-		return
+		result.Error = "Failed to check upstream rate multiplier"
+		return result
 	}
 
-	updated, err := model.UpdateChannelAtomically(channel.Id, func(current *model.Channel) error {
-		remark := ""
-		if current.Remark != nil {
-			remark = *current.Remark
-		}
-		updatedRemark := replaceChannelRemarkFirstLine(remark, rateMultiplier)
-		current.Remark = common.GetPointer(updatedRemark)
-		return nil
-	})
+	updated, statusChanged, err := model.UpdateChannelRateMultiplier(channel, rateMultiplier, false)
 	if err != nil {
 		common.SysError(fmt.Sprintf("failed to persist channel rate multiplier: channel_id=%d name=%s error=%v", channel.Id, channel.Name, err))
+		result.Error = "Failed to persist upstream rate multiplier"
+		return result
+	}
+	result.source = updated
+	result.Checked = true
+	result.RateMultiplier = &rateMultiplier
+	result.Limit = updated.GetOtherSettings().UpstreamRateMultiplierLimit
+	result.Exceeded = result.Limit != nil && rateMultiplier > *result.Limit
+	result.Disabled = statusChanged && updated.Status == common.ChannelStatusAutoDisabled
+	if statusChanged {
+		service.SyncModelChannelAvailabilityAfterMutation("channel.price_disable")
+		common.SysLog(fmt.Sprintf("channel price monitor disabled channel: channel_id=%d rate_multiplier=%g limit=%g", channel.Id, rateMultiplier, *result.Limit))
+	}
+	return result
+}
+
+func recoverChannelPriceMonitor(result *channelPriceMonitorResult) {
+	if result == nil || !result.Checked || result.RateMultiplier == nil || result.Limit == nil {
 		return
 	}
-	model.CacheUpdateChannel(updated)
+	updated, statusChanged, err := model.UpdateChannelRateMultiplier(result.source, *result.RateMultiplier, true)
+	if err != nil {
+		result.Checked = false
+		result.Error = "Failed to apply upstream rate multiplier recovery"
+		common.SysError(fmt.Sprintf("failed to apply channel price recovery: channel_id=%d error=%v", result.source.Id, err))
+		return
+	}
+	result.source = updated
+	result.Limit = updated.GetOtherSettings().UpstreamRateMultiplierLimit
+	result.Exceeded = result.Limit != nil && *result.RateMultiplier > *result.Limit
+	if !statusChanged {
+		return
+	}
+	result.Enabled = updated.Status == common.ChannelStatusEnabled
+	result.Disabled = result.Disabled || updated.Status == common.ChannelStatusAutoDisabled
+	service.SyncModelChannelAvailabilityAfterMutation("channel.price_recovery")
+	common.SysLog(fmt.Sprintf("channel price monitor changed channel status: channel_id=%d status=%d rate_multiplier=%g", updated.Id, updated.Status, *result.RateMultiplier))
 }
 
 func fetchSub2APIRateMultiplier(ctx context.Context, channel *model.Channel, httpClient *http.Client) (float64, error) {
@@ -658,7 +712,8 @@ func fetchSub2APIRateMultiplier(ctx context.Context, channel *model.Channel, htt
 	if err != nil {
 		return 0, err
 	}
-	key := strings.TrimSpace(strings.Split(channel.Key, "\n")[0])
+	key, _, _ := strings.Cut(channel.Key, "\n")
+	key = strings.TrimSpace(key)
 	if key != "" {
 		request.Header.Set("Authorization", "Bearer "+key)
 	}
@@ -690,6 +745,9 @@ func fetchSub2APIRateMultiplier(ctx context.Context, channel *model.Channel, htt
 	if !value.Exists() {
 		return 0, errors.New("effective_rate_multiplier is missing")
 	}
+	if !gjson.ValidBytes(body) || (value.Type != gjson.Number && value.Type != gjson.String) {
+		return 0, errors.New("effective_rate_multiplier must be a number")
+	}
 	rateMultiplier := value.Float()
 	if value.Type == gjson.String {
 		rateMultiplier, err = strconv.ParseFloat(strings.TrimSpace(value.String()), 64)
@@ -701,17 +759,6 @@ func fetchSub2APIRateMultiplier(ctx context.Context, channel *model.Channel, htt
 		return 0, fmt.Errorf("invalid effective_rate_multiplier: %v", rateMultiplier)
 	}
 	return rateMultiplier, nil
-}
-
-func replaceChannelRemarkFirstLine(remark string, rateMultiplier float64) string {
-	firstLine := strconv.FormatFloat(rateMultiplier, 'f', -1, 64)
-	lines := strings.Split(remark, "\n")
-	lines[0] = firstLine
-	updated := strings.Join(lines, "\n")
-	if len([]rune(updated)) <= 255 {
-		return updated
-	}
-	return string([]rune(updated)[:255])
 }
 
 func attachTestBillingRequestInput(info *relaycommon.RelayInfo, request dto.Request) error {
@@ -1081,9 +1128,10 @@ func TestChannel(c *gin.Context) {
 	result := testChannel(requestCtx, channel, testUserID, testModel, endpointType, isStream)
 	if result.localErr != nil {
 		resp := gin.H{
-			"success": false,
-			"message": result.localErr.Error(),
-			"time":    0.0,
+			"success":       false,
+			"message":       result.localErr.Error(),
+			"time":          0.0,
+			"price_monitor": result.priceMonitor,
 		}
 		if result.newAPIError != nil {
 			resp["error_code"] = result.newAPIError.GetErrorCode()
@@ -1097,17 +1145,19 @@ func TestChannel(c *gin.Context) {
 	consumedTime := float64(milliseconds) / 1000.0
 	if result.newAPIError != nil {
 		c.JSON(http.StatusOK, gin.H{
-			"success":    false,
-			"message":    result.newAPIError.Error(),
-			"time":       consumedTime,
-			"error_code": result.newAPIError.GetErrorCode(),
+			"success":       false,
+			"message":       result.newAPIError.Error(),
+			"time":          consumedTime,
+			"error_code":    result.newAPIError.GetErrorCode(),
+			"price_monitor": result.priceMonitor,
 		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"time":    consumedTime,
+		"success":       true,
+		"message":       "",
+		"time":          consumedTime,
+		"price_monitor": result.priceMonitor,
 	})
 }
 
@@ -1125,7 +1175,7 @@ func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, test
 	summary := channelTestSummary{}
 	isChannelEnabled := channel.Status == common.ChannelStatusEnabled
 	tik := time.Now()
-	result := testChannel(ctx, channel, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(channel))
+	result := testChannelWithOptions(ctx, channel, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(channel), channelTestOptions{SkipPriceRecovery: true})
 	milliseconds := time.Since(tik).Milliseconds()
 	if ctx.Err() != nil {
 		return summary
@@ -1147,20 +1197,35 @@ func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, test
 		}
 	}
 
-	if newAPIError == nil {
+	if newAPIError == nil && result.localErr == nil {
 		summary.Succeeded++
+		recoverChannelPriceMonitor(result.priceMonitor)
 	} else {
 		summary.Failed++
 	}
 
-	if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
+	if result.priceMonitor != nil {
+		if result.priceMonitor.Disabled {
+			summary.Disabled++
+		}
+		if result.priceMonitor.Enabled {
+			summary.Enabled++
+		}
+	}
+
+	if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() && (result.priceMonitor == nil || !result.priceMonitor.Disabled) {
 		processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, nil)
 		summary.Disabled++
 	}
 
 	if result.localErr == nil && !isChannelEnabled && service.ShouldEnableChannel(newAPIError, channel.Status) {
-		service.EnableChannel(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name)
-		summary.Enabled++
+		var rateMultiplier *float64
+		if result.priceMonitor != nil && result.priceMonitor.Checked {
+			rateMultiplier = result.priceMonitor.RateMultiplier
+		}
+		if service.EnableChannel(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name, channel, rateMultiplier) {
+			summary.Enabled++
+		}
 	}
 
 	channel.UpdateResponseTime(milliseconds)
@@ -1319,10 +1384,11 @@ func selectChannelsForAutomaticTest(channels []*model.Channel, mode string) []*m
 		if channel.Status == common.ChannelStatusManuallyDisabled {
 			continue
 		}
-		if mode == operation_setting.ChannelTestModeAutoBanOnly && !channel.GetAutoBan() {
+		priceProtected := channel.GetOtherSettings().HasRateMultiplierLimit()
+		if mode == operation_setting.ChannelTestModeAutoBanOnly && !channel.GetAutoBan() && !priceProtected {
 			continue
 		}
-		if mode == operation_setting.ChannelTestModePassiveRecovery && channel.Status != common.ChannelStatusAutoDisabled {
+		if mode == operation_setting.ChannelTestModePassiveRecovery && channel.Status != common.ChannelStatusAutoDisabled && !priceProtected {
 			continue
 		}
 		selected = append(selected, channel)

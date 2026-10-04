@@ -2,6 +2,7 @@ package dto
 
 import (
 	"fmt"
+	"math"
 	"net/url"
 	"regexp"
 	"strings"
@@ -111,6 +112,7 @@ type ChannelOtherSettings struct {
 	UpstreamModelUpdateIgnoredModels      []string              `json:"upstream_model_update_ignored_models,omitempty"`       // 手动忽略的模型
 	UpstreamRateMultiplierCheckEnabled    bool                  `json:"upstream_rate_multiplier_check_enabled,omitempty"`     // 是否在渠道测试时检测上游倍率
 	UpstreamRateMultiplierCheckType       string                `json:"upstream_rate_multiplier_check_type,omitempty"`        // 上游倍率检测类型
+	UpstreamRateMultiplierLimit           *float64              `json:"upstream_rate_multiplier_limit,omitempty"`
 	AdvancedCustom                        *AdvancedCustomConfig `json:"advanced_custom,omitempty"`
 	// ToolLossPolicy is a channel-level opt-in for request-phase conversion
 	// rejection. Empty follows the default allow policy. Accepted values:
@@ -119,6 +121,23 @@ type ChannelOtherSettings struct {
 }
 
 const UpstreamRateMultiplierCheckTypeSub2API = "sub2api"
+
+func (s ChannelOtherSettings) ValidateUpstreamRateMultiplier() error {
+	if s.UpstreamRateMultiplierCheckEnabled && s.UpstreamRateMultiplierCheckType != UpstreamRateMultiplierCheckTypeSub2API {
+		return fmt.Errorf("unsupported upstream rate multiplier check type: %s", s.UpstreamRateMultiplierCheckType)
+	}
+	if s.UpstreamRateMultiplierLimit != nil {
+		limit := *s.UpstreamRateMultiplierLimit
+		if math.IsNaN(limit) || math.IsInf(limit, 0) || limit <= 0 {
+			return fmt.Errorf("upstream_rate_multiplier_limit must be a finite positive number")
+		}
+	}
+	return nil
+}
+
+func (s ChannelOtherSettings) HasRateMultiplierLimit() bool {
+	return s.UpstreamRateMultiplierCheckEnabled && s.UpstreamRateMultiplierLimit != nil
+}
 
 func (s *ChannelOtherSettings) IsOpenRouterEnterprise() bool {
 	if s == nil || s.OpenRouterEnterprise == nil {

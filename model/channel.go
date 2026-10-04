@@ -989,6 +989,14 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 // UpdateChannelStatusWithError applies a status change and distinguishes a
 // no-op from persistence or validation failures for management APIs.
 func UpdateChannelStatusWithError(channelId int, usingKey string, status int, reason string) (bool, error) {
+	return updateChannelStatusWithError(channelId, usingKey, status, reason, false, nil, nil)
+}
+
+func EnableChannelAfterHealthCheck(channelId int, usingKey string, testedChannel *Channel, rateMultiplier *float64) (bool, error) {
+	return updateChannelStatusWithError(channelId, usingKey, common.ChannelStatusEnabled, "", true, testedChannel, rateMultiplier)
+}
+
+func updateChannelStatusWithError(channelId int, usingKey string, status int, reason string, healthRecovery bool, testedChannel *Channel, rateMultiplier *float64) (bool, error) {
 	if common.MemoryCacheEnabled {
 		channelStatusLock.Lock()
 		defer channelStatusLock.Unlock()
@@ -1018,6 +1026,21 @@ func UpdateChannelStatusWithError(channelId int, usingKey string, status int, re
 		}
 		if err := lockForUpdate(tx).Where("id = ?", channelId).First(channel).Error; err != nil {
 			return err
+		}
+		if healthRecovery {
+			if channel.Status != common.ChannelStatusAutoDisabled || channel.IsPriceMonitorDisabled() {
+				return nil
+			}
+			if testedChannel != nil && !channel.SameRateMultiplierSource(testedChannel) {
+				return nil
+			}
+			settings := channel.GetOtherSettings()
+			if settings.HasRateMultiplierLimit() {
+				if rateMultiplier == nil || *rateMultiplier > *settings.UpstreamRateMultiplierLimit ||
+					!channel.HasObservedRateMultiplier(*rateMultiplier) {
+					return nil
+				}
+			}
 		}
 		if usingKey == "" && status == common.ChannelStatusEnabled &&
 			channel.ChannelInfo.IsMultiKey && !channel.HasEnabledMultiKey() {
@@ -1473,9 +1496,8 @@ func (channel *Channel) ValidateSettings() error {
 			return err
 		}
 	}
-	if channelOtherSettings.UpstreamRateMultiplierCheckEnabled &&
-		channelOtherSettings.UpstreamRateMultiplierCheckType != dto.UpstreamRateMultiplierCheckTypeSub2API {
-		return fmt.Errorf("unsupported upstream rate multiplier check type: %s", channelOtherSettings.UpstreamRateMultiplierCheckType)
+	if err := channelOtherSettings.ValidateUpstreamRateMultiplier(); err != nil {
+		return err
 	}
 	if channel.Type == constant.ChannelTypeAdvancedCustom && channelOtherSettings.UpstreamModelUpdateCheckEnabled {
 		if _, ok := channelOtherSettings.AdvancedCustom.ModelListRoute(); !ok {

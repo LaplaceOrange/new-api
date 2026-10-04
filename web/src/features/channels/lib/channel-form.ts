@@ -301,6 +301,14 @@ export const channelFormSchema = z
     upstream_model_update_ignored_models: z.string().optional(),
     upstream_rate_multiplier_check_enabled: z.boolean().optional(),
     upstream_rate_multiplier_check_type: z.enum(['sub2api']).optional(),
+    upstream_rate_multiplier_limit: z
+      .number({
+        error: 'Rate multiplier limit must be a finite positive number',
+      })
+      .positive({
+        error: 'Rate multiplier limit must be a finite positive number',
+      })
+      .optional(),
   })
   .superRefine((data, ctx) => {
     if (
@@ -485,6 +493,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   upstream_model_update_ignored_models: '',
   upstream_rate_multiplier_check_enabled: false,
   upstream_rate_multiplier_check_type: 'sub2api',
+  upstream_rate_multiplier_limit: undefined,
   advanced_custom: '',
 }
 
@@ -559,6 +568,7 @@ export function transformChannelToFormDefaults(
   let upstreamModelUpdateAutoSyncEnabled = false
   let upstreamModelUpdateIgnoredModels = ''
   let upstreamRateMultiplierCheckEnabled = false
+  let upstreamRateMultiplierLimit: number | undefined
   const upstreamRateMultiplierCheckType = 'sub2api' as const
   let advancedCustom = ''
 
@@ -588,6 +598,9 @@ export function transformChannelToFormDefaults(
         : ''
       upstreamRateMultiplierCheckEnabled =
         parsed.upstream_rate_multiplier_check_enabled === true
+      if (typeof parsed.upstream_rate_multiplier_limit === 'number') {
+        upstreamRateMultiplierLimit = parsed.upstream_rate_multiplier_limit
+      }
       if (parsed.advanced_custom) {
         advancedCustom = stringifyAdvancedCustomConfig(parsed.advanced_custom)
       }
@@ -647,6 +660,7 @@ export function transformChannelToFormDefaults(
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
     upstream_rate_multiplier_check_enabled: upstreamRateMultiplierCheckEnabled,
     upstream_rate_multiplier_check_type: upstreamRateMultiplierCheckType,
+    upstream_rate_multiplier_limit: upstreamRateMultiplierLimit,
     advanced_custom: advancedCustom,
   }
 }
@@ -817,6 +831,12 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     formData.upstream_rate_multiplier_check_enabled === true
   settingsObj.upstream_rate_multiplier_check_type =
     formData.upstream_rate_multiplier_check_type || 'sub2api'
+  if (formData.upstream_rate_multiplier_limit == null) {
+    delete settingsObj.upstream_rate_multiplier_limit
+  } else {
+    settingsObj.upstream_rate_multiplier_limit =
+      formData.upstream_rate_multiplier_limit
+  }
 
   if (formData.type === CHANNEL_TYPE_ADVANCED_CUSTOM) {
     const advancedCustomConfig = parseAdvancedCustomConfig(

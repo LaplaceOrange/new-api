@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strconv"
 	"sync/atomic"
 	"testing"
 
@@ -17,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -127,9 +131,383 @@ func TestCheckAndPersistChannelRateMultiplierUpdatesRemark(t *testing.T) {
 	assert.Equal(t, "1.25\nkeep this note", *persisted.Remark)
 }
 
-func TestReplaceChannelRemarkFirstLinePreservesEmptyRemark(t *testing.T) {
-	assert.Equal(t, "1.25", replaceChannelRemarkFirstLine("", 1.25))
-	assert.Equal(t, "1.25\nsecond", replaceChannelRemarkFirstLine("old\nsecond", 1.25))
+func newPriceMonitorTestChannel(t *testing.T, baseURL string, limit *float64) *model.Channel {
+	t.Helper()
+	channel := &model.Channel{
+		Type: constant.ChannelTypeOpenAI, Name: "price monitor", Key: "test-key",
+		BaseURL: &baseURL, Models: "gpt-4o-mini,secondary", Group: "default",
+		Status: common.ChannelStatusEnabled, AutoBan: common.GetPointer(0),
+		Remark: common.GetPointer("old\noperator note"),
+	}
+	channel.SetOtherSettings(dto.ChannelOtherSettings{
+		UpstreamRateMultiplierCheckEnabled: true,
+		UpstreamRateMultiplierCheckType:    dto.UpstreamRateMultiplierCheckTypeSub2API,
+		UpstreamRateMultiplierLimit:        limit,
+	})
+	require.NoError(t, channel.Insert())
+	return channel
+}
+
+func TestChannelPriceMonitorDatabaseMatrix(t *testing.T) {
+	for _, dialect := range []struct{ kind, env string }{
+		{"sqlite", ""}, {"mysql", "TEST_MYSQL_DSN"}, {"postgres", "TEST_POSTGRES_DSN"},
+	} {
+		t.Run(dialect.kind, func(t *testing.T) {
+			if dialect.env != "" && os.Getenv(dialect.env) == "" {
+				t.Skip("set " + dialect.env + " to run this database")
+			}
+			db := modelManagementDB(t, dialect.kind, os.Getenv(dialect.env))
+			require.NoError(t, db.AutoMigrate(&model.ChannelContribution{}, &model.ChannelContributionRevision{}, &model.ChannelContributionModelHealth{}))
+			for _, memoryCache := range []bool{false, true} {
+				t.Run(fmt.Sprintf("memory_cache_%t", memoryCache), func(t *testing.T) {
+					common.MemoryCacheEnabled = memoryCache
+					model.InitChannelCache()
+					rateMultiplier := 1.25
+					billingFailed := false
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+						if billingFailed {
+							w.WriteHeader(http.StatusBadGateway)
+							return
+						}
+						_, _ = fmt.Fprintf(w, `{"effective_rate_multiplier":%g}`, rateMultiplier)
+					}))
+					t.Cleanup(server.Close)
+					channel := newPriceMonitorTestChannel(t, server.URL, common.GetPointer(1.0))
+					channel.ChannelInfo.IsMultiKey = true
+					channel.ChannelInfo.MultiKeyStatusList = map[int]int{1: common.ChannelStatusManuallyDisabled}
+					channel.ChannelInfo.DisabledModels = map[string]bool{"secondary": true}
+					channel.Key = "test-key\nsecond-key"
+					updated, err := model.UpdateChannelAtomically(channel.Id, func(current *model.Channel) error {
+						current.Key = channel.Key
+						current.ChannelInfo = channel.ChannelInfo
+						return nil
+					})
+					require.NoError(t, err)
+					model.CacheUpdateChannel(updated)
+					channel = updated
+
+					result := checkAndPersistChannelRateMultiplier(context.Background(), channel)
+					require.NotNil(t, result)
+					assert.True(t, result.Disabled)
+					assert.True(t, result.Exceeded)
+					var stored model.Channel
+					require.NoError(t, db.First(&stored, channel.Id).Error)
+					assert.Equal(t, common.ChannelStatusAutoDisabled, stored.Status)
+					assert.True(t, stored.IsPriceMonitorDisabled())
+					assert.Equal(t, "1.25\noperator note", *stored.Remark)
+					assert.Equal(t, channel.ChannelInfo.MultiKeyStatusList, stored.ChannelInfo.MultiKeyStatusList)
+					assert.False(t, model.IsChannelEnabledForGroupModel("default", "gpt-4o-mini", channel.Id))
+					cached, err := model.CacheGetChannel(channel.Id)
+					require.NoError(t, err)
+					assert.Equal(t, stored.Status, cached.Status)
+
+					repeated := checkAndPersistChannelRateMultiplier(context.Background(), &stored)
+					assert.False(t, repeated.Disabled)
+					assert.Equal(t, stored.GetOtherInfo()["status_time"], repeated.source.GetOtherInfo()["status_time"])
+					changed, err := model.EnableChannelAfterHealthCheck(channel.Id, "test-key", channel, result.RateMultiplier)
+					require.NoError(t, err)
+					assert.False(t, changed)
+
+					billingFailed = true
+					failed := checkAndPersistChannelRateMultiplier(context.Background(), &stored)
+					assert.False(t, failed.Checked)
+					recoverChannelPriceMonitor(failed)
+					require.NoError(t, db.First(&stored, channel.Id).Error)
+					assert.Equal(t, common.ChannelStatusAutoDisabled, stored.Status)
+					assert.Equal(t, "1.25\noperator note", *stored.Remark)
+
+					billingFailed = false
+					rateMultiplier = 1
+					safe := checkAndPersistChannelRateMultiplier(context.Background(), &stored)
+					assert.False(t, safe.Exceeded)
+					require.NoError(t, db.First(&stored, channel.Id).Error)
+					assert.Equal(t, common.ChannelStatusAutoDisabled, stored.Status, "price drop alone does not establish health")
+					recoverChannelPriceMonitor(safe)
+					assert.True(t, safe.Enabled)
+					require.NoError(t, db.First(&stored, channel.Id).Error)
+					assert.Equal(t, common.ChannelStatusEnabled, stored.Status)
+					assert.False(t, stored.IsPriceMonitorDisabled())
+					assert.Equal(t, channel.ChannelInfo.MultiKeyStatusList, stored.ChannelInfo.MultiKeyStatusList)
+					assert.True(t, model.IsChannelEnabledForGroupModel("default", "gpt-4o-mini", channel.Id))
+					assert.False(t, model.IsChannelEnabledForGroupModel("default", "secondary", channel.Id))
+					cached, err = model.CacheGetChannel(channel.Id)
+					require.NoError(t, err)
+					assert.Equal(t, stored.Status, cached.Status)
+
+					rateMultiplier = 2
+					assert.True(t, checkAndPersistChannelRateMultiplier(context.Background(), &stored).Disabled)
+					changed, err = model.UpdateChannelStatusWithError(channel.Id, "", common.ChannelStatusEnabled, "manual operation")
+					require.NoError(t, err)
+					require.True(t, changed)
+					assert.True(t, checkAndPersistChannelRateMultiplier(context.Background(), &stored).Disabled)
+					_, err = model.UpdateChannelStatusWithError(channel.Id, "", common.ChannelStatusManuallyDisabled, "manual operation")
+					require.NoError(t, err)
+					rateMultiplier = 0.5
+					manual := checkAndPersistChannelRateMultiplier(context.Background(), &stored)
+					recoverChannelPriceMonitor(manual)
+					assert.False(t, manual.Enabled)
+					require.NoError(t, db.First(&stored, channel.Id).Error)
+					assert.Equal(t, common.ChannelStatusManuallyDisabled, stored.Status)
+				})
+			}
+		})
+	}
+}
+
+func TestChannelPriceMonitorPreservesOtherDisableReasonsAndLatestConfiguration(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	channel := newPriceMonitorTestChannel(t, "https://billing.example", common.GetPointer(1.0))
+	changed, err := model.UpdateChannelStatusWithError(channel.Id, "", common.ChannelStatusAutoDisabled, "upstream unhealthy")
+	require.NoError(t, err)
+	require.True(t, changed)
+	updated, changed, err := model.UpdateChannelRateMultiplier(channel, 2, false)
+	require.NoError(t, err)
+	assert.False(t, changed)
+	assert.False(t, updated.IsPriceMonitorDisabled())
+	assert.Equal(t, "upstream unhealthy", updated.GetOtherInfo()["status_reason"])
+	updated, _, err = model.UpdateChannelRateMultiplier(channel, 0.5, false)
+	require.NoError(t, err)
+	_, changed, err = model.UpdateChannelRateMultiplier(updated, 0.5, true)
+	require.NoError(t, err)
+	assert.False(t, changed)
+
+	_, err = model.UpdateChannelStatusWithError(channel.Id, "", common.ChannelStatusEnabled, "manual operation")
+	require.NoError(t, err)
+	_, err = model.UpdateChannelAtomically(channel.Id, func(current *model.Channel) error {
+		settings := current.GetOtherSettings()
+		settings.UpstreamRateMultiplierLimit = common.GetPointer(3.0)
+		current.SetOtherSettings(settings)
+		return nil
+	})
+	require.NoError(t, err)
+	updated, changed, err = model.UpdateChannelRateMultiplier(channel, 2, false)
+	require.NoError(t, err)
+	assert.False(t, changed, "use the latest limit instead of the test snapshot")
+	assert.Equal(t, common.ChannelStatusEnabled, updated.Status)
+
+	_, _, err = model.UpdateChannelRateMultiplier(channel, 4, false)
+	require.NoError(t, err)
+	updated, _, err = model.UpdateChannelRateMultiplier(channel, 2, false)
+	require.NoError(t, err)
+	_, _, err = model.UpdateChannelRateMultiplier(channel, 4, false)
+	require.NoError(t, err)
+	_, _, err = model.UpdateChannelRateMultiplier(updated, 2, true)
+	require.Error(t, err, "an older healthy test cannot overwrite a newer price observation")
+
+	_, err = model.UpdateChannelAtomically(channel.Id, func(current *model.Channel) error {
+		current.BaseURL = common.GetPointer("https://replacement.example")
+		return nil
+	})
+	require.NoError(t, err)
+	_, _, err = model.UpdateChannelRateMultiplier(channel, 0.5, false)
+	require.Error(t, err)
+	var stored model.Channel
+	require.NoError(t, db.First(&stored, channel.Id).Error)
+	assert.Equal(t, "4\noperator note", *stored.Remark)
+	assert.Equal(t, common.ChannelStatusAutoDisabled, stored.Status)
+}
+
+func TestChannelPriceMonitorWithoutLimitOnlyUpdatesRemark(t *testing.T) {
+	setupModelListControllerTestDB(t)
+	channel := newPriceMonitorTestChannel(t, "https://billing.example", nil)
+	channel.Remark = nil
+	_, err := model.UpdateChannelAtomically(channel.Id, func(current *model.Channel) error {
+		current.Remark = nil
+		return nil
+	})
+	require.NoError(t, err)
+	updated, changed, err := model.UpdateChannelRateMultiplier(channel, 10, false)
+	require.NoError(t, err)
+	assert.False(t, changed)
+	assert.Equal(t, "10", *updated.Remark)
+	assert.Equal(t, common.ChannelStatusEnabled, updated.Status)
+}
+
+func TestChannelPriceMonitorRecoveryRequiresActiveLimitAndUsableKeys(t *testing.T) {
+	setupModelListControllerTestDB(t)
+	for _, scenario := range []string{"check disabled", "limit removed", "no usable key"} {
+		t.Run(scenario, func(t *testing.T) {
+			channel := newPriceMonitorTestChannel(t, "https://billing.example", common.GetPointer(1.0))
+			_, _, err := model.UpdateChannelRateMultiplier(channel, 2, false)
+			require.NoError(t, err)
+			safe, _, err := model.UpdateChannelRateMultiplier(channel, 0.5, false)
+			require.NoError(t, err)
+			_, err = model.UpdateChannelAtomically(channel.Id, func(current *model.Channel) error {
+				settings := current.GetOtherSettings()
+				switch scenario {
+				case "check disabled":
+					settings.UpstreamRateMultiplierCheckEnabled = false
+				case "limit removed":
+					settings.UpstreamRateMultiplierLimit = nil
+				case "no usable key":
+					current.ChannelInfo.IsMultiKey = true
+					current.ChannelInfo.MultiKeyStatusList = map[int]int{0: common.ChannelStatusManuallyDisabled}
+				}
+				current.SetOtherSettings(settings)
+				return nil
+			})
+			require.NoError(t, err)
+			_, changed, err := model.UpdateChannelRateMultiplier(safe, 0.5, true)
+			if scenario == "check disabled" {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.False(t, changed)
+			stored, err := model.GetChannelById(channel.Id, true)
+			require.NoError(t, err)
+			assert.Equal(t, common.ChannelStatusAutoDisabled, stored.Status)
+			changed, err = model.EnableChannelAfterHealthCheck(channel.Id, "", safe, nil)
+			require.NoError(t, err)
+			assert.False(t, changed)
+		})
+	}
+}
+
+func TestChannelPriceMonitorRejectsInvalidLimitsAndUpstreamValues(t *testing.T) {
+	for _, limit := range []float64{0, -1, math.NaN(), math.Inf(1), math.Inf(-1)} {
+		settings := dto.ChannelOtherSettings{UpstreamRateMultiplierLimit: &limit}
+		require.Error(t, settings.ValidateUpstreamRateMultiplier())
+	}
+	channel := &model.Channel{Type: constant.ChannelTypeOpenAI}
+	channel.OtherSettings = `{"upstream_rate_multiplier_limit":0}`
+	require.ErrorContains(t, validateChannel(channel, false), "finite positive number")
+	for _, payload := range []string{
+		`{}`, `{"effective_rate_multiplier":0}`, `{"effective_rate_multiplier":-1}`,
+		`{"effective_rate_multiplier":true}`, `{"effective_rate_multiplier":null}`,
+		`{"effective_rate_multiplier":"NaN"}`, `{"effective_rate_multiplier":"Inf"}`,
+		`{"effective_rate_multiplier":[]}`, `{"effective_rate_multiplier":1`,
+	} {
+		t.Run(payload, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(payload))
+			}))
+			t.Cleanup(server.Close)
+			channel := &model.Channel{BaseURL: common.GetPointer(server.URL)}
+			_, err := fetchSub2APIRateMultiplier(context.Background(), channel, server.Client())
+			require.Error(t, err)
+		})
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"effective_rate_multiplier":"1.25"}`))
+	}))
+	t.Cleanup(server.Close)
+	channel.BaseURL = common.GetPointer(server.URL)
+	value, err := fetchSub2APIRateMultiplier(context.Background(), channel, server.Client())
+	require.NoError(t, err)
+	assert.Equal(t, 1.25, value)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = fetchSub2APIRateMultiplier(ctx, channel, server.Client())
+	require.Error(t, err)
+}
+
+func TestChannelPriceMonitorManualAndAutomaticHealthTests(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Log{}))
+	previousDisable, previousEnable := common.AutomaticDisableChannelEnabled, common.AutomaticEnableChannelEnabled
+	previousRatios := ratio_setting.ModelRatio2JSONString()
+	common.AutomaticDisableChannelEnabled, common.AutomaticEnableChannelEnabled = false, false
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"gpt-4o-mini":1}`))
+	t.Cleanup(func() {
+		common.AutomaticDisableChannelEnabled, common.AutomaticEnableChannelEnabled = previousDisable, previousEnable
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(previousRatios))
+	})
+	user := &model.User{Username: "price-test-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled, Group: "default"}
+	require.NoError(t, db.Create(user).Error)
+	rateMultiplier := 2.0
+	healthy := true
+	billingHealthy := true
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/v1/sub2api/billing" {
+			if !billingHealthy {
+				w.WriteHeader(http.StatusBadGateway)
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"effective_rate_multiplier":%g}`, rateMultiplier)
+			return
+		}
+		if !healthy {
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"error":{"message":"unhealthy","type":"upstream_error"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"health","object":"chat.completion","model":"gpt-4o-mini","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))
+	}))
+	t.Cleanup(server.Close)
+	channel := newPriceMonitorTestChannel(t, server.URL, common.GetPointer(1.0))
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Set("id", user.Id)
+	ctx.Params = gin.Params{{Key: "id", Value: strconv.Itoa(channel.Id)}}
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/channel/test/"+strconv.Itoa(channel.Id), nil)
+	TestChannel(ctx)
+	var response struct {
+		Success      bool                      `json:"success"`
+		PriceMonitor channelPriceMonitorResult `json:"price_monitor"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	require.True(t, response.Success, recorder.Body.String())
+	assert.True(t, response.PriceMonitor.Disabled)
+	assert.True(t, response.PriceMonitor.Exceeded)
+	require.NoError(t, db.First(channel, channel.Id).Error)
+	assert.Equal(t, common.ChannelStatusAutoDisabled, channel.Status)
+
+	rateMultiplier = 0.5
+	billingHealthy = false
+	common.AutomaticEnableChannelEnabled = true
+	summary := testChannelForHealthCheck(context.Background(), channel, user.Id, true, 10000000)
+	assert.Equal(t, 1, summary.Succeeded)
+	assert.Zero(t, summary.Enabled, "successful connectivity cannot bypass a failed price check")
+	require.NoError(t, db.First(channel, channel.Id).Error)
+	assert.Equal(t, common.ChannelStatusAutoDisabled, channel.Status)
+	assert.Equal(t, "2\noperator note", *channel.Remark)
+
+	billingHealthy = true
+	common.AutomaticEnableChannelEnabled = false
+	healthy = false
+	summary = testChannelForHealthCheck(context.Background(), channel, user.Id, true, 10000000)
+	assert.Equal(t, 1, summary.Failed)
+	assert.Zero(t, summary.Enabled)
+	require.NoError(t, db.First(channel, channel.Id).Error)
+	assert.Equal(t, common.ChannelStatusAutoDisabled, channel.Status)
+
+	healthy = true
+	common.AutomaticDisableChannelEnabled = true
+	summary = testChannelForHealthCheck(context.Background(), channel, user.Id, true, -1)
+	assert.Equal(t, 1, summary.Failed)
+	assert.Zero(t, summary.Enabled, "price recovery must wait for the response-time health check too")
+	require.NoError(t, db.First(channel, channel.Id).Error)
+	assert.Equal(t, common.ChannelStatusAutoDisabled, channel.Status)
+
+	common.AutomaticDisableChannelEnabled = false
+	summary = testChannelForHealthCheck(context.Background(), channel, user.Id, true, 10000000)
+	assert.Equal(t, 1, summary.Succeeded)
+	assert.Equal(t, 1, summary.Enabled)
+	require.NoError(t, db.First(channel, channel.Id).Error)
+	assert.Equal(t, common.ChannelStatusEnabled, channel.Status)
+
+	rateMultiplier = 2
+	summary = testChannelForHealthCheck(context.Background(), channel, user.Id, false, 10000000)
+	assert.Equal(t, 1, summary.Disabled, "price protection also applies in passive recovery mode")
+	require.NoError(t, db.First(channel, channel.Id).Error)
+	assert.Equal(t, common.ChannelStatusAutoDisabled, channel.Status)
+}
+
+func TestSelectChannelsForAutomaticTestIncludesPriceProtectionWithoutAutoBan(t *testing.T) {
+	setupModelListControllerTestDB(t)
+	channel := &model.Channel{Id: 1, Status: common.ChannelStatusEnabled, AutoBan: common.GetPointer(0)}
+	channel.SetOtherSettings(dto.ChannelOtherSettings{
+		UpstreamRateMultiplierCheckEnabled: true,
+		UpstreamRateMultiplierCheckType:    dto.UpstreamRateMultiplierCheckTypeSub2API,
+		UpstreamRateMultiplierLimit:        common.GetPointer(1.0),
+	})
+	for _, mode := range []string{operation_setting.ChannelTestModeAutoBanOnly, operation_setting.ChannelTestModePassiveRecovery} {
+		assert.Equal(t, []*model.Channel{channel}, selectChannelsForAutomaticTest([]*model.Channel{channel}, mode))
+	}
+	channel.Status = common.ChannelStatusManuallyDisabled
+	assert.Empty(t, selectChannelsForAutomaticTest([]*model.Channel{channel}, operation_setting.ChannelTestModeScheduledAll))
 }
 
 func TestChannelTestResponseRecorderLimitsStringWrites(t *testing.T) {

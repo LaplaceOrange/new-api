@@ -43,7 +43,11 @@ import {
   updateChannelBalance,
 } from '../api'
 import { CHANNEL_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
-import type { ChannelTestResponse, CopyChannelParams } from '../types'
+import type {
+  ChannelPriceMonitorResult,
+  ChannelTestResponse,
+  CopyChannelParams,
+} from '../types'
 
 // ============================================================================
 // Query Keys
@@ -295,7 +299,8 @@ export async function handleTestChannel(
     success: boolean,
     responseTime?: number,
     error?: string,
-    errorCode?: string
+    errorCode?: string,
+    priceMonitor?: ChannelPriceMonitorResult | null
   ) => void
 ): Promise<void> {
   const payload =
@@ -314,6 +319,33 @@ export async function handleTestChannel(
     const responseTime = getChannelTestResponseTime(response)
     const duration = formatChannelTestDuration(responseTime)
     const target = getChannelTestLabel(options)
+    const priceMonitor = response.price_monitor
+    if (!options?.silent && priceMonitor) {
+      if (priceMonitor.disabled) {
+        toast.warning(
+          i18next.t(
+            'Channel disabled by price protection: {{rate}} > {{limit}}',
+            {
+              rate: priceMonitor.rate_multiplier,
+              limit: priceMonitor.limit,
+            }
+          )
+        )
+      } else if (priceMonitor.enabled) {
+        toast.success(i18next.t('Channel restored after price recovery'))
+      } else if (priceMonitor.error) {
+        toast.warning(
+          i18next.t('Price check failed; channel status is unchanged')
+        )
+      } else if (priceMonitor.exceeded) {
+        toast.warning(
+          i18next.t('Price limit exceeded: {{rate}} > {{limit}}', {
+            rate: priceMonitor.rate_multiplier,
+            limit: priceMonitor.limit,
+          })
+        )
+      }
+    }
     if (response.success) {
       if (!options?.silent) {
         toast.success(
@@ -327,7 +359,7 @@ export async function handleTestChannel(
             : undefined
         )
       }
-      onTestComplete?.(true, responseTime)
+      onTestComplete?.(true, responseTime, undefined, undefined, priceMonitor)
     } else {
       const errorMsg = response.message || i18next.t(ERROR_MESSAGES.TEST_FAILED)
       if (!options?.silent) {
@@ -338,7 +370,13 @@ export async function handleTestChannel(
             : errorMsg,
         })
       }
-      onTestComplete?.(false, responseTime, errorMsg, response.error_code)
+      onTestComplete?.(
+        false,
+        responseTime,
+        errorMsg,
+        response.error_code,
+        priceMonitor
+      )
     }
   } catch (_error: unknown) {
     const err = _error as { response?: { data?: { message?: string } } }

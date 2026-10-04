@@ -1,15 +1,110 @@
 package model
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 
 	"gorm.io/gorm"
 )
+
+var errRateMultiplierObservationChanged = errors.New("channel rate multiplier configuration or observation changed")
+
+func (channel *Channel) IsPriceMonitorDisabled() bool {
+	info := channel.GetOtherInfo()
+	reason, ok := info["price_monitor_disabled_reason"].(string)
+	return channel.Status == common.ChannelStatusAutoDisabled && ok && reason != "" && info["status_reason"] == reason
+}
+
+func (channel *Channel) SameRateMultiplierSource(other *Channel) bool {
+	return other != nil && channel.Type == other.Type && channel.Key == other.Key &&
+		channel.GetBaseURL() == other.GetBaseURL() && channel.GetSetting().Proxy == other.GetSetting().Proxy
+}
+
+func (channel *Channel) HasObservedRateMultiplier(rateMultiplier float64) bool {
+	if channel.Remark == nil {
+		return false
+	}
+	firstLine, _, _ := strings.Cut(*channel.Remark, "\n")
+	return firstLine == strconv.FormatFloat(rateMultiplier, 'f', -1, 64)
+}
+
+func UpdateChannelRateMultiplier(source *Channel, rateMultiplier float64, recoverPrice bool) (*Channel, bool, error) {
+	if source == nil || math.IsNaN(rateMultiplier) || math.IsInf(rateMultiplier, 0) || rateMultiplier <= 0 {
+		return nil, false, fmt.Errorf("invalid channel rate multiplier")
+	}
+	pollingLock := GetChannelPollingLock(source.Id)
+	pollingLock.Lock()
+	defer pollingLock.Unlock()
+
+	statusChanged := false
+	updated, err := UpdateChannelAtomically(source.Id, func(current *Channel) error {
+		settings := current.GetOtherSettings()
+		if !settings.UpstreamRateMultiplierCheckEnabled || !current.SameRateMultiplierSource(source) {
+			return errRateMultiplierObservationChanged
+		}
+		if err := settings.ValidateUpstreamRateMultiplier(); err != nil {
+			return err
+		}
+		if recoverPrice {
+			if !current.HasObservedRateMultiplier(rateMultiplier) {
+				return errRateMultiplierObservationChanged
+			}
+		} else {
+			remark := ""
+			if current.Remark != nil {
+				remark = *current.Remark
+			}
+			_, remaining, multiline := strings.Cut(remark, "\n")
+			remark = strconv.FormatFloat(rateMultiplier, 'f', -1, 64)
+			if multiline {
+				remark += "\n" + remaining
+			}
+			runes := []rune(remark)
+			if len(runes) > 255 {
+				remark = string(runes[:255])
+			}
+			current.Remark = &remark
+		}
+		if !settings.HasRateMultiplierLimit() || current.Status == common.ChannelStatusManuallyDisabled {
+			return nil
+		}
+		info := current.GetOtherInfo()
+		if rateMultiplier > *settings.UpstreamRateMultiplierLimit {
+			if current.Status != common.ChannelStatusEnabled {
+				return nil
+			}
+			reason := fmt.Sprintf("Upstream rate multiplier %g exceeds configured limit %g", rateMultiplier, *settings.UpstreamRateMultiplierLimit)
+			info["price_monitor_disabled_reason"] = reason
+			info["status_reason"] = reason
+			info["status_time"] = common.GetTimestamp()
+			current.Status = common.ChannelStatusAutoDisabled
+			statusChanged = true
+		} else if recoverPrice && current.IsPriceMonitorDisabled() {
+			if current.ChannelInfo.IsMultiKey && !current.HasEnabledMultiKey() {
+				return nil
+			}
+			current.Status = common.ChannelStatusEnabled
+			delete(info, "price_monitor_disabled_reason")
+			delete(info, "status_reason")
+			delete(info, "status_time")
+			statusChanged = true
+		}
+		current.SetOtherInfo(info)
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	CacheUpdateChannel(updated)
+	return updated, statusChanged, nil
+}
 
 // ReplaceMultiKeyKeys preserves per-key health state for credentials that
 // remain present after an append or replacement operation.

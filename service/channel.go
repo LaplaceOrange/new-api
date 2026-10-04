@@ -26,11 +26,16 @@ func DisableChannel(channelError types.ChannelError, reason string) {
 	}
 }
 
-func EnableChannel(channelId int, usingKey string, channelName string) {
-	success := model.UpdateChannelStatus(channelId, usingKey, common.ChannelStatusEnabled, "")
-	if success {
+func EnableChannel(channelId int, usingKey string, channelName string, testedChannel *model.Channel, rateMultiplier *float64) bool {
+	changed, err := model.EnableChannelAfterHealthCheck(channelId, usingKey, testedChannel, rateMultiplier)
+	if err != nil {
+		common.SysError(fmt.Sprintf("failed to recover channel: channel_id=%d error=%v", channelId, err))
+		return false
+	}
+	if changed {
 		SyncModelChannelAvailabilityAfterMutation("channel.auto_enable")
 	}
+	return changed
 }
 
 func ShouldDisableChannel(err *types.NewAPIError) bool {

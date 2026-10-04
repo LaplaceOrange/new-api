@@ -106,6 +106,7 @@ import {
 } from '../../lib'
 import type {
   Channel,
+  ChannelPriceMonitorResult,
   GetChannelsResponse,
   SearchChannelsResponse,
 } from '../../types'
@@ -135,6 +136,7 @@ type TestResult = {
   error?: string
   errorCode?: string
   detectedModel?: string
+  priceMonitor?: ChannelPriceMonitorResult | null
 }
 
 type BatchProgress = {
@@ -714,7 +716,7 @@ export function ChannelTestDialogContent({
             stream: effectiveStreamTest || undefined,
             silent,
           },
-          (success, responseTime, error, errorCode) => {
+          (success, responseTime, error, errorCode, priceMonitor) => {
             const completedAt = Date.now()
             finalResult = {
               status: success ? 'success' : 'error',
@@ -722,6 +724,7 @@ export function ChannelTestDialogContent({
               completedAt,
               error,
               errorCode,
+              priceMonitor,
             }
             updateTestResult(model, finalResult)
           }
@@ -1112,11 +1115,14 @@ export function ChannelTestDialogContent({
           const model = row.original.model
           const result = testResults[model]
           return (
-            <TestResultCell
-              result={result}
-              model={model}
-              onOpenDetails={setFailureDetails}
-            />
+            <div className='flex min-w-0 flex-col gap-1'>
+              <TestResultCell
+                result={result}
+                model={model}
+                onOpenDetails={setFailureDetails}
+              />
+              <PriceMonitorResult result={result?.priceMonitor} />
+            </div>
           )
         },
         enableSorting: false,
@@ -1467,6 +1473,41 @@ export function ChannelTestDialogContent({
         }}
       />
     </>
+  )
+}
+
+function PriceMonitorResult(props: {
+  result?: ChannelPriceMonitorResult | null
+}) {
+  const { t } = useTranslation()
+  const result = props.result
+  if (!result) return null
+  let message: string
+  if (result.error) {
+    message = t('Price check failed; channel status is unchanged')
+  } else if (result.disabled) {
+    message = t('Channel disabled by price protection: {{rate}} > {{limit}}', {
+      rate: result.rate_multiplier,
+      limit: result.limit,
+    })
+  } else if (result.enabled) {
+    message = t('Channel restored after price recovery')
+  } else if (result.exceeded) {
+    message = t('Price limit exceeded: {{rate}} > {{limit}}', {
+      rate: result.rate_multiplier,
+      limit: result.limit,
+    })
+  } else if (result.checked) {
+    message = t('Upstream rate multiplier: {{rate}}', {
+      rate: result.rate_multiplier,
+    })
+  } else {
+    return null
+  }
+  return (
+    <span className='text-muted-foreground text-xs wrap-break-word'>
+      {message}
+    </span>
   )
 }
 

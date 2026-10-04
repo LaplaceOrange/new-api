@@ -50,6 +50,45 @@ function renderDialog(models = channel.models) {
     </QueryClientProvider>
   )
 }
+
+it('shows price protection separately from successful connectivity and refreshes channel state', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      time: 0.1,
+      price_monitor: {
+        checked: true,
+        rate_multiplier: 2,
+        limit: 1,
+        exceeded: true,
+        disabled: true,
+        enabled: false,
+      },
+    },
+  })
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  const invalidate = vi.spyOn(client, 'invalidateQueries')
+  render(
+    <QueryClientProvider client={client}>
+      <ChannelTestDialogContent
+        currentRow={{ ...channel, models: 'model-a' }}
+        open
+        onOpenChange={() => {}}
+      />
+    </QueryClientProvider>
+  )
+  const user = userEvent.setup()
+  const region = within(screen.getByRole('region', { name: 'Channel models' }))
+  await user.click(region.getByRole('button', { name: 'Test Connection' }))
+  expect(
+    await region.findByText('Channel disabled by price protection: 2 > 1')
+  ).toBeVisible()
+  expect(region.getByText('Success')).toBeVisible()
+  await waitFor(() => expect(invalidate).toHaveBeenCalled())
+})
+
 it('lists optional expected names after model names and tests all models independently', async () => {
   const user = userEvent.setup()
   const post = vi

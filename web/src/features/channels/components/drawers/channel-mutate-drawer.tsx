@@ -1548,9 +1548,7 @@ export function ChannelMutateDrawer({
               value={field.value ?? ''}
               onChange={(e) => {
                 const nextValue = e.target.value
-                field.onChange(
-                  nextValue === '' ? undefined : Number(nextValue)
-                )
+                field.onChange(nextValue === '' ? undefined : Number(nextValue))
               }}
             />
           </FormControl>
@@ -1942,6 +1940,48 @@ export function ChannelMutateDrawer({
                 onCheckedChange={(checked) => field.onChange(checked ? 1 : 0)}
               />
             </FormControl>
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={form.control}
+        name='upstream_rate_multiplier_check_enabled'
+        render={({ field }) => (
+          <FormItem className='flex items-center justify-between gap-4'>
+            <FormLabel>{t('Upstream rate multiplier check')}</FormLabel>
+            <FormControl>
+              <Switch
+                checked={field.value === true}
+                onCheckedChange={field.onChange}
+              />
+            </FormControl>
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={form.control}
+        name='upstream_rate_multiplier_limit'
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>{t('Rate multiplier limit')}</FormLabel>
+            <FormControl>
+              <Input
+                {...field}
+                type='number'
+                step='any'
+                value={field.value ?? ''}
+                disabled={!formValues.upstream_rate_multiplier_check_enabled}
+                placeholder={t('No price limit')}
+                onChange={(event) =>
+                  field.onChange(
+                    event.target.value === ''
+                      ? undefined
+                      : Number(event.target.value)
+                  )
+                }
+              />
+            </FormControl>
+            <FormMessage />
           </FormItem>
         )}
       />

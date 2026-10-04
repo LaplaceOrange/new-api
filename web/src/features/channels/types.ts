@@ -117,6 +117,7 @@ export interface ChannelOtherSettings {
   upstream_model_update_last_detected_models?: string[]
   upstream_rate_multiplier_check_enabled?: boolean
   upstream_rate_multiplier_check_type?: 'sub2api'
+  upstream_rate_multiplier_limit?: number
   advanced_custom?: AdvancedCustomConfig
 }
 
@@ -206,6 +207,7 @@ export interface ChannelConcurrencyResponse {
 }
 
 export interface ChannelTestResponse {
+  price_monitor?: ChannelPriceMonitorResult | null
   success: boolean
   message?: string
   error_code?: string
@@ -214,6 +216,16 @@ export interface ChannelTestResponse {
     response_time?: number
     error?: string
   }
+}
+
+export interface ChannelPriceMonitorResult {
+  checked: boolean
+  rate_multiplier?: number
+  limit?: number
+  exceeded: boolean
+  disabled: boolean
+  enabled: boolean
+  error?: string
 }
 
 export interface ChannelBalanceResponse {

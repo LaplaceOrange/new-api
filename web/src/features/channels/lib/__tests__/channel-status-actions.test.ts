@@ -1,3 +1,4 @@
+import type { QueryClient } from '@tanstack/react-query'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,12 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { afterEach, assert, test } from 'vitest'
-
-import type { QueryClient } from '@tanstack/react-query'
+import { afterEach, assert, expect, test, vi } from 'vitest'
 
 const { api } = await import('@/lib/api')
-const { handleBatchEnable } = await import('../channel-actions')
+const { handleBatchEnable, handleTestChannel } =
+  await import('../channel-actions')
+const { toast } = await import('sonner')
 
 type ApiPost = (url: string, data?: unknown) => Promise<{ data: unknown }>
 const apiClient = api as unknown as { post: ApiPost }
@@ -29,6 +30,59 @@ const originalPost = apiClient.post
 
 afterEach(() => {
   apiClient.post = originalPost
+  vi.restoreAllMocks()
+})
+
+test('successful connectivity reports price disabling independently to the caller', async () => {
+  const priceMonitor = {
+    checked: true,
+    rate_multiplier: 2,
+    limit: 1,
+    exceeded: true,
+    disabled: true,
+    enabled: false,
+  }
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: { success: true, time: 0.1, price_monitor: priceMonitor },
+  })
+  const warning = vi.spyOn(toast, 'warning')
+  const callback = vi.fn()
+  await handleTestChannel(42, { channelName: 'Channel A' }, callback)
+  expect(callback).toHaveBeenCalledWith(
+    true,
+    100,
+    undefined,
+    undefined,
+    priceMonitor
+  )
+  expect(warning).toHaveBeenCalledWith(
+    'Channel disabled by price protection: 2 > 1'
+  )
+})
+
+test('price recovery remains available on silent tests without showing notifications', async () => {
+  const priceMonitor = {
+    checked: true,
+    rate_multiplier: 0.5,
+    limit: 1,
+    exceeded: false,
+    disabled: false,
+    enabled: true,
+  }
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: { success: true, time: 0.1, price_monitor: priceMonitor },
+  })
+  const success = vi.spyOn(toast, 'success')
+  const callback = vi.fn()
+  await handleTestChannel(42, { silent: true }, callback)
+  expect(callback).toHaveBeenCalledWith(
+    true,
+    100,
+    undefined,
+    undefined,
+    priceMonitor
+  )
+  expect(success).not.toHaveBeenCalled()
 })
 
 test('refreshes channels after a partially successful batch status update', async () => {

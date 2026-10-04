@@ -36,6 +36,10 @@ import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 import type { TaskPluginOption } from '../../api'
+import {
+  channelFormSchema,
+  transformChannelToFormDefaults,
+} from '../../lib/channel-form'
 import { channelSchema, type Channel } from '../../types'
 import { ChannelPluginExtensions } from '../channel-plugin-extensions'
 import { ChannelsProvider } from '../channels-provider'
@@ -173,6 +177,106 @@ afterEach(() => {
   useAuthStore.setState({ auth: originalAuth })
   vi.restoreAllMocks()
 })
+
+test('price monitoring enables the limit input and saves the configured multiplier', async () => {
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  const routingTab = screen.getByRole('tab', { name: /Routing & Mapping/ })
+  await user.click(routingTab)
+  const limit = screen.getByRole('spinbutton', {
+    name: 'Rate multiplier limit',
+  })
+  expect(limit).toBeDisabled()
+  const monitoring = screen.getByRole('switch', {
+    name: 'Upstream rate multiplier check',
+  })
+  await user.click(monitoring)
+  expect(monitoring).toBeChecked()
+  expect(limit).toBeEnabled()
+  await user.type(limit, '1.25')
+  expect(routingTab).toHaveAccessibleName(/Configured/)
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  await waitFor(() => expect(put).toHaveBeenCalled())
+  const payload = put.mock.calls[0]?.[1] as { settings: string }
+  const settings = JSON.parse(payload.settings)
+  expect(settings.upstream_rate_multiplier_check_enabled).toBe(true)
+  expect(settings.upstream_rate_multiplier_check_type).toBe('sub2api')
+  expect(settings.upstream_rate_multiplier_limit).toBe(1.25)
+})
+
+test('clearing a saved price limit removes it without discarding unrelated settings', async () => {
+  editingChannel.settings = JSON.stringify({
+    upstream_rate_multiplier_check_enabled: true,
+    upstream_rate_multiplier_check_type: 'sub2api',
+    upstream_rate_multiplier_limit: 1.25,
+    provider_specific_setting: 'preserved',
+  })
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  await user.click(screen.getByRole('tab', { name: /Routing & Mapping/ }))
+  const limit = screen.getByRole('spinbutton', {
+    name: 'Rate multiplier limit',
+  })
+  expect(limit).toHaveValue(1.25)
+  await user.clear(limit)
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  await waitFor(() => expect(put).toHaveBeenCalled())
+  const payload = put.mock.calls[0]?.[1] as { settings: string }
+  const settings = JSON.parse(payload.settings)
+  expect(settings).not.toHaveProperty('upstream_rate_multiplier_limit')
+  expect(settings.upstream_rate_multiplier_check_enabled).toBe(true)
+  expect(settings.provider_specific_setting).toBe('preserved')
+})
+
+test('invalid price limits prevent saving and focus the accessible error field', async () => {
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  await user.click(screen.getByRole('tab', { name: /Routing & Mapping/ }))
+  const monitoring = screen.getByRole('switch', {
+    name: 'Upstream rate multiplier check',
+  })
+  monitoring.focus()
+  await user.keyboard(' ')
+  expect(monitoring).toBeChecked()
+  const limit = screen.getByRole('spinbutton', {
+    name: 'Rate multiplier limit',
+  })
+  fireEvent.change(limit, { target: { value: '-1' } })
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  expect(
+    await screen.findByText(
+      'Rate multiplier limit must be a finite positive number'
+    )
+  ).toBeVisible()
+  expect(limit).toHaveAttribute('aria-invalid', 'true')
+  await waitFor(() => expect(limit).toHaveFocus())
+  expect(put).not.toHaveBeenCalled()
+})
+
+test.each([0, -1, Infinity, Number.NaN])(
+  'invalid price limit %s is rejected by form validation',
+  (limit) => {
+    const defaults = transformChannelToFormDefaults(editingChannel)
+    expect(
+      channelFormSchema.safeParse({
+        ...defaults,
+        upstream_rate_multiplier_limit: limit,
+      }).success
+    ).toBe(false)
+  }
+)
 
 test('changing built-in providers updates server-provided URL placeholders without replacing the draft address', async () => {
   const user = userEvent.setup()
