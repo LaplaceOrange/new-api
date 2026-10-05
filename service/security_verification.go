@@ -34,6 +34,7 @@ const (
 	VerificationScopePasswordSet         = "account.password.set"
 	VerificationScopePasswordChange      = "account.password.change"
 	VerificationScopeAccountDelete       = "account.delete"
+	VerificationScopeUpstreamCredential  = "upstream.credential"
 )
 
 var (
@@ -125,6 +126,11 @@ func BindVerificationOperation(operation VerificationOperation) (VerificationBin
 			return VerificationBinding{}, ErrVerificationContextInvalid
 		}
 		normalized = struct{}{}
+	case VerificationScopeUpstreamCredential:
+		if len(fields) != 0 {
+			return VerificationBinding{}, ErrVerificationContextInvalid
+		}
+		normalized = struct{}{}
 	default:
 		return VerificationBinding{}, ErrProofScope
 	}
@@ -186,6 +192,7 @@ func securityVerificationPolicy(scope string, state model.UserVerificationState)
 	case VerificationScopePasskeyRegister, VerificationScopeTwoFASetup,
 		VerificationScopeAccessTokenGenerate, VerificationScopeAccessTokenRevoke,
 		VerificationScopeAccountBind, VerificationScopeAccountUnbind,
+		VerificationScopeUpstreamCredential,
 		VerificationScopePasswordSet, VerificationScopePasswordChange, VerificationScopeAccountDelete:
 		if scope == VerificationScopeAccountDelete && state.Role == common.RoleRootUser {
 			return nil, ErrVerificationForbidden
@@ -231,7 +238,7 @@ func GetVerificationRequirements(identity AuthIdentity, scope string) (*Verifica
 	if state.Status != common.UserStatusEnabled || state.AuthVersion != identity.UserAuthVersion {
 		return nil, ErrAuthTokenInvalid
 	}
-	if scope == VerificationScopeChannelKeyRead && state.Role != common.RoleRootUser {
+	if (scope == VerificationScopeChannelKeyRead || scope == VerificationScopeUpstreamCredential) && state.Role != common.RoleRootUser {
 		return nil, ErrVerificationForbidden
 	}
 	methods, err := securityVerificationPolicy(scope, *state)

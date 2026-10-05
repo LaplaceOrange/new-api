@@ -304,6 +304,7 @@ func SetApiRouter(router *gin.Engine) {
 		}
 		apiRouter.GET("/task_plugin_options", middleware.AdminAuth(), middleware.RequirePermission(authz.TaskPluginBind), controller.GetTaskPluginOptions)
 		registerChannelRoutes(apiRouter)
+		registerUpstreamRoutes(apiRouter)
 		registerChannelContributionRoutes(apiRouter)
 		registerReferralRoutes(apiRouter)
 		registerAuthzRoutes(apiRouter)

@@ -57,6 +57,8 @@ import { Route as AuthenticatedSubscriptionsIndexRouteImport } from './routes/_a
 import { Route as AuthenticatedSystemInfoIndexRouteImport } from './routes/_authenticated/system-info/index'
 import { Route as AuthenticatedSystemSettingsIndexRouteImport } from './routes/_authenticated/system-settings/index'
 import { Route as AuthenticatedTaskPluginsIndexRouteImport } from './routes/_authenticated/task-plugins/index'
+import { Route as AuthenticatedUpstreamsIndexRouteImport } from './routes/_authenticated/upstreams/index'
+import { Route as AuthenticatedUpstreamsIdRouteImport } from './routes/_authenticated/upstreams/$id'
 import { Route as AuthenticatedUsageLogsIndexRouteImport } from './routes/_authenticated/usage-logs/index'
 import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_authenticated/usage-logs/$section'
 import { Route as AuthenticatedUsageLogsAuditRouteImport } from './routes/_authenticated/usage-logs/audit'
@@ -338,6 +340,18 @@ const AuthenticatedTaskPluginsIndexRoute =
     path: '/task-plugins/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedUpstreamsIndexRoute =
+  AuthenticatedUpstreamsIndexRouteImport.update({
+    id: '/upstreams/',
+    path: '/upstreams/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedUpstreamsIdRoute =
+  AuthenticatedUpstreamsIdRouteImport.update({
+    id: '/upstreams/$id',
+    path: '/upstreams/$id',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedUsageLogsIndexRoute =
   AuthenticatedUsageLogsIndexRouteImport.update({
     id: '/usage-logs/',
@@ -493,6 +507,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/upstreams/$id': typeof AuthenticatedUpstreamsIdRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/usage-logs/audit': typeof AuthenticatedUsageLogsAuditRoute
   '/channel-contributions/': typeof AuthenticatedChannelContributionsIndexRoute
@@ -512,6 +527,7 @@ export interface FileRoutesByFullPath {
   '/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
   '/task-plugins/': typeof AuthenticatedTaskPluginsIndexRoute
+  '/upstreams/': typeof AuthenticatedUpstreamsIndexRoute
   '/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/user-cleanup/': typeof AuthenticatedUserCleanupIndexRoute
   '/users/': typeof AuthenticatedUsersIndexRoute
@@ -561,6 +577,7 @@ export interface FileRoutesByTo {
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/upstreams/$id': typeof AuthenticatedUpstreamsIdRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/usage-logs/audit': typeof AuthenticatedUsageLogsAuditRoute
   '/channel-contributions': typeof AuthenticatedChannelContributionsIndexRoute
@@ -580,6 +597,7 @@ export interface FileRoutesByTo {
   '/system-info': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings': typeof AuthenticatedSystemSettingsIndexRoute
   '/task-plugins': typeof AuthenticatedTaskPluginsIndexRoute
+  '/upstreams': typeof AuthenticatedUpstreamsIndexRoute
   '/usage-logs': typeof AuthenticatedUsageLogsIndexRoute
   '/user-cleanup': typeof AuthenticatedUserCleanupIndexRoute
   '/users': typeof AuthenticatedUsersIndexRoute
@@ -633,6 +651,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/_authenticated/upstreams/$id': typeof AuthenticatedUpstreamsIdRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/_authenticated/usage-logs/audit': typeof AuthenticatedUsageLogsAuditRoute
   '/_authenticated/channel-contributions/': typeof AuthenticatedChannelContributionsIndexRoute
@@ -652,6 +671,7 @@ export interface FileRoutesById {
   '/_authenticated/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/_authenticated/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
   '/_authenticated/task-plugins/': typeof AuthenticatedTaskPluginsIndexRoute
+  '/_authenticated/upstreams/': typeof AuthenticatedUpstreamsIndexRoute
   '/_authenticated/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/_authenticated/user-cleanup/': typeof AuthenticatedUserCleanupIndexRoute
   '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
@@ -704,6 +724,7 @@ export interface FileRouteTypes {
     | '/dashboard/$section'
     | '/errors/$error'
     | '/models/$section'
+    | '/upstreams/$id'
     | '/usage-logs/$section'
     | '/usage-logs/audit'
     | '/channel-contributions/'
@@ -723,6 +744,7 @@ export interface FileRouteTypes {
     | '/system-info/'
     | '/system-settings/'
     | '/task-plugins/'
+    | '/upstreams/'
     | '/usage-logs/'
     | '/user-cleanup/'
     | '/users/'
@@ -772,6 +794,7 @@ export interface FileRouteTypes {
     | '/dashboard/$section'
     | '/errors/$error'
     | '/models/$section'
+    | '/upstreams/$id'
     | '/usage-logs/$section'
     | '/usage-logs/audit'
     | '/channel-contributions'
@@ -791,6 +814,7 @@ export interface FileRouteTypes {
     | '/system-info'
     | '/system-settings'
     | '/task-plugins'
+    | '/upstreams'
     | '/usage-logs'
     | '/user-cleanup'
     | '/users'
@@ -843,6 +867,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard/$section'
     | '/_authenticated/errors/$error'
     | '/_authenticated/models/$section'
+    | '/_authenticated/upstreams/$id'
     | '/_authenticated/usage-logs/$section'
     | '/_authenticated/usage-logs/audit'
     | '/_authenticated/channel-contributions/'
@@ -862,6 +887,7 @@ export interface FileRouteTypes {
     | '/_authenticated/system-info/'
     | '/_authenticated/system-settings/'
     | '/_authenticated/task-plugins/'
+    | '/_authenticated/upstreams/'
     | '/_authenticated/usage-logs/'
     | '/_authenticated/user-cleanup/'
     | '/_authenticated/users/'
@@ -1241,6 +1267,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTaskPluginsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/upstreams/': {
+      id: '/_authenticated/upstreams/'
+      path: '/upstreams'
+      fullPath: '/upstreams/'
+      preLoaderRoute: typeof AuthenticatedUpstreamsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/upstreams/$id': {
+      id: '/_authenticated/upstreams/$id'
+      path: '/upstreams/$id'
+      fullPath: '/upstreams/$id'
+      preLoaderRoute: typeof AuthenticatedUpstreamsIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/usage-logs/': {
       id: '/_authenticated/usage-logs/'
       path: '/usage-logs'
@@ -1482,6 +1522,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedModelsSectionRoute: typeof AuthenticatedModelsSectionRoute
+  AuthenticatedUpstreamsIdRoute: typeof AuthenticatedUpstreamsIdRoute
   AuthenticatedUsageLogsSectionRoute: typeof AuthenticatedUsageLogsSectionRoute
   AuthenticatedUsageLogsAuditRoute: typeof AuthenticatedUsageLogsAuditRoute
   AuthenticatedChannelContributionsIndexRoute: typeof AuthenticatedChannelContributionsIndexRoute
@@ -1500,6 +1541,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedSubscriptionsIndexRoute: typeof AuthenticatedSubscriptionsIndexRoute
   AuthenticatedSystemInfoIndexRoute: typeof AuthenticatedSystemInfoIndexRoute
   AuthenticatedTaskPluginsIndexRoute: typeof AuthenticatedTaskPluginsIndexRoute
+  AuthenticatedUpstreamsIndexRoute: typeof AuthenticatedUpstreamsIndexRoute
   AuthenticatedUsageLogsIndexRoute: typeof AuthenticatedUsageLogsIndexRoute
   AuthenticatedUserCleanupIndexRoute: typeof AuthenticatedUserCleanupIndexRoute
   AuthenticatedUsersIndexRoute: typeof AuthenticatedUsersIndexRoute
@@ -1516,6 +1558,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardSectionRoute: AuthenticatedDashboardSectionRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedModelsSectionRoute: AuthenticatedModelsSectionRoute,
+  AuthenticatedUpstreamsIdRoute: AuthenticatedUpstreamsIdRoute,
   AuthenticatedUsageLogsSectionRoute: AuthenticatedUsageLogsSectionRoute,
   AuthenticatedUsageLogsAuditRoute: AuthenticatedUsageLogsAuditRoute,
   AuthenticatedChannelContributionsIndexRoute:
@@ -1537,6 +1580,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSubscriptionsIndexRoute: AuthenticatedSubscriptionsIndexRoute,
   AuthenticatedSystemInfoIndexRoute: AuthenticatedSystemInfoIndexRoute,
   AuthenticatedTaskPluginsIndexRoute: AuthenticatedTaskPluginsIndexRoute,
+  AuthenticatedUpstreamsIndexRoute: AuthenticatedUpstreamsIndexRoute,
   AuthenticatedUsageLogsIndexRoute: AuthenticatedUsageLogsIndexRoute,
   AuthenticatedUserCleanupIndexRoute: AuthenticatedUserCleanupIndexRoute,
   AuthenticatedUsersIndexRoute: AuthenticatedUsersIndexRoute,

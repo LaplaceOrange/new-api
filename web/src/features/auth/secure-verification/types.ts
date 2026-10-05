@@ -25,6 +25,7 @@ export type VerificationMethod =
   | 'oauth'
   | 'session'
 export type SecurityProofScope =
+  | 'upstream.credential'
   | 'channel.key.read'
   | 'passkey.register'
   | 'passkey.delete'
@@ -40,6 +41,10 @@ export type SecurityProofScope =
   | 'account.delete'
 
 export type VerificationOperation =
+  | {
+      scope: 'upstream.credential'
+      context?: Record<string, never>
+    }
   | { scope: 'channel.key.read'; context: { channel_id: number } }
   | {
       scope: 'account.binding.bind'
@@ -49,7 +54,10 @@ export type VerificationOperation =
   | {
       scope: Exclude<
         SecurityProofScope,
-        'channel.key.read' | 'account.binding.bind' | 'account.binding.unbind'
+        | 'upstream.credential'
+        | 'channel.key.read'
+        | 'account.binding.bind'
+        | 'account.binding.unbind'
       >
       context?: Record<string, never>
     }

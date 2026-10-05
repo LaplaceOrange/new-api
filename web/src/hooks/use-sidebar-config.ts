@@ -60,6 +60,7 @@ const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
   admin: {
     enabled: true,
     channel: true,
+    upstream: true,
     models: true,
     redemption: true,
     user: true,
@@ -115,6 +116,7 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/profile': { section: 'personal', module: 'personal' },
   '/security': { section: 'personal', module: 'security' },
   '/channels': { section: 'admin', module: 'channel' },
+  '/upstreams': { section: 'admin', module: 'upstream' },
   '/channel-contributions/admin': {
     section: 'admin',
     module: 'channel_contribution',

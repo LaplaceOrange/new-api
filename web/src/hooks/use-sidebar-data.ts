@@ -153,6 +153,12 @@ export function useSidebarData(): SidebarData {
             icon: Radio,
           },
           {
+            title: t('Upstreams'),
+            url: '/upstreams',
+            icon: ServerCog,
+            requiredRole: ROLE.ADMIN,
+          },
+          {
             title: t('Models'),
             url: '/models/metadata',
             icon: Box,

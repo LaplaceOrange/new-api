@@ -53,9 +53,11 @@ export type SectionPageLayoutProps = {
   children: ReactNode
   fixedContent?: boolean
   stackActionsOnMobile?: boolean
+  headingLevel?: 'h1' | 'h2'
 }
 
 export function SectionPageLayout(props: SectionPageLayoutProps) {
+  const Heading = props.headingLevel ?? 'h2'
   const [footerContainer, setFooterContainer] = useState<HTMLDivElement | null>(
     null
   )
@@ -93,9 +95,15 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
                   : 'min-w-0 flex-1'
               }
             >
-              <h2 className='truncate text-base font-bold tracking-tight sm:text-lg'>
+              <Heading
+                className={
+                  props.headingLevel === 'h1'
+                    ? 'text-base font-bold tracking-normal break-words sm:text-lg'
+                    : 'truncate text-base font-bold tracking-tight sm:text-lg'
+                }
+              >
                 {title}
-              </h2>
+              </Heading>
             </div>
             {actions != null && (
               <div className='flex shrink-0 flex-wrap items-center justify-end gap-2 sm:gap-x-4'>
