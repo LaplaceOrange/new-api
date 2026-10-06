@@ -6096,6 +6096,7 @@
     "Suffix": "Suffixe",
     "Suffix Match": "Correspondance de suffixe",
     "Suggested top-up (USD)": "Recharge suggérée (USD)",
+    "Suggested top-up: {{amount}}": "Recharge suggérée : {{amount}}",
     "Summarize text": "Résumer le texte",
     "SunoAPI": "SunoAPI",
     "Sunset Glow": "Lueur du couchant",

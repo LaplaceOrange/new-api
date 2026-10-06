@@ -7,7 +7,16 @@ import type { Upstream } from '../types'
 
 export function UpstreamStatus(props: { upstream: Upstream }) {
   const { t } = useTranslation()
-  const status = props.upstream.forecast.status
+  const forecast = props.upstream.forecast
+  const status = forecast.status
+  const suggestedTopup = forecast.suggested_topup
+  const showTopup =
+    ['warning', 'critical', 'exhausted'].includes(status) &&
+    props.upstream.balance !== null &&
+    props.upstream.snapshot?.complete &&
+    suggestedTopup !== null &&
+    Number.isFinite(suggestedTopup) &&
+    suggestedTopup > 0
   let label = t('Unknown')
   let color = 'text-muted-foreground'
   if (status === 'exhausted') {
@@ -27,7 +36,18 @@ export function UpstreamStatus(props: { upstream: Upstream }) {
     color = 'text-success'
   }
   if (status === 'no_usage') label = t('No usage')
-  return <span className={cn('text-sm font-medium', color)}>{label}</span>
+  return (
+    <div className='flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1'>
+      <span className={cn('text-sm font-medium', color)}>{label}</span>
+      {showTopup && (
+        <span className='text-sm break-words tabular-nums'>
+          {t('Suggested top-up: {{amount}}', {
+            amount: formatUpstreamMoney(suggestedTopup),
+          })}
+        </span>
+      )}
+    </div>
+  )
 }
 
 export function UpstreamSummary(props: {
@@ -79,27 +99,14 @@ export function UpstreamSummary(props: {
           </dd>
         </div>
         {!props.compact && (
-          <>
-            <div>
-              <dt className='text-muted-foreground text-xs'>
-                {t('Average daily spending (USD)')}
-              </dt>
-              <dd className='tabular-nums'>
-                {formatUpstreamMoney(forecast.daily_consumption)}
-              </dd>
-            </div>
-            {forecast.suggested_topup !== null &&
-              forecast.suggested_topup > 0 && (
-                <div>
-                  <dt className='text-muted-foreground text-xs'>
-                    {t('Suggested top-up (USD)')}
-                  </dt>
-                  <dd className='tabular-nums'>
-                    {formatUpstreamMoney(forecast.suggested_topup)}
-                  </dd>
-                </div>
-              )}
-          </>
+          <div>
+            <dt className='text-muted-foreground text-xs'>
+              {t('Average daily spending (USD)')}
+            </dt>
+            <dd className='tabular-nums'>
+              {formatUpstreamMoney(forecast.daily_consumption)}
+            </dd>
+          </div>
         )}
       </dl>
       <p className='text-muted-foreground text-xs'>

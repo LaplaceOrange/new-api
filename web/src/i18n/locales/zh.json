@@ -6096,6 +6096,7 @@
     "Suffix": "后缀",
     "Suffix Match": "后缀匹配",
     "Suggested top-up (USD)": "建议充值（美元）",
+    "Suggested top-up: {{amount}}": "建议补充 {{amount}}",
     "Summarize text": "总结文本",
     "SunoAPI": "SunoAPI",
     "Sunset Glow": "日落霞光",
