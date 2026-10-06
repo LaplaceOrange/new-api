@@ -12,6 +12,8 @@ export type Upstream = {
   addresses: string[]
   user_agent: string
   auto_refresh_token: boolean
+  auth_mode: 'jwt' | 'password'
+  has_account_credentials: boolean
   credential_blocked: boolean
   balance: number | null
   balance_updated_at: number
@@ -55,6 +57,9 @@ export type UpstreamPayload = {
   addresses: string[]
   user_agent: string
   auto_refresh_token: boolean
+  auth_mode: 'jwt' | 'password'
+  account_email?: string
+  account_password?: string
   access_token?: string
   refresh_token?: string
 }

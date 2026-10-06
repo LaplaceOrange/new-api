@@ -19,6 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  'Account email is required',
+  'Account password is required',
+  'Enter a valid account email',
   'layers',
   'sparkles',
   'zap',

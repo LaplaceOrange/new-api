@@ -43,16 +43,35 @@ type upstreamUsageListResponse struct {
 }
 
 type upstreamRefreshResponse struct {
+	Code *int `json:"code"`
 	Data struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
+		Requires2FA  bool   `json:"requires_2fa"`
 	} `json:"data"`
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 }
 
+type upstreamHTTPError struct {
+	status int
+}
+
+func (err *upstreamHTTPError) Error() string {
+	return fmt.Sprintf("upstream returned HTTP %d", err.status)
+}
+
 func upstreamHTTPClient() *http.Client {
 	client := *GetStrictSSRFProtectedHTTPClient()
+	if protected, ok := client.Transport.(*ssrfProtectedRoundTripper); ok {
+		// Account credentials must not inherit the relay's insecure TLS option.
+		client.Transport = &ssrfProtectedRoundTripper{
+			resolver: protected.resolver, dialContext: protected.dialContext,
+			getProtection: protected.getProtection, proxy: protected.proxy,
+			maxBodyBytes: protected.maxBodyBytes, requireVerifiedTLS: true,
+			transports: make(map[string]*http.Transport),
+		}
+	}
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) > 0 {
 			previous := via[len(via)-1].URL
@@ -89,22 +108,21 @@ func upstreamRequest(ctx context.Context, baseURL, path, userAgent, accessToken 
 		req.Header.Set("User-Agent", userAgent)
 	}
 	client := upstreamHTTPClient()
+	defer client.CloseIdleConnections()
 	response, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("upstream request failed")
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("upstream returned HTTP %d", response.StatusCode)
+		return nil, &upstreamHTTPError{status: response.StatusCode}
 	}
 	return readUpstreamBody(response)
 }
 
 func RefreshUpstream(ctx context.Context, id int) error {
-	return refreshUpstream(ctx, id, false)
-}
-
-func refreshUpstream(ctx context.Context, id int, refreshAttempted bool) error {
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
 	owner := fmt.Sprintf("upstream-refresh-%d-%d", id, time.Now().UnixNano())
 	claimed, err := model.ClaimUpstream(ctx, id, owner)
 	if err != nil {
@@ -113,9 +131,21 @@ func refreshUpstream(ctx context.Context, id int, refreshAttempted bool) error {
 	defer func() {
 		_ = model.UpdateClaimedUpstream(context.Background(), id, owner, map[string]any{"lease_until": 0})
 	}()
+	if claimed.CredentialBlocked || claimed.RefreshPending {
+		return recordUpstreamRefreshError(ctx, id, owner, errors.New("upstream credentials require reconfiguration"), true, false)
+	}
 	accessToken, err := common.DecryptUpstreamCredential(claimed.AccessCipher)
 	if err != nil {
 		return recordUpstreamRefreshError(ctx, id, owner, err, true, false)
+	}
+	accountMode := claimed.AuthMode == model.UpstreamAuthPassword
+	loggedIn := false
+	if accessToken == "" && accountMode {
+		accessToken, err = loginUpstreamAccess(ctx, claimed, owner)
+		if err != nil {
+			return recordUpstreamRefreshError(ctx, id, owner, err, upstreamLoginBlocked(err), false)
+		}
+		loggedIn = true
 	}
 	if accessToken == "" {
 		return recordUpstreamRefreshError(ctx, id, owner, errors.New("upstream access credential is not configured"), true, false)
@@ -123,7 +153,15 @@ func refreshUpstream(ctx context.Context, id int, refreshAttempted bool) error {
 	// sub2api exposes account balance and frozen balance from /api/v1/auth/me.
 	body, err := upstreamRequest(ctx, claimed.PrimaryURL, "/api/v1/auth/me", claimed.UserAgent, accessToken, strings.NewReader(""))
 	if err != nil {
-		if claimed.AutoRefreshToken && claimed.RefreshCipher != "" && !refreshAttempted {
+		var httpErr *upstreamHTTPError
+		expired := errors.As(err, &httpErr) && httpErr.status == http.StatusUnauthorized
+		if expired && accountMode && !loggedIn {
+			nextAccess, loginErr := loginUpstreamAccess(ctx, claimed, owner)
+			if loginErr != nil {
+				return recordUpstreamRefreshError(ctx, id, owner, loginErr, upstreamLoginBlocked(loginErr), false)
+			}
+			body, err = upstreamRequest(ctx, claimed.PrimaryURL, "/api/v1/auth/me", claimed.UserAgent, nextAccess, strings.NewReader(""))
+		} else if expired && claimed.AutoRefreshToken && claimed.RefreshCipher != "" {
 			nextAccess, refreshErr := refreshUpstreamAccess(ctx, claimed, owner)
 			if refreshErr != nil {
 				return recordUpstreamRefreshError(ctx, id, owner, refreshErr, true, true)
@@ -134,13 +172,13 @@ func refreshUpstream(ctx context.Context, id int, refreshAttempted bool) error {
 			body, err = upstreamRequest(ctx, claimed.PrimaryURL, "/api/v1/auth/me", claimed.UserAgent, nextAccess, strings.NewReader(""))
 		}
 		if err != nil {
-			return recordUpstreamRefreshError(ctx, id, owner, err, false, false)
+			return recordUpstreamRefreshError(ctx, id, owner, err, upstreamLoginBlocked(err), false)
 		}
 	}
 
 	var account upstreamAccountResponse
 	if err := common.Unmarshal(body, &account); err != nil {
-		return recordUpstreamRefreshError(ctx, id, owner, err, false, false)
+		return recordUpstreamRefreshError(ctx, id, owner, errors.New("upstream account response is invalid"), false, false)
 	}
 	if account.Data.Balance == nil || account.Data.FrozenBalance == nil {
 		return recordUpstreamRefreshError(ctx, id, owner, errors.New("upstream balance fields are missing"), false, false)
@@ -159,6 +197,84 @@ func refreshUpstream(ctx context.Context, id int, refreshAttempted bool) error {
 		"balance": availableBalance, "balance_updated_at": time.Now().Unix(),
 		"last_error": "", "credential_blocked": false, "lease_until": 0,
 	})
+}
+
+// Only explicit authentication rejection stops further password attempts.
+// Transient network/server failures may be retried by the scheduled check.
+func upstreamLoginBlocked(err error) bool {
+	var httpErr *upstreamHTTPError
+	if errors.As(err, &httpErr) {
+		return httpErr.status >= 400 && httpErr.status < 500
+	}
+	return errors.Is(err, errUpstreamLoginRejected)
+}
+
+var errUpstreamLoginRejected = errors.New("Upstream account login failed or requires interactive verification; use JWT or update the account credentials.")
+
+func loginUpstreamAccess(ctx context.Context, item *model.Upstream, owner string) (string, error) {
+	success := false
+	defer func() {
+		common.SysLog(fmt.Sprintf("upstream account login: id=%d success=%t", item.ID, success))
+	}()
+	plain, err := common.DecryptUpstreamCredential(item.AccountCipher)
+	if err != nil {
+		return "", errUpstreamLoginRejected
+	}
+	var account model.UpstreamAccountCredentials
+	if err := common.UnmarshalJsonStr(plain, &account); err != nil || account.Email == "" || account.Password == "" {
+		return "", errUpstreamLoginRejected
+	}
+	payload, err := common.Marshal(account)
+	if err != nil {
+		return "", errUpstreamLoginRejected
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(item.PrimaryURL, "/")+"/api/v1/auth/login", bytes.NewReader(payload))
+	if err != nil {
+		return "", errUpstreamLoginRejected
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	if item.UserAgent != "" {
+		req.Header.Set("User-Agent", item.UserAgent)
+	}
+	client := upstreamHTTPClient()
+	defer client.CloseIdleConnections()
+	// Do not forward a password or replay the login body through redirects.
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	response, err := client.Do(req)
+	if err != nil {
+		return "", errors.New("upstream account login request failed")
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		if response.StatusCode >= 300 && response.StatusCode < 400 {
+			return "", errUpstreamLoginRejected
+		}
+		return "", &upstreamHTTPError{status: response.StatusCode}
+	}
+	body, err := readUpstreamBody(response)
+	if err != nil {
+		return "", errors.New("upstream account login response could not be read")
+	}
+	var tokens upstreamRefreshResponse
+	if err := common.Unmarshal(body, &tokens); err != nil || tokens.Data.Requires2FA ||
+		(tokens.Code != nil && *tokens.Code != 0) || tokens.Data.AccessToken == "" ||
+		len(tokens.Data.AccessToken) > 16384 || strings.ContainsAny(tokens.Data.AccessToken, "\r\n") {
+		return "", errUpstreamLoginRejected
+	}
+	accessCipher, err := common.EncryptUpstreamCredential(tokens.Data.AccessToken)
+	if err != nil {
+		return "", err
+	}
+	if err := model.UpdateClaimedUpstream(ctx, item.ID, owner, map[string]any{
+		"access_cipher": accessCipher, "refresh_cipher": "", "credential_blocked": false, "refresh_pending": false,
+	}); err != nil {
+		return "", err
+	}
+	success = true
+	return tokens.Data.AccessToken, nil
 }
 
 func recordUpstreamRefreshError(ctx context.Context, id int, owner string, refreshErr error, credentialBlocked, refreshPending bool) error {
@@ -191,9 +307,15 @@ func refreshUpstreamAccess(ctx context.Context, item *model.Upstream, owner stri
 	if item.UserAgent != "" {
 		req.Header.Set("User-Agent", item.UserAgent)
 	}
-	resp, err := upstreamHTTPClient().Do(req)
-	if err != nil {
+	if err := model.UpdateClaimedUpstream(ctx, item.ID, owner, map[string]any{"refresh_pending": true}); err != nil {
 		return "", err
+	}
+	client := upstreamHTTPClient()
+	defer client.CloseIdleConnections()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", errors.New("upstream token refresh request failed")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -204,8 +326,8 @@ func refreshUpstreamAccess(ctx context.Context, item *model.Upstream, owner stri
 		return "", err
 	}
 	var payload upstreamRefreshResponse
-	if err := common.Unmarshal(body, &payload); err != nil {
-		return "", err
+	if err := common.Unmarshal(body, &payload); err != nil || (payload.Code != nil && *payload.Code != 0) {
+		return "", errors.New("upstream token refresh response is invalid")
 	}
 	access := payload.Data.AccessToken
 	if access == "" {
@@ -215,7 +337,7 @@ func refreshUpstreamAccess(ctx context.Context, item *model.Upstream, owner stri
 	if nextRefresh == "" {
 		nextRefresh = payload.RefreshToken
 	}
-	if access == "" {
+	if access == "" || len(access) > 16384 || len(nextRefresh) > 16384 || strings.ContainsAny(access+nextRefresh, "\r\n") {
 		return "", errors.New("upstream refresh response did not contain an access token")
 	}
 	accessCipher, err := common.EncryptUpstreamCredential(access)

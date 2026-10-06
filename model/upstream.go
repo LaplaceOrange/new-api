@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net"
+	"net/mail"
 	"net/url"
 	"strings"
 	"time"
@@ -15,30 +16,50 @@ import (
 )
 
 type Upstream struct {
-	ID                int               `json:"id" gorm:"primaryKey"`
-	Name              string            `json:"name" gorm:"type:varchar(128);not null"`
-	PrimaryURL        string            `json:"primary_url" gorm:"type:text"`
-	UserAgent         string            `json:"user_agent" gorm:"type:text"`
-	AutoRefreshToken  bool              `json:"auto_refresh_token"`
-	AccessCipher      string            `json:"-" gorm:"type:text"`
-	RefreshCipher     string            `json:"-" gorm:"type:text"`
-	RefreshPending    bool              `json:"-"`
-	CredentialBlocked bool              `json:"credential_blocked"`
-	Balance           *float64          `json:"balance"`
-	BalanceUpdatedAt  int64             `json:"balance_updated_at" gorm:"bigint"`
-	LastAttemptAt     int64             `json:"last_attempt_at" gorm:"bigint"`
-	LastError         string            `json:"last_error" gorm:"type:text"`
-	LeaseOwner        string            `json:"-" gorm:"type:varchar(64)"`
-	LeaseUntil        int64             `json:"-" gorm:"bigint"`
-	Revision          int64             `json:"-" gorm:"bigint"`
-	CreatedAt         int64             `json:"created_at" gorm:"bigint"`
-	UpdatedAt         int64             `json:"updated_at" gorm:"bigint"`
-	Addresses         []string          `json:"addresses" gorm:"-"`
-	HasAccessToken    bool              `json:"has_access_token" gorm:"-"`
-	HasRefreshToken   bool              `json:"has_refresh_token" gorm:"-"`
-	Refreshing        bool              `json:"refreshing" gorm:"-"`
-	ChannelIDs        []int             `json:"channel_ids" gorm:"-"`
-	Snapshot          *UpstreamSnapshot `json:"snapshot" gorm:"-"`
+	ID                    int               `json:"id" gorm:"primaryKey"`
+	Name                  string            `json:"name" gorm:"type:varchar(128);not null"`
+	PrimaryURL            string            `json:"primary_url" gorm:"type:text"`
+	UserAgent             string            `json:"user_agent" gorm:"type:text"`
+	AutoRefreshToken      bool              `json:"auto_refresh_token"`
+	AuthMode              string            `json:"auth_mode" gorm:"type:varchar(16)"`
+	AccountCipher         string            `json:"-" gorm:"type:text"`
+	AccessCipher          string            `json:"-" gorm:"type:text"`
+	RefreshCipher         string            `json:"-" gorm:"type:text"`
+	RefreshPending        bool              `json:"-"`
+	CredentialBlocked     bool              `json:"credential_blocked"`
+	Balance               *float64          `json:"balance"`
+	BalanceUpdatedAt      int64             `json:"balance_updated_at" gorm:"bigint"`
+	LastAttemptAt         int64             `json:"last_attempt_at" gorm:"bigint"`
+	LastError             string            `json:"last_error" gorm:"type:text"`
+	LeaseOwner            string            `json:"-" gorm:"type:varchar(64)"`
+	LeaseUntil            int64             `json:"-" gorm:"bigint"`
+	Revision              int64             `json:"-" gorm:"bigint"`
+	CreatedAt             int64             `json:"created_at" gorm:"bigint"`
+	UpdatedAt             int64             `json:"updated_at" gorm:"bigint"`
+	Addresses             []string          `json:"addresses" gorm:"-"`
+	HasAccessToken        bool              `json:"has_access_token" gorm:"-"`
+	HasRefreshToken       bool              `json:"has_refresh_token" gorm:"-"`
+	HasAccountCredentials bool              `json:"has_account_credentials" gorm:"-"`
+	Refreshing            bool              `json:"refreshing" gorm:"-"`
+	ChannelIDs            []int             `json:"channel_ids" gorm:"-"`
+	Snapshot              *UpstreamSnapshot `json:"snapshot" gorm:"-"`
+}
+
+const (
+	UpstreamAuthJWT      = "jwt"
+	UpstreamAuthPassword = "password"
+)
+
+type UpstreamCredentials struct {
+	AccessToken     *string
+	RefreshToken    *string
+	AccountEmail    *string
+	AccountPassword *string
+}
+
+type UpstreamAccountCredentials struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 type UpstreamAddress struct {
@@ -129,6 +150,10 @@ func GetUpstream(id int) (*Upstream, error) {
 		return nil, err
 	}
 	item.HasAccessToken, item.HasRefreshToken = item.AccessCipher != "", item.RefreshCipher != ""
+	item.HasAccountCredentials = item.AccountCipher != ""
+	if item.AuthMode == "" {
+		item.AuthMode = UpstreamAuthJWT
+	}
 	item.Refreshing = item.LeaseUntil > time.Now().Unix()
 	item.Addresses = []string{}
 	if err := DB.Model(&UpstreamAddress{}).Where("upstream_id = ?", id).Order("id").Pluck("url", &item.Addresses).Error; err != nil {
@@ -156,12 +181,16 @@ func ListUpstreams() ([]Upstream, error) {
 			items[i].Addresses = []string{}
 		}
 		items[i].HasAccessToken, items[i].HasRefreshToken = items[i].AccessCipher != "", items[i].RefreshCipher != ""
+		items[i].HasAccountCredentials = items[i].AccountCipher != ""
+		if items[i].AuthMode == "" {
+			items[i].AuthMode = UpstreamAuthJWT
+		}
 		items[i].Refreshing = items[i].LeaseUntil > time.Now().Unix()
 	}
 	return items, nil
 }
 
-func SaveUpstream(item *Upstream, accessToken, refreshToken *string) error {
+func SaveUpstream(item *Upstream, credentials UpstreamCredentials) error {
 	item.Name = strings.TrimSpace(item.Name)
 	if item.Name == "" || len(item.Name) > 128 || len(item.Addresses) == 0 || len(item.Addresses) > 32 ||
 		len(item.UserAgent) > 1024 || strings.ContainsAny(item.UserAgent, "\r\n") {
@@ -203,30 +232,97 @@ func SaveUpstream(item *Upstream, accessToken, refreshToken *string) error {
 			}
 		}
 		item.AccessCipher, item.RefreshCipher = old.AccessCipher, old.RefreshCipher
-		for _, credential := range []struct {
-			value       *string
-			destination *string
-		}{
-			{accessToken, &item.AccessCipher}, {refreshToken, &item.RefreshCipher},
-		} {
-			if credential.value == nil {
-				continue
-			}
-			value := strings.TrimSpace(*credential.value)
-			if len(value) > 16384 || strings.ContainsAny(value, "\r\n") {
-				return errors.New("Invalid upstream credential.")
-			}
-			encrypted, err := common.EncryptUpstreamCredential(value)
-			if err != nil {
-				return err
-			}
-			*credential.destination = encrypted
+		item.AccountCipher = old.AccountCipher
+		oldMode := old.AuthMode
+		if oldMode == "" {
+			oldMode = UpstreamAuthJWT
 		}
-		if item.AccessCipher == "" || (item.AutoRefreshToken && item.RefreshCipher == "") {
-			return errors.New("An access JWT is required; automatic renewal also requires a refresh token.")
+		if item.AuthMode == "" {
+			item.AuthMode = oldMode
+		}
+		if item.AuthMode != UpstreamAuthJWT && item.AuthMode != UpstreamAuthPassword {
+			return errors.New("Invalid upstream authentication method.")
+		}
+		modeChanged := item.AuthMode != oldMode
+		credentialsChanged := modeChanged
+		if item.AuthMode == UpstreamAuthPassword {
+			if credentials.AccessToken != nil || credentials.RefreshToken != nil || item.AutoRefreshToken {
+				return errors.New("JWT fields cannot be used with account password authentication.")
+			}
+			if (credentials.AccountEmail == nil) != (credentials.AccountPassword == nil) {
+				return errors.New("Account email and password must be updated together.")
+			}
+			var account UpstreamAccountCredentials
+			if !modeChanged && old.AccountCipher != "" &&
+				credentials.AccountEmail == nil && credentials.AccountPassword == nil {
+				plain, err := common.DecryptUpstreamCredential(old.AccountCipher)
+				if err != nil {
+					return err
+				}
+				if err := common.UnmarshalJsonStr(plain, &account); err != nil {
+					return errors.New("Upstream account credentials cannot be read; configure them again.")
+				}
+			}
+			if credentials.AccountEmail != nil {
+				account.Email = strings.TrimSpace(*credentials.AccountEmail)
+			}
+			if credentials.AccountPassword != nil {
+				// Password whitespace is significant and must not be normalized.
+				account.Password = *credentials.AccountPassword
+			}
+			address, err := mail.ParseAddress(account.Email)
+			if err != nil || address.Address != account.Email || len(account.Email) > 254 ||
+				account.Password == "" || len(account.Password) > 16384 {
+				return errors.New("A valid account email and password are required.")
+			}
+			if modeChanged || credentials.AccountEmail != nil || credentials.AccountPassword != nil {
+				plain, err := common.Marshal(account)
+				if err != nil {
+					return err
+				}
+				item.AccountCipher, err = common.EncryptUpstreamCredential(string(plain))
+				if err != nil {
+					return err
+				}
+				credentialsChanged = true
+			}
+			if credentialsChanged || old.PrimaryURL != item.PrimaryURL || old.UserAgent != item.UserAgent {
+				item.AccessCipher, item.RefreshCipher = "", ""
+			}
+		} else {
+			if credentials.AccountEmail != nil || credentials.AccountPassword != nil {
+				return errors.New("Account fields cannot be used with JWT authentication.")
+			}
+			item.AccountCipher = ""
+			if modeChanged {
+				item.AccessCipher, item.RefreshCipher = "", ""
+			}
+			for _, credential := range []struct {
+				value       *string
+				destination *string
+			}{
+				{credentials.AccessToken, &item.AccessCipher}, {credentials.RefreshToken, &item.RefreshCipher},
+			} {
+				if credential.value == nil {
+					continue
+				}
+				value := strings.TrimSpace(*credential.value)
+				if len(value) > 16384 || strings.ContainsAny(value, "\r\n") {
+					return errors.New("Invalid upstream credential.")
+				}
+				encrypted, err := common.EncryptUpstreamCredential(value)
+				if err != nil {
+					return err
+				}
+				*credential.destination = encrypted
+				credentialsChanged = true
+			}
+			if item.AccessCipher == "" || (item.AutoRefreshToken && item.RefreshCipher == "") {
+				return errors.New("An access JWT is required; automatic renewal also requires a refresh token.")
+			}
 		}
 		changed := old.PrimaryURL != item.PrimaryURL || old.UserAgent != item.UserAgent ||
-			accessToken != nil || refreshToken != nil || old.AutoRefreshToken != item.AutoRefreshToken
+			credentialsChanged || old.AutoRefreshToken != item.AutoRefreshToken
 		if len(oldAddresses) != len(addresses) {
 			changed = true
 		} else {
@@ -250,7 +346,7 @@ func SaveUpstream(item *Upstream, accessToken, refreshToken *string) error {
 		item.CredentialBlocked, item.RefreshPending = old.CredentialBlocked, old.RefreshPending
 		if changed {
 			item.Balance, item.BalanceUpdatedAt = nil, 0
-			if accessToken != nil || refreshToken != nil {
+			if credentialsChanged || old.PrimaryURL != item.PrimaryURL || old.UserAgent != item.UserAgent {
 				item.CredentialBlocked, item.RefreshPending = false, false
 			}
 			if err := tx.Where("upstream_id = ?", item.ID).Delete(&UpstreamSnapshot{}).Error; err != nil {

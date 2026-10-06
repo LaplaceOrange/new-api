@@ -22,6 +22,9 @@ type upstreamInput struct {
 	AutoRefreshToken bool     `json:"auto_refresh_token"`
 	AccessToken      *string  `json:"access_token"`
 	RefreshToken     *string  `json:"refresh_token"`
+	AuthMode         string   `json:"auth_mode"`
+	AccountEmail     *string  `json:"account_email"`
+	AccountPassword  *string  `json:"account_password"`
 }
 
 func upstreamResponse(item *model.Upstream) gin.H {
@@ -30,6 +33,7 @@ func upstreamResponse(item *model.Upstream) gin.H {
 		"id": item.ID, "name": item.Name, "primary_url": item.PrimaryURL, "addresses": item.Addresses,
 		"user_agent": item.UserAgent, "auto_refresh_token": item.AutoRefreshToken,
 		"has_access_token": item.HasAccessToken, "has_refresh_token": item.HasRefreshToken,
+		"auth_mode": item.AuthMode, "has_account_credentials": item.HasAccountCredentials,
 		"credential_blocked": item.CredentialBlocked, "balance": item.Balance,
 		"balance_updated_at": item.BalanceUpdatedAt, "last_attempt_at": item.LastAttemptAt,
 		"last_error": item.LastError, "refreshing": item.Refreshing, "snapshot": item.Snapshot,
@@ -176,8 +180,11 @@ func CreateUpstream(c *gin.Context) {
 		common.ApiErrorMsg(c, "Invalid upstream settings")
 		return
 	}
-	item := &model.Upstream{Name: input.Name, PrimaryURL: input.PrimaryURL, Addresses: input.Addresses, UserAgent: input.UserAgent, AutoRefreshToken: input.AutoRefreshToken}
-	if err := model.SaveUpstream(item, input.AccessToken, input.RefreshToken); err != nil {
+	item := &model.Upstream{Name: input.Name, PrimaryURL: input.PrimaryURL, Addresses: input.Addresses, UserAgent: input.UserAgent, AutoRefreshToken: input.AutoRefreshToken, AuthMode: input.AuthMode}
+	if err := model.SaveUpstream(item, model.UpstreamCredentials{
+		AccessToken: input.AccessToken, RefreshToken: input.RefreshToken,
+		AccountEmail: input.AccountEmail, AccountPassword: input.AccountPassword,
+	}); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -208,7 +215,13 @@ func UpdateUpstream(c *gin.Context) {
 		return
 	}
 	item.Name, item.PrimaryURL, item.Addresses, item.UserAgent, item.AutoRefreshToken = input.Name, input.PrimaryURL, input.Addresses, input.UserAgent, input.AutoRefreshToken
-	if err := model.SaveUpstream(item, input.AccessToken, input.RefreshToken); err != nil {
+	if input.AuthMode != "" {
+		item.AuthMode = input.AuthMode
+	}
+	if err := model.SaveUpstream(item, model.UpstreamCredentials{
+		AccessToken: input.AccessToken, RefreshToken: input.RefreshToken,
+		AccountEmail: input.AccountEmail, AccountPassword: input.AccountPassword,
+	}); err != nil {
 		common.ApiError(c, err)
 		return
 	}

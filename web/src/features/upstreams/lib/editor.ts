@@ -13,10 +13,24 @@ export const upstreamEditorSchema = z
     primary_url: z.string().trim().min(1, 'Select a primary address'),
     user_agent: z.string().trim().max(512),
     auto_refresh_token: z.boolean(),
+    auth_mode: z.enum(['jwt', 'password']),
+    account_email: z.string().trim().max(254),
+    account_password: z.string().max(16384),
     access_token: z.string(),
     refresh_token: z.string(),
   })
   .superRefine((value, ctx) => {
+    if (
+      value.auth_mode === 'password' &&
+      value.account_email &&
+      !z.email().safeParse(value.account_email).success
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['account_email'],
+        message: 'Enter a valid account email',
+      })
+    }
     const addresses = value.addresses
       .split(/\r?\n/)
       .map((item) => item.trim())
@@ -77,6 +91,9 @@ export function upstreamEditorDefaults(
     primary_url: upstream?.primary_url ?? '',
     user_agent: upstream?.user_agent ?? '',
     auto_refresh_token: upstream?.auto_refresh_token ?? false,
+    auth_mode: upstream?.auth_mode ?? 'jwt',
+    account_email: '',
+    account_password: '',
     access_token: '',
     refresh_token: '',
   }
@@ -94,6 +111,17 @@ export function upstreamEditorPayload(
       .filter(Boolean),
     user_agent: values.user_agent.trim(),
     auto_refresh_token: values.auto_refresh_token,
+    auth_mode: values.auth_mode,
+  }
+  if (values.auth_mode === 'password') {
+    payload.auto_refresh_token = false
+    if (values.account_email.trim()) {
+      payload.account_email = values.account_email.trim()
+    }
+    if (values.account_password) {
+      payload.account_password = values.account_password
+    }
+    return payload
   }
   if (values.access_token.trim()) {
     payload.access_token = values.access_token.trim()

@@ -1,7 +1,7 @@
 ---
 name: new-api-console-design
 description: Presentation rules for new-api administrative lists, detail dashboards, and compact configuration dialogs in light and dark themes.
-version: 84f2595ac
+version: 2026-10-06
 ---
 
 # 1. Scope and Priority
@@ -68,7 +68,9 @@ Decision: source is the existing `DataTableCardGrid` responsive structure.
 | Dialog | `Dialog` with `title`, `footer` | `web/src/components/dialog.tsx` | Configuration forms | Implemented |
 | Confirmation | `ConfirmDialog` | `web/src/components/confirm-dialog.tsx` | Destructive actions | Implemented |
 | Feedback | `EmptyState`, `LoadingState`, `ErrorState` | `web/src/components` | Data states | Implemented |
-| Controls | `Button`, `Input`, `Textarea`, `Select`, `Switch`, `Tabs`, `Label` | `web/src/components/ui` | Native control roles | Implemented |
+| Controls | `Button`, `Input`, `Textarea`, `Select`, `Switch`, `Tabs`, `ToggleGroup`, `Label` | `web/src/components/ui` | Native control roles | Implemented |
+| Form rows | `FieldGroup`, `Field`, `FieldLabel`, `FieldError`, `FieldDescription` | `web/src/components/ui/field.tsx` | Labelled inputs and validation states | Implemented |
+| Masked input | `PasswordInput` | `web/src/components/password-input.tsx` | Masked values with an explicit visibility action | Implemented |
 | Icons | Installed `lucide-react` icons | `web/package.json` | Commands and status | Implemented |
 | Verification | `SecureVerificationDialog` | `web/src/features/auth/secure-verification` | Sensitive actions | Implemented |
 

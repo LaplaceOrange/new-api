@@ -15,7 +15,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import {
   SecureVerificationDialog,
@@ -32,6 +31,7 @@ import {
   type UpstreamEditorValues,
 } from '../lib/editor'
 import type { Upstream } from '../types'
+import { UpstreamCredentialsFields } from './upstream-credentials-fields'
 
 export function UpstreamEditor(props: {
   upstream: Upstream | null
@@ -53,7 +53,6 @@ export function UpstreamEditor(props: {
     .split(/\r?\n/)
     .map((item) => item.trim())
     .filter(Boolean)
-  const autoRefresh = form.watch('auto_refresh_token')
   const save = useMutation({
     mutationFn: (input: {
       serialized: string
@@ -89,14 +88,39 @@ export function UpstreamEditor(props: {
 
   const submit = async (values: UpstreamEditorValues) => {
     if (operation.current) return
-    if (!values.access_token.trim() && !props.upstream?.has_access_token) {
+    const hasAccount =
+      props.upstream?.auth_mode === 'password' &&
+      props.upstream.has_account_credentials
+    const hasJWT =
+      (props.upstream?.auth_mode ?? 'jwt') === 'jwt' &&
+      props.upstream?.has_access_token
+    if (
+      values.auth_mode === 'password' &&
+      !values.account_email &&
+      !hasAccount
+    ) {
+      form.setError('account_email', { message: 'Account email is required' })
+      return
+    }
+    if (
+      values.auth_mode === 'password' &&
+      !values.account_password &&
+      !hasAccount
+    ) {
+      form.setError('account_password', {
+        message: 'Account password is required',
+      })
+      return
+    }
+    if (values.auth_mode === 'jwt' && !values.access_token.trim() && !hasJWT) {
       form.setError('access_token', { message: 'Access token is required' })
       return
     }
     if (
+      values.auth_mode === 'jwt' &&
       values.auto_refresh_token &&
       !values.refresh_token.trim() &&
-      !props.upstream?.has_refresh_token
+      !(hasJWT && props.upstream?.has_refresh_token)
     ) {
       form.setError('refresh_token', {
         message: 'Refresh token is required for automatic renewal',
@@ -217,59 +241,12 @@ export function UpstreamEditor(props: {
               {t(form.formState.errors.primary_url?.message ?? '')}
             </p>
           </div>
-          <div className='flex items-center justify-between gap-3'>
-            <Label htmlFor={`${formId}-auto`}>
-              {t('Automatically renew JWT')}
-            </Label>
-            <Switch
-              id={`${formId}-auto`}
-              checked={autoRefresh}
-              onCheckedChange={(value) =>
-                form.setValue('auto_refresh_token', value)
-              }
-              disabled={busy}
-            />
-          </div>
-          <div className='space-y-2'>
-            <Label htmlFor={`${formId}-access`}>{t('Access token')}</Label>
-            <Input
-              id={`${formId}-access`}
-              type='password'
-              autoComplete='off'
-              disabled={busy}
-              aria-invalid={!!form.formState.errors.access_token}
-              {...form.register('access_token')}
-            />
-            {props.upstream?.has_access_token && (
-              <p className='text-muted-foreground text-xs'>
-                {t('Saved token retained when left blank')}
-              </p>
-            )}
-            <p className='text-destructive text-xs'>
-              {t(form.formState.errors.access_token?.message ?? '')}
-            </p>
-          </div>
-          {autoRefresh && (
-            <div className='space-y-2'>
-              <Label htmlFor={`${formId}-refresh`}>{t('Refresh token')}</Label>
-              <Input
-                id={`${formId}-refresh`}
-                type='password'
-                autoComplete='off'
-                disabled={busy}
-                aria-invalid={!!form.formState.errors.refresh_token}
-                {...form.register('refresh_token')}
-              />
-              {props.upstream?.has_refresh_token && (
-                <p className='text-muted-foreground text-xs'>
-                  {t('Saved token retained when left blank')}
-                </p>
-              )}
-              <p className='text-destructive text-xs'>
-                {t(form.formState.errors.refresh_token?.message ?? '')}
-              </p>
-            </div>
-          )}
+          <UpstreamCredentialsFields
+            form={form}
+            formId={formId}
+            busy={busy}
+            upstream={props.upstream}
+          />
           <div className='space-y-2'>
             <Label htmlFor={`${formId}-agent`}>
               {t('User-Agent (optional)')}

@@ -112,7 +112,13 @@ export function UpstreamSummary(props: {
       )}
       {upstream.credential_blocked && (
         <p role='alert' className='text-destructive text-xs'>
-          {t('Credentials unavailable; update credentials to resume refresh')}
+          {upstream.auth_mode === 'password'
+            ? t(
+                'Upstream account login failed or requires interactive verification; use JWT or update the account credentials.'
+              )
+            : t(
+                'Credentials unavailable; update credentials to resume refresh'
+              )}
         </p>
       )}
       {(upstream.last_error || snapshot?.last_error) && (
