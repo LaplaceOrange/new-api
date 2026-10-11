@@ -1905,6 +1905,33 @@ export function ChannelMutateDrawer({
 
       <FormField
         control={form.control}
+        name='concurrency_limit'
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>{t('Concurrency Limit')}</FormLabel>
+            <FormControl>
+              <Input
+                type='number'
+                min={0}
+                step={1}
+                value={field.value ?? ''}
+                placeholder='0'
+                onChange={(event) => {
+                  const value = event.target.value
+                  field.onChange(value === '' ? undefined : Number(value))
+                }}
+              />
+            </FormControl>
+            <FormDescription>
+              {t('Leave blank or enter 0 for unlimited concurrency.')}
+            </FormDescription>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+
+      <FormField
+        control={form.control}
         name='test_model'
         render={({ field }) => (
           <FormItem>

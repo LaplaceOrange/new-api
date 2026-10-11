@@ -208,6 +208,29 @@ test('price monitoring enables the limit input and saves the configured multipli
   expect(settings.upstream_rate_multiplier_limit).toBe(1.25)
 })
 
+test('channel concurrency limit defaults to unlimited and saves a positive limit', async () => {
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  await user.click(screen.getByRole('tab', { name: /Routing & Mapping/ }))
+
+  const limit = screen.getByRole('spinbutton', {
+    name: 'Concurrency Limit',
+  })
+  expect(limit).toHaveValue(null)
+
+  await user.type(limit, '8')
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  await waitFor(() => expect(put).toHaveBeenCalled())
+  expect(put.mock.calls[0]?.[1]).toMatchObject({
+    id: 42,
+    concurrency_limit: 8,
+  })
+})
+
 test('clearing a saved price limit removes it without discarding unrelated settings', async () => {
   editingChannel.settings = JSON.stringify({
     upstream_rate_multiplier_check_enabled: true,
