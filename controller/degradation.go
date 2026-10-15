@@ -179,31 +179,46 @@ func enabledModelSet(group string) map[string]bool {
 	return set
 }
 
-func degradationChatText(body []byte) (string, error) {
-	content := gjson.GetBytes(body, "choices.0.message.content")
-	if content.Type == gjson.String {
-		text := strings.TrimSpace(content.String())
-		if text == "" {
-			return "", errors.New("empty completion")
-		}
-		return text, nil
+func degradationChatCompletion(body []byte) (degradation.Completion, error) {
+	if err := detectErrorFromTestResponseBody(body); err != nil {
+		return degradation.Completion{}, err
 	}
-	if content.IsArray() {
-		var builder strings.Builder
-		for _, part := range content.Array() {
-			if part.Type == gjson.String {
-				builder.WriteString(part.String())
+	var text strings.Builder
+	var finishReason string
+	for line := range bytes.SplitSeq(body, []byte{'\n'}) {
+		payload, ok := bytes.CutPrefix(bytes.TrimSpace(line), []byte("data:"))
+		if !ok {
+			continue
+		}
+		payload = bytes.TrimSpace(payload)
+		if bytes.Equal(payload, []byte("[DONE]")) {
+			break
+		}
+		if len(payload) == 0 {
+			continue
+		}
+		if !gjson.ValidBytes(payload) {
+			return degradation.Completion{}, errors.New("invalid completion stream event")
+		}
+		chunk := gjson.ParseBytes(payload)
+		for _, choice := range chunk.Get("choices").Array() {
+			if choice.Get("index").Int() != 0 {
 				continue
 			}
-			builder.WriteString(part.Get("text").String())
+			text.WriteString(choice.Get("delta.content").String())
+			if reason := choice.Get("finish_reason"); reason.Type == gjson.String && reason.String() != "" {
+				finishReason = reason.String()
+			}
 		}
-		text := strings.TrimSpace(builder.String())
-		if text == "" {
-			return "", errors.New("empty completion")
-		}
-		return text, nil
 	}
-	return "", errors.New("missing completion")
+	completion := degradation.Completion{Text: strings.TrimSpace(text.String()), FinishReason: finishReason}
+	if completion.Text == "" {
+		return degradation.Completion{}, errors.New("empty completion")
+	}
+	if completion.FinishReason == "" {
+		return degradation.Completion{}, errors.New("incomplete completion")
+	}
+	return completion, nil
 }
 
 func probeDegradationChat(ctx context.Context, channel *model.Channel, groupName, modelName, prompt string) (degradation.Completion, int, error) {
@@ -222,9 +237,11 @@ func probeDegradationChat(ctx context.Context, channel *model.Channel, groupName
 		return degradation.Completion{}, 0, errors.New("degradation monitor requires an enabled root user")
 	}
 	request := dto.GeneralOpenAIRequest{
-		Model:     modelName,
-		MaxTokens: common.GetPointer(uint(8192)),
-		Messages:  []dto.Message{{Role: "user", Content: prompt}},
+		Model:         modelName,
+		MaxTokens:     common.GetPointer(uint(8192)),
+		Messages:      []dto.Message{{Role: "user", Content: prompt}},
+		Stream:        common.GetPointer(true),
+		StreamOptions: &dto.StreamOptions{IncludeUsage: true},
 	}
 	body, err := common.Marshal(request)
 	if err != nil {
@@ -282,11 +299,8 @@ func probeDegradationChat(ctx context.Context, channel *model.Channel, groupName
 	if w.exceeded {
 		return degradation.Completion{}, channelID, errors.New("degradation relay response exceeds size limit")
 	}
-	text, err := degradationChatText(w.Body.Bytes())
-	if err != nil {
-		return degradation.Completion{}, channelID, err
-	}
-	return degradation.Completion{Text: text, FinishReason: gjson.GetBytes(w.Body.Bytes(), "choices.0.finish_reason").String()}, channelID, nil
+	completion, err := degradationChatCompletion(w.Body.Bytes())
+	return completion, channelID, err
 }
 
 func ClearDegradationHistory(c *gin.Context) {

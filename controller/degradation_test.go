@@ -94,11 +94,14 @@ func setupDegradationRelayTest(t *testing.T) (*gorm.DB, model.User) {
 	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.ReferralWalletSpend{}, &model.ReferralCampaign{}, &model.ReferralSettlement{}))
 	previousMemory, previousBatch, previousConsume, previousExport := common.MemoryCacheEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled, common.DataExportEnabled
 	previousErrorLog := constant.ErrorLogEnabled
+	previousStreamingTimeout := constant.StreamingTimeout
 	common.MemoryCacheEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled, common.DataExportEnabled = false, false, true, false
 	constant.ErrorLogEnabled = true
+	constant.StreamingTimeout = 30
 	t.Cleanup(func() {
 		common.MemoryCacheEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled, common.DataExportEnabled = previousMemory, previousBatch, previousConsume, previousExport
 		constant.ErrorLogEnabled = previousErrorLog
+		constant.StreamingTimeout = previousStreamingTimeout
 	})
 	previousRatios := ratio_setting.ModelRatio2JSONString()
 	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"gpt-4o-mini":1}`))
@@ -110,6 +113,61 @@ func setupDegradationRelayTest(t *testing.T) (*gorm.DB, model.User) {
 	return db, user
 }
 
+func TestDegradationChatCompletion(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want degradation.Completion
+		err  string
+	}{
+		{
+			name: "stream text excludes reasoning and other choices",
+			body: ": keepalive\r\n\r\ndata: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"hidden\"}}]}\r\n\r\n" +
+				"data: {\"choices\":[{\"index\":1,\"delta\":{\"content\":\"other\"}},{\"index\":0,\"delta\":{\"content\":\" 1, \"}}]}\n\n" +
+				"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"2 \"},\"finish_reason\":\"length\"}]}\n\n" +
+				"data: {\"choices\":[],\"usage\":{\"total_tokens\":10}}\n\ndata: [DONE]\n\n",
+			want: degradation.Completion{Text: "1, 2", FinishReason: "length"},
+		},
+		{
+			name: "stream error after partial text",
+			body: "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"1\"}}]}\n\n" +
+				"data: {\"error\":{\"message\":\"provider failed\"}}\n\n",
+			err: "provider failed",
+		},
+		{
+			name: "truncated stream",
+			body: "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"1\"}}]}\n\n",
+			err:  "incomplete completion",
+		},
+		{
+			name: "done without finish reason",
+			body: "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"1\"}}]}\n\ndata: [DONE]\n\n",
+			err:  "incomplete completion",
+		},
+		{
+			name: "empty stream",
+			body: "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+			err:  "empty completion",
+		},
+		{
+			name: "malformed event",
+			body: "data: {broken}\n\n",
+			err:  "invalid completion stream event",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := degradationChatCompletion([]byte(tc.body))
+			if tc.err != "" {
+				require.ErrorContains(t, err, tc.err)
+				assert.Empty(t, got)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestDegradationProbePreservesChannelMappingAndCompletionStatus(t *testing.T) {
 	db, user := setupDegradationRelayTest(t)
 	user.Quota = 1_000_000
@@ -118,8 +176,11 @@ func TestDegradationProbePreservesChannelMappingAndCompletionStatus(t *testing.T
 		assert.Equal(t, "/v1/chat/completions", r.URL.Path)
 		assert.Equal(t, "Bearer channel-only-key", r.Header.Get("Authorization"))
 		var request struct {
-			Model     string                           `json:"model"`
-			Stream    bool                             `json:"stream"`
+			Model         string `json:"model"`
+			Stream        bool   `json:"stream"`
+			StreamOptions struct {
+				IncludeUsage bool `json:"include_usage"`
+			} `json:"stream_options"`
 			MaxTokens int                              `json:"max_tokens"`
 			Messages  []struct{ Role, Content string } `json:"messages"`
 		}
@@ -128,13 +189,23 @@ func TestDegradationProbePreservesChannelMappingAndCompletionStatus(t *testing.T
 			return
 		}
 		assert.Equal(t, "gpt-4o", request.Model)
-		assert.False(t, request.Stream)
+		assert.True(t, request.Stream)
+		assert.True(t, request.StreamOptions.IncludeUsage)
 		assert.Equal(t, 8192, request.MaxTokens)
 		if assert.Len(t, request.Messages, 1) {
 			assert.Equal(t, "challenge from official CLI", request.Messages[0].Content)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"probe","object":"chat.completion","model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"1, 2, 3"},"finish_reason":"length"}],"usage":{"prompt_tokens":5,"completion_tokens":5,"total_tokens":10}}`))
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, event := range []string{
+			`{"id":"probe","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"role":"assistant","content":"1, "},"finish_reason":null}]}`,
+			`{"id":"probe","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"2, 3"},"finish_reason":null}]}`,
+			`{"id":"probe","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"length"}]}`,
+			`{"id":"probe","object":"chat.completion.chunk","model":"gpt-4o","choices":[],"usage":{"prompt_tokens":5,"completion_tokens":5,"total_tokens":10}}`,
+			`[DONE]`,
+		} {
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", event)
+			w.(http.Flusher).Flush()
+		}
 	}))
 	defer upstream.Close()
 	mapping := `{"gpt-4o-mini":"gpt-4o"}`
@@ -156,6 +227,9 @@ func TestDegradationProbePreservesChannelMappingAndCompletionStatus(t *testing.T
 	assert.Equal(t, "default", entry.Group)
 	assert.NotEmpty(t, entry.RequestId)
 	assert.Positive(t, entry.Quota)
+	assert.True(t, entry.IsStream)
+	assert.Equal(t, 5, entry.PromptTokens)
+	assert.Equal(t, 5, entry.CompletionTokens)
 	assert.Zero(t, entry.TokenId)
 	remaining, err := model.GetUserQuota(user.Id, true)
 	require.NoError(t, err)
@@ -208,6 +282,7 @@ func TestDegradationProbeUsesRelayRoutingAndRetryPolicy(t *testing.T) {
 				}
 				var request struct {
 					Model    string                     `json:"model"`
+					Stream   bool                       `json:"stream"`
 					Messages []struct{ Content string } `json:"messages"`
 				}
 				if !assert.NoError(t, common.DecodeJson(r.Body, &request)) {
@@ -215,10 +290,13 @@ func TestDegradationProbeUsesRelayRoutingAndRetryPolicy(t *testing.T) {
 					return
 				}
 				assert.Equal(t, "gpt-4o-mini", request.Model)
+				assert.True(t, request.Stream)
 				if assert.Len(t, request.Messages, 1) {
 					assert.Equal(t, "probe", request.Messages[0].Content)
 				}
-				_, _ = w.Write([]byte(`{"id":"fallback","object":"chat.completion","model":"gpt-4o-mini","choices":[{"index":0,"message":{"role":"assistant","content":"fallback answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":5,"total_tokens":10}}`))
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprint(w, "data: {\"id\":\"fallback\",\"object\":\"chat.completion.chunk\",\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"fallback answer\"},\"finish_reason\":\"stop\"}]}\n\n"+
+					"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":5,\"total_tokens\":10}}\n\ndata: [DONE]\n\n")
 			}))
 			defer fallback.Close()
 			primary = model.Channel{Type: constant.ChannelTypeOpenAI, Name: "primary", Key: "primary-key",
