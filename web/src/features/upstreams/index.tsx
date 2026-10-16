@@ -34,7 +34,7 @@ export function Upstreams() {
   const queryClient = useQueryClient()
   const [period, setPeriod] = useState<UpstreamPeriod>({
     days: 7,
-    mode: 'rolling',
+    mode: 'calendar',
   })
   const [editor, setEditor] = useState<{ upstream: Upstream | null } | null>(
     null

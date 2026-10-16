@@ -20,7 +20,7 @@ export function UpstreamDetail(props: { id: number }) {
   const queryClient = useQueryClient()
   const [period, setPeriod] = useState<UpstreamPeriod>({
     days: 7,
-    mode: 'rolling',
+    mode: 'calendar',
   })
   const query = useQuery({
     queryKey: ['upstreams', props.id, period],
