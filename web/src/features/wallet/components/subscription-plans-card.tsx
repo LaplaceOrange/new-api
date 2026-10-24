@@ -16,7 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Crown, RefreshCw, Sparkles, Check } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronUp,
+  Crown,
+  RefreshCw,
+  Sparkles,
+  Check,
+} from 'lucide-react'
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -49,11 +56,13 @@ import {
   getPublicPlans,
   getSelfSubscriptionFull,
   updateBillingPreference,
+  updateSubscriptionPriority,
 } from '@/features/subscriptions/api'
 import { SubscriptionPurchaseDialog } from '@/features/subscriptions/components/dialogs/subscription-purchase-dialog'
 import { formatDuration, formatResetPeriod } from '@/features/subscriptions/lib'
 import type {
   PlanRecord,
+  SubscriptionTokenUsage,
   UserSubscriptionRecord,
 } from '@/features/subscriptions/types'
 import { formatQuota } from '@/lib/format'
@@ -111,6 +120,10 @@ export function SubscriptionPlansCard({
   const [allSubscriptions, setAllSubscriptions] = useState<
     UserSubscriptionRecord[]
   >([])
+  const [tokenUsages, setTokenUsages] = useState<
+    Record<string, SubscriptionTokenUsage>
+  >({})
+  const [movingPriority, setMovingPriority] = useState(false)
   const [billingPreference, setBillingPreference] =
     useState('subscription_first')
   const [loading, setLoading] = useState(true)
@@ -149,11 +162,32 @@ export function SubscriptionPlansCard({
         )
         setActiveSubscriptions(res.data.subscriptions || [])
         setAllSubscriptions(res.data.all_subscriptions || [])
+        setTokenUsages(res.data.token_usages || {})
       }
     } catch (error) {
       handleServerError(error)
     }
   }, [])
+
+  const handlePriorityMove = async (
+    subscriptionId: number,
+    move: 'up' | 'down'
+  ) => {
+    if (movingPriority) return
+    setMovingPriority(true)
+    try {
+      const res = await updateSubscriptionPriority(subscriptionId, move)
+      if (res.success) {
+        await fetchSelfSubscription()
+      } else {
+        handleServerError(res, t('Update failed'))
+      }
+    } catch (error) {
+      handleServerError(error, t('Request failed'))
+    } finally {
+      setMovingPriority(false)
+    }
+  }
 
   useEffect(() => {
     const init = async () => {
@@ -230,6 +264,29 @@ export function SubscriptionPlansCard({
     }
     return map
   }, [plans])
+
+  // Deduction order: active subscriptions first (server order = priority),
+  // then expired/cancelled ones. Used for both rendering and arrow control.
+  const activeIdSet = useMemo(
+    () =>
+      new Set(
+        activeSubscriptions
+          .map((s) => s?.subscription?.id)
+          .filter((id): id is number => !!id)
+      ),
+    [activeSubscriptions]
+  )
+  const displaySubscriptions = useMemo(() => {
+    const inactive = allSubscriptions.filter(
+      (s) => s?.subscription?.id && !activeIdSet.has(s.subscription.id)
+    )
+    return [...activeSubscriptions, ...inactive]
+  }, [activeSubscriptions, allSubscriptions, activeIdSet])
+
+  const formatTokenCount = (n: number) =>
+    n >= 1_000_000
+      ? `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
+      : n.toLocaleString()
 
   const getRemainingDays = (sub: UserSubscriptionRecord) => {
     const endTime = sub?.subscription?.end_time || 0
@@ -407,7 +464,7 @@ export function SubscriptionPlansCard({
             <>
               <Separator className='my-3' />
               <div className='max-h-64 space-y-3 overflow-y-auto pr-1'>
-                {allSubscriptions.map((sub) => {
+                {displaySubscriptions.map((sub, displayIndex) => {
                   const subscription = sub.subscription
                   const totalAmount = Number(subscription?.amount_total || 0)
                   const usedAmount = Number(subscription?.amount_used || 0)
@@ -422,6 +479,15 @@ export function SubscriptionPlansCard({
                   const isCancelled = subscription?.status === 'cancelled'
                   const isActive =
                     subscription?.status === 'active' && !isExpired
+                  // Actives are rendered first, so displayIndex doubles as the
+                  // deduction-order rank among active subscriptions.
+                  const activeIndex = isActive ? displayIndex : -1
+                  const isFirstActive = activeIndex === 0
+                  const isLastActive =
+                    activeIndex === activeSubscriptions.length - 1
+                  const tokenUsage = subscription?.id
+                    ? tokenUsages[String(subscription.id)]
+                    : undefined
                   const nextResetTime = subscription?.next_reset_time ?? 0
                   let statusBadge = (
                     <StatusBadge
@@ -469,13 +535,43 @@ export function SubscriptionPlansCard({
                           </span>
                           {statusBadge}
                         </div>
-                        {isActive && (
-                          <span className='text-muted-foreground'>
-                            {t('{{count}} days remaining', {
-                              count: remainDays,
-                            })}
-                          </span>
-                        )}
+                        <div className='flex items-center gap-1.5'>
+                          {isActive && (
+                            <span className='text-muted-foreground'>
+                              {t('{{count}} days remaining', {
+                                count: remainDays,
+                              })}
+                            </span>
+                          )}
+                          {isActive && activeSubscriptions.length > 1 && (
+                            <span className='flex items-center'>
+                              <Button
+                                variant='ghost'
+                                size='icon'
+                                className='h-6 w-6'
+                                disabled={movingPriority || isFirstActive}
+                                aria-label={t('Increase deduction priority')}
+                                onClick={() =>
+                                  handlePriorityMove(subscription?.id, 'up')
+                                }
+                              >
+                                <ChevronUp className='h-3.5 w-3.5' />
+                              </Button>
+                              <Button
+                                variant='ghost'
+                                size='icon'
+                                className='h-6 w-6'
+                                disabled={movingPriority || isLastActive}
+                                aria-label={t('Decrease deduction priority')}
+                                onClick={() =>
+                                  handlePriorityMove(subscription?.id, 'down')
+                                }
+                              >
+                                <ChevronDown className='h-3.5 w-3.5' />
+                              </Button>
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className='text-muted-foreground mt-1.5'>
                         {endTimeLabel}{' '}
@@ -517,6 +613,83 @@ export function SubscriptionPlansCard({
                       {totalAmount > 0 && isActive && (
                         <Progress value={usagePercent} className='mt-2 h-1.5' />
                       )}
+                      {tokenUsage?.enabled && tokenUsage.total > 0 && (
+                        <div className='mt-2 rounded-md bg-muted/40 p-2'>
+                          <div className='text-muted-foreground'>
+                            {t('Token Package')}:{' '}
+                            {tokenUsage.mode === 'per_model' ? (
+                              <>
+                                {t('Per model (full quota each)')} ·{' '}
+                                {formatTokenCount(tokenUsage.total)}{' '}
+                                {t('tokens / model')}
+                              </>
+                            ) : (
+                              <>
+                                {formatTokenCount(tokenUsage.used)}/
+                                {formatTokenCount(tokenUsage.total)} ·{' '}
+                                {t('Remaining')}{' '}
+                                {formatTokenCount(
+                                  Math.max(
+                                    0,
+                                    tokenUsage.total - tokenUsage.used
+                                  )
+                                )}
+                              </>
+                            )}
+                          </div>
+                          {tokenUsage.mode === 'shared' && (
+                            <Progress
+                              value={Math.min(
+                                100,
+                                Math.round(
+                                  (tokenUsage.used / tokenUsage.total) * 100
+                                )
+                              )}
+                              className='mt-1.5 h-1.5'
+                            />
+                          )}
+                          {tokenUsage.mode === 'per_model' &&
+                            (tokenUsage.per_model?.length ?? 0) > 0 && (
+                              <div className='mt-1 space-y-0.5'>
+                                {tokenUsage.per_model
+                                  ?.slice(0, 3)
+                                  .map((m) => (
+                                    <div
+                                      key={m.model}
+                                      className='flex justify-between gap-2'
+                                    >
+                                      <span className='truncate'>
+                                        {m.model}
+                                      </span>
+                                      <span className='shrink-0'>
+                                        {formatTokenCount(m.used)}/
+                                        {formatTokenCount(tokenUsage.total)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                {(tokenUsage.per_model?.length ?? 0) > 3 && (
+                                  <div className='text-muted-foreground'>
+                                    …{' '}
+                                    {t('+{{count}} more models', {
+                                      count:
+                                        (tokenUsage.per_model?.length ?? 0) - 3,
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          <div className='text-muted-foreground/80 mt-1 truncate'>
+                            {t('Deductible scope')}:{' '}
+                            {tokenUsage.groups?.length
+                              ? `${t('Groups')}: ${tokenUsage.groups.join(', ')}`
+                              : t('All groups')}
+                            {' · '}
+                            {tokenUsage.models?.length
+                              ? `${t('Models')}: ${tokenUsage.models.join(', ')}`
+                              : t('All models')}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
@@ -552,6 +725,16 @@ export function SubscriptionPlansCard({
                 totalAmount > 0
                   ? `${t('Total Quota')}: ${formatQuota(totalAmount)}`
                   : `${t('Total Quota')}: ${t('Unlimited')}`,
+                Number(plan.token_amount || 0) > 0
+                  ? `${t('Token Package')}: ${formatTokenCount(Number(plan.token_amount))} ${
+                      plan.token_count_mode === 'per_model'
+                        ? t('tokens / model')
+                        : t('tokens')
+                    }`
+                  : null,
+                Number(plan.max_concurrency || 0) > 0
+                  ? `${t('Concurrency Limit')}: ${plan.max_concurrency}`
+                  : null,
                 limit > 0 ? `${t('Purchase Limit')}: ${limit}` : null,
                 plan.upgrade_group
                   ? `${t('Upgrade Group')}: ${plan.upgrade_group}`

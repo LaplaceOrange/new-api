@@ -50,6 +50,11 @@ export function getPlanFormSchema(t: TFunction) {
     stripe_price_id: z.string().optional(),
     creem_product_id: z.string().optional(),
     waffo_pancake_product_id: z.string().optional(),
+    token_amount: z.coerce.number().min(0),
+    token_count_mode: z.enum(['shared', 'per_model']),
+    token_groups: z.array(z.string()),
+    token_models: z.array(z.string()),
+    max_concurrency: z.coerce.number().min(0),
   })
 }
 
@@ -75,6 +80,21 @@ export const PLAN_FORM_DEFAULTS: PlanFormValues = {
   stripe_price_id: '',
   creem_product_id: '',
   waffo_pancake_product_id: '',
+  token_amount: 0,
+  token_count_mode: 'shared',
+  token_groups: [],
+  token_models: [],
+  max_concurrency: 0,
+}
+
+function parseScopeArray(raw: string | undefined): string[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'string' && v) : []
+  } catch {
+    return []
+  }
 }
 
 export function planToFormValues(plan: SubscriptionPlan): PlanFormValues {
@@ -98,6 +118,11 @@ export function planToFormValues(plan: SubscriptionPlan): PlanFormValues {
     stripe_price_id: plan.stripe_price_id || '',
     creem_product_id: plan.creem_product_id || '',
     waffo_pancake_product_id: plan.waffo_pancake_product_id || '',
+    token_amount: Number(plan.token_amount || 0),
+    token_count_mode: plan.token_count_mode || 'shared',
+    token_groups: parseScopeArray(plan.token_groups),
+    token_models: parseScopeArray(plan.token_models),
+    max_concurrency: Number(plan.max_concurrency || 0),
   }
 }
 
@@ -119,6 +144,15 @@ export function formValuesToPlanPayload(values: PlanFormValues): PlanPayload {
       total_amount: parseQuotaFromDollars(Number(values.total_amount || 0)),
       upgrade_group: values.upgrade_group || '',
       downgrade_group: values.downgrade_group || '',
+      token_amount: Number(values.token_amount || 0),
+      token_count_mode: values.token_count_mode || 'shared',
+      token_groups: values.token_groups.length
+        ? JSON.stringify(values.token_groups)
+        : '',
+      token_models: values.token_models.length
+        ? JSON.stringify(values.token_models)
+        : '',
+      max_concurrency: Number(values.max_concurrency || 0),
     },
   }
 }

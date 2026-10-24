@@ -17,7 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { CalendarClock, CreditCard, RefreshCw, Settings2 } from 'lucide-react'
+import {
+  CalendarClock,
+  Coins,
+  CreditCard,
+  Gauge,
+  RefreshCw,
+  Settings2,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useForm, type Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -31,6 +38,7 @@ import {
   sideDrawerHeaderClassName,
   sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
+import { MultiSelect } from '@/components/multi-select'
 import { Button } from '@/components/ui/button'
 import { Combobox } from '@/components/ui/combobox'
 import {
@@ -62,6 +70,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
+import { getAllModels } from '@/features/channels/api'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { handleServerError } from '@/lib/handle-server-error'
 
@@ -102,6 +111,7 @@ export function SubscriptionsMutateDrawer({
   const currencyLabel = getCurrencyLabel()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [groupOptions, setGroupOptions] = useState<string[]>([])
+  const [modelOptions, setModelOptions] = useState<string[]>([])
   const [creatingPancakeProduct, setCreatingPancakeProduct] = useState(false)
   const [pancakeProducts, setPancakeProducts] = useState<
     { id: string; name: string; status: string }[]
@@ -129,6 +139,12 @@ export function SubscriptionsMutateDrawer({
           }
         })
         .catch(() => {})
+      // Model options for the token-package deductible scope.
+      getAllModels()
+        .then((res) => {
+          setModelOptions((res.data || []).map((m) => m.id))
+        })
+        .catch(() => setModelOptions([]))
       // Best-effort — empty list still lets the operator use "+ Create".
       listWaffoPancakeSubscriptionProductOptions()
         .then((res) => {
@@ -730,6 +746,170 @@ export function SubscriptionsMutateDrawer({
                   )}
                 />
               </div>
+            </SideDrawerSection>
+
+            {/* Token Package */}
+            <SideDrawerSection>
+              <h3 className='flex items-center gap-2 text-sm font-medium'>
+                <IconBadge tone='chart-2' size='xs'>
+                  <Coins />
+                </IconBadge>
+                {t('Token Package')}
+              </h3>
+
+              <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+                <FormField
+                  control={form.control}
+                  name='token_amount'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Package Tokens')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type='number'
+                          min={0}
+                          onChange={(e) =>
+                            field.onChange(
+                              Number.parseInt(e.target.value, 10) || 0
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Tokens deducted first for matching models/groups. 0 means disabled.'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='token_count_mode'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Token Counting Mode')}</FormLabel>
+                      <Select
+                        items={[
+                          {
+                            value: 'shared',
+                            label: t('Shared across models'),
+                          },
+                          {
+                            value: 'per_model',
+                            label: t('Per model (full quota each)'),
+                          },
+                        ]}
+                        onValueChange={field.onChange}
+                        value={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent alignItemWithTrigger={false}>
+                          <SelectGroup>
+                            <SelectItem value='shared'>
+                              {t('Shared across models')}
+                            </SelectItem>
+                            <SelectItem value='per_model'>
+                              {t('Per model (full quota each)')}
+                            </SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <FormField
+                control={form.control}
+                name='token_groups'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Deductible Groups')}</FormLabel>
+                    <FormControl>
+                      <MultiSelect
+                        options={groupOptions.map((g) => ({
+                          value: g,
+                          label: g,
+                        }))}
+                        selected={field.value}
+                        onChange={field.onChange}
+                        placeholder={t('All groups (no restriction)')}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Empty means all groups are deductible.')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='token_models'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Deductible Models')}</FormLabel>
+                    <FormControl>
+                      <MultiSelect
+                        options={modelOptions.map((m) => ({
+                          value: m,
+                          label: m,
+                        }))}
+                        selected={field.value}
+                        onChange={field.onChange}
+                        placeholder={t('All models (no restriction)')}
+                        allowCreate
+                        createLabel={t('Add custom model "{{value}}"')}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Empty means all models are deductible.')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='max_concurrency'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className='flex items-center gap-1.5'>
+                      <Gauge className='h-3.5 w-3.5 text-muted-foreground' />
+                      {t('Concurrency Limit')}
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        type='number'
+                        min={0}
+                        onChange={(e) =>
+                          field.onChange(
+                            Number.parseInt(e.target.value, 10) || 0
+                          )
+                        }
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Max concurrent requests offset by this subscription. 0 means unlimited.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </SideDrawerSection>
 
             {/* Payment Config */}

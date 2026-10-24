@@ -44,6 +44,11 @@ export const subscriptionPlanSchema = z.object({
   stripe_price_id: z.string().optional(),
   creem_product_id: z.string().optional(),
   waffo_pancake_product_id: z.string().optional(),
+  token_amount: z.number().optional().default(0),
+  token_count_mode: z.enum(['shared', 'per_model']).optional().default('shared'),
+  token_groups: z.string().optional(),
+  token_models: z.string().optional(),
+  max_concurrency: z.number().optional().default(0),
 })
 
 export type SubscriptionPlan = z.infer<typeof subscriptionPlanSchema>
@@ -74,6 +79,8 @@ export const userSubscriptionSchema = z.object({
   end_time: z.number(),
   amount_total: z.number(),
   amount_used: z.number(),
+  token_used: z.number().optional(),
+  priority: z.number().optional(),
   next_reset_time: z.number().optional(),
 })
 
@@ -150,6 +157,18 @@ export interface SelfSubscriptionData {
   billing_preference: string
   subscriptions: UserSubscriptionRecord[]
   all_subscriptions: UserSubscriptionRecord[]
+  token_usages?: Record<string, SubscriptionTokenUsage>
+}
+
+// Subscription token-package usage keyed by subscription id (from /api/subscription/self).
+export interface SubscriptionTokenUsage {
+  enabled: boolean
+  mode: 'shared' | 'per_model'
+  total: number
+  used: number
+  per_model?: { model: string; used: number }[]
+  groups?: string[]
+  models?: string[]
 }
 
 // ============================================================================
