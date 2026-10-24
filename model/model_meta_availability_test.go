@@ -47,7 +47,9 @@ func TestReconcileModelChannelAvailabilityReadsAbilitiesAndChannelsInOneStatemen
 func TestModelInsertPreservesZeroValuesAndIgnoresAutoDisabledMarker(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&Model{}))
+	// Insert() takes the metadata sync lock via an options-table anchor row,
+	// so the private fixture must migrate Option alongside Model.
+	require.NoError(t, db.AutoMigrate(&Model{}, &Option{}))
 
 	originalDB := DB
 	originalDatabaseType := common.MainDatabaseType()
