@@ -99,6 +99,22 @@ func acquireScopedConcurrency(ctx context.Context, channelID int, key string, li
 	return newChannelConcurrencyLease(channelID, key, token, false, ctx), true, nil
 }
 
+// AcquireSubscriptionConcurrency atomically reserves one in-flight slot for a user
+// subscription (套餐并发限制). A non-positive limit means unlimited. The returned
+// lease renews itself until released; callers must Release it at request settle/refund.
+func AcquireSubscriptionConcurrency(userSubscriptionId int, limit int) (*ChannelConcurrencyLease, bool, error) {
+	if userSubscriptionId <= 0 {
+		return nil, true, nil
+	}
+	// Background context: the lease outlives the HTTP request scope (settle may run
+	// after the client disconnects) and is released explicitly at billing settle/refund.
+	return acquireScopedConcurrency(context.Background(), userSubscriptionId, subscriptionConcurrencyKey(userSubscriptionId), &limit)
+}
+
+func subscriptionConcurrencyKey(userSubscriptionId int) string {
+	return fmt.Sprintf("new-api:subscription-concurrency:v1:%d", userSubscriptionId)
+}
+
 // GetChannelConcurrency returns the current number of formal relay leases.
 // known is false when Redis is unavailable, because fail-open requests cannot
 // be represented accurately in a shared counter.

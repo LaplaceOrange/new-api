@@ -195,7 +195,7 @@ func TestSettleBillingCreditsRewardWhenPreConsumedQuotaMatchesFinalQuota(t *test
 		ContributionRewardSnapshotted: true,
 	}
 
-	require.NoError(t, SettleBilling(nil, info, 1_000))
+	require.NoError(t, SettleBilling(nil, info, 1_000, 0))
 	account, err := model.GetChannelContributionRewardAccount(42)
 	require.NoError(t, err)
 	assert.Equal(t, int64(50), account.Balance)

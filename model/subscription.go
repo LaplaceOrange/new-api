@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,9 +34,21 @@ const (
 	SubscriptionResetCustom  = "custom"
 )
 
+// Subscription token package counting modes
+const (
+	SubscriptionTokenModeShared   = "shared"
+	SubscriptionTokenModePerModel = "per_model"
+)
+
+// SubscriptionTokenAmountMax bounds plan.TokenAmount to keep accumulations away from int64 overflow.
+const SubscriptionTokenAmountMax = int64(1_000_000_000_000)
+
 var (
 	ErrSubscriptionOrderNotFound      = errors.New("subscription order not found")
 	ErrSubscriptionOrderStatusInvalid = errors.New("subscription order status invalid")
+	// ErrSubscriptionConcurrencyFull is returned when active subscriptions exist but all
+	// of them are skipped because their concurrency limit (套餐并发限制) is reached.
+	ErrSubscriptionConcurrencyFull = errors.New("subscription concurrency limit reached")
 )
 
 const (
@@ -185,6 +198,24 @@ type SubscriptionPlan struct {
 	QuotaResetPeriod        string `json:"quota_reset_period" gorm:"type:varchar(16);default:'never'"`
 	QuotaResetCustomSeconds int64  `json:"quota_reset_custom_seconds" gorm:"type:bigint;default:0"`
 
+	// Subscription token package (0 = disabled). Tokens are deducted before subscription
+	// quota for requests whose billing group and model match the scope configured below.
+	TokenAmount int64 `json:"token_amount" gorm:"type:bigint;not null;default:0"`
+
+	// Token counting mode: shared = one pool across all models,
+	// per_model = each model gets an independent full TokenAmount.
+	TokenCountMode string `json:"token_count_mode" gorm:"type:varchar(16);not null;default:'shared'"`
+
+	// Deductible groups (JSON string array, empty = all groups)
+	TokenGroups string `json:"token_groups" gorm:"type:text"`
+
+	// Deductible models (JSON string array, empty = all models, matched against billing model name)
+	TokenModels string `json:"token_models" gorm:"type:text"`
+
+	// Max concurrent in-flight requests this subscription's instances may offset
+	// (0 = unlimited). Requests beyond the limit route to the next subscription or wallet.
+	MaxConcurrency int `json:"max_concurrency" gorm:"type:int;not null;default:0"`
+
 	CreatedAt int64 `json:"created_at" gorm:"bigint"`
 	UpdatedAt int64 `json:"updated_at" gorm:"bigint"`
 }
@@ -207,6 +238,15 @@ func (p *SubscriptionPlan) NormalizeDefaults() {
 	}
 	if p.AllowWalletOverflow == nil {
 		p.AllowWalletOverflow = common.GetPointer(true)
+	}
+	if p.TokenCountMode != SubscriptionTokenModePerModel {
+		p.TokenCountMode = SubscriptionTokenModeShared
+	}
+	if p.TokenAmount < 0 {
+		p.TokenAmount = 0
+	}
+	if p.MaxConcurrency < 0 {
+		p.MaxConcurrency = 0
 	}
 }
 
@@ -275,6 +315,12 @@ type UserSubscription struct {
 
 	// Whether wallet fallback is allowed after this subscription's quota is exhausted (snapshot from plan)
 	AllowWalletOverflow bool `json:"allow_wallet_overflow"`
+
+	// Token package usage in shared counting mode (per-model usage lives in UserSubscriptionTokenUsage)
+	TokenUsed int64 `json:"token_used" gorm:"type:bigint;not null;default:0"`
+
+	// User-set deduction priority (higher first; ties fall back to end_time asc, id asc)
+	Priority int `json:"priority" gorm:"type:int;not null;default:0"`
 
 	CreatedAt int64 `json:"created_at" gorm:"bigint"`
 	UpdatedAt int64 `json:"updated_at" gorm:"bigint"`
@@ -853,7 +899,8 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 	return nil
 }
 
-// GetAllActiveUserSubscriptions returns all active subscriptions for a user.
+// GetAllActiveUserSubscriptions returns all active subscriptions for a user,
+// ordered by deduction order (priority desc, end_time asc, id asc).
 func GetAllActiveUserSubscriptions(userId int) ([]SubscriptionSummary, error) {
 	if userId <= 0 {
 		return nil, errors.New("invalid userId")
@@ -861,7 +908,7 @@ func GetAllActiveUserSubscriptions(userId int) ([]SubscriptionSummary, error) {
 	now := common.GetTimestamp()
 	var subs []UserSubscription
 	err := DB.Where("user_id = ? AND status = ? AND end_time > ?", userId, "active", now).
-		Order("end_time desc, id desc").
+		Order("priority desc, end_time asc, id asc").
 		Find(&subs).Error
 	if err != nil {
 		return nil, err
@@ -1023,6 +1070,12 @@ func resetUserSubscriptionTx(tx *gorm.DB, sub *UserSubscription, plan *Subscript
 		return errors.New("invalid reset args")
 	}
 	sub.AmountUsed = 0
+	sub.TokenUsed = 0
+	if plan.TokenAmount > 0 {
+		if err := tx.Where("user_subscription_id = ?", sub.Id).Delete(&UserSubscriptionTokenUsage{}).Error; err != nil {
+			return err
+		}
+	}
 	if advanceResetTime {
 		nextReset := calcNextResetTime(time.Unix(now, 0), plan, sub.EndTime)
 		sub.NextResetTime = nextReset
@@ -1143,6 +1196,9 @@ type SubscriptionPreConsumeResult struct {
 	AmountTotal        int64
 	AmountUsedBefore   int64
 	AmountUsedAfter    int64
+	// ConcurrencyLeases holds the subscription concurrency slots acquired for this
+	// request; the caller must Release them at settle/refund.
+	ConcurrencyLeases []*common.ChannelConcurrencyLease
 }
 
 // ExpireDueSubscriptions marks expired subscriptions and handles group downgrade.
@@ -1298,6 +1354,12 @@ func maybeResetUserSubscriptionWithPlanTx(tx *gorm.DB, sub *UserSubscription, pl
 		return nil
 	}
 	sub.AmountUsed = 0
+	sub.TokenUsed = 0
+	if plan.TokenAmount > 0 {
+		if err := tx.Where("user_subscription_id = ?", sub.Id).Delete(&UserSubscriptionTokenUsage{}).Error; err != nil {
+			return err
+		}
+	}
 	sub.LastResetTime = base.Unix()
 	sub.NextResetTime = next
 	return tx.Save(sub).Error
@@ -1317,6 +1379,8 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 	now := GetDBTimestamp()
 
 	returnValue := &SubscriptionPreConsumeResult{}
+	var leases []*common.ChannelConcurrencyLease
+	skippedByConcurrency := false
 
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var existing SubscriptionPreConsumeRecord
@@ -1343,20 +1407,20 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 		var subs []UserSubscription
 		if err := lockForUpdate(tx).
 			Where("user_id = ? AND status = ? AND end_time > ?", userId, "active", now).
-			Order("end_time asc, id asc").
+			Order("priority desc, end_time asc, id asc").
 			Find(&subs).Error; err != nil {
 			return errors.New("no active subscription")
 		}
 		if len(subs) == 0 {
 			return errors.New("no active subscription")
 		}
-		for _, candidate := range subs {
-			sub := candidate
+		for i := range subs {
+			sub := &subs[i]
 			plan, err := getSubscriptionPlanByIdTx(tx, sub.PlanId)
 			if err != nil {
 				return err
 			}
-			if err := maybeResetUserSubscriptionWithPlanTx(tx, &sub, plan, now); err != nil {
+			if err := maybeResetUserSubscriptionWithPlanTx(tx, sub, plan, now); err != nil {
 				return err
 			}
 			usedBefore := sub.AmountUsed
@@ -1365,6 +1429,18 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 				if remain < amount {
 					continue
 				}
+			}
+			// 套餐并发限制：满了就跳过该订阅，路由到下一个。
+			if plan.MaxConcurrency > 0 {
+				lease, acquired, leaseErr := common.AcquireSubscriptionConcurrency(sub.Id, plan.MaxConcurrency)
+				if leaseErr != nil {
+					return leaseErr
+				}
+				if !acquired {
+					skippedByConcurrency = true
+					continue
+				}
+				leases = append(leases, lease)
 			}
 			record := &SubscriptionPreConsumeRecord{
 				RequestId:          requestId,
@@ -1389,7 +1465,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 				return err
 			}
 			sub.AmountUsed += amount
-			if err := tx.Save(&sub).Error; err != nil {
+			if err := tx.Save(sub).Error; err != nil {
 				return err
 			}
 			returnValue.UserSubscriptionId = sub.Id
@@ -1399,11 +1475,18 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 			returnValue.AmountUsedAfter = sub.AmountUsed
 			return nil
 		}
+		if skippedByConcurrency {
+			return ErrSubscriptionConcurrencyFull
+		}
 		return fmt.Errorf("subscription quota insufficient, need=%d", amount)
 	})
 	if err != nil {
+		for _, lease := range leases {
+			lease.Release()
+		}
 		return nil, err
 	}
+	returnValue.ConcurrencyLeases = leases
 	return returnValue, nil
 }
 
@@ -1483,7 +1566,523 @@ func CleanupSubscriptionPreConsumeRecords(olderThanSeconds int64) (int64, error)
 	}
 	cutoff := GetDBTimestamp() - olderThanSeconds
 	res := DB.Where("updated_at < ?", cutoff).Delete(&SubscriptionPreConsumeRecord{})
-	return res.RowsAffected, res.Error
+	removed := res.RowsAffected
+	if res.Error != nil {
+		return removed, res.Error
+	}
+	tokenRes := DB.Where("updated_at < ?", cutoff).Delete(&SubscriptionTokenConsumeRecord{})
+	return removed + tokenRes.RowsAffected, tokenRes.Error
+}
+
+// ---------------------------------------------------------------------------
+// Subscription token package (套餐 Token) — per-request reserve/settle/refund
+// ---------------------------------------------------------------------------
+
+// UserSubscriptionTokenUsage stores per-model token package usage (per_model counting mode).
+type UserSubscriptionTokenUsage struct {
+	Id                 int    `json:"id"`
+	UserSubscriptionId int    `json:"user_subscription_id" gorm:"uniqueIndex:idx_sub_token_model,priority:1;index"`
+	ModelName          string `json:"model_name" gorm:"type:varchar(255);uniqueIndex:idx_sub_token_model,priority:2"`
+	Used               int64  `json:"used" gorm:"type:bigint;not null;default:0"`
+	CreatedAt          int64  `json:"created_at" gorm:"bigint"`
+	UpdatedAt          int64  `json:"updated_at" gorm:"bigint"`
+}
+
+func (r *UserSubscriptionTokenUsage) BeforeCreate(tx *gorm.DB) error {
+	now := common.GetTimestamp()
+	r.CreatedAt = now
+	r.UpdatedAt = now
+	return nil
+}
+
+func (r *UserSubscriptionTokenUsage) BeforeUpdate(tx *gorm.DB) error {
+	r.UpdatedAt = common.GetTimestamp()
+	return nil
+}
+
+// GetUserSubscriptionTokenUsages returns per-model token usage rows for the given subscriptions.
+func GetUserSubscriptionTokenUsages(userSubscriptionIds []int) ([]UserSubscriptionTokenUsage, error) {
+	if len(userSubscriptionIds) == 0 {
+		return []UserSubscriptionTokenUsage{}, nil
+	}
+	var rows []UserSubscriptionTokenUsage
+	if err := DB.Where("user_subscription_id IN ?", userSubscriptionIds).
+		Order("used desc").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// SubscriptionTokenConsumeRecord stores idempotent token-package reservations per request.
+// A single request may reserve from multiple subscriptions (deduction order), hence the
+// composite unique index on (request_id, user_subscription_id).
+type SubscriptionTokenConsumeRecord struct {
+	Id                 int    `json:"id"`
+	RequestId          string `json:"request_id" gorm:"type:varchar(64);uniqueIndex:idx_sub_token_req,priority:1"`
+	UserId             int    `json:"user_id" gorm:"index"`
+	UserSubscriptionId int    `json:"user_subscription_id" gorm:"uniqueIndex:idx_sub_token_req,priority:2;index"`
+	ModelName          string `json:"model_name" gorm:"type:varchar(255)"`
+	Reserved           int64  `json:"reserved" gorm:"type:bigint;not null;default:0"`
+	Consumed           int64  `json:"consumed" gorm:"type:bigint;not null;default:0"`
+	Status             string `json:"status" gorm:"type:varchar(32);index"` // consumed/refunded/settled
+	CreatedAt          int64  `json:"created_at" gorm:"bigint"`
+	UpdatedAt          int64  `json:"updated_at" gorm:"bigint;index"`
+}
+
+func (r *SubscriptionTokenConsumeRecord) BeforeCreate(tx *gorm.DB) error {
+	now := common.GetTimestamp()
+	r.CreatedAt = now
+	r.UpdatedAt = now
+	return nil
+}
+
+func (r *SubscriptionTokenConsumeRecord) BeforeUpdate(tx *gorm.DB) error {
+	r.UpdatedAt = common.GetTimestamp()
+	return nil
+}
+
+type SubscriptionTokenConsumeDetail struct {
+	UserSubscriptionId int    `json:"user_subscription_id"`
+	Reserved           int64  `json:"reserved"`
+	TokenTotal         int64  `json:"token_total"`
+	TokenUsedAfter     int64  `json:"token_used_after"`
+	PlanId             int    `json:"plan_id"`
+	PlanTitle          string `json:"plan_title"`
+}
+
+type SubscriptionTokenPreConsumeResult struct {
+	ReservedTokens  int64                            `json:"reserved_tokens"`
+	EstimatedTokens int64                            `json:"estimated_tokens"`
+	Details         []SubscriptionTokenConsumeDetail `json:"details"`
+	// ConcurrencyLeases holds the subscription concurrency slots acquired for this
+	// request; the caller must Release them at settle/refund.
+	ConcurrencyLeases []*common.ChannelConcurrencyLease
+}
+
+// ParseSubscriptionTokenScope parses a JSON string-array scope; empty entries are dropped.
+func ParseSubscriptionTokenScope(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "[]" {
+		return nil
+	}
+	var items []string
+	if err := common.UnmarshalJsonStr(raw, &items); err != nil {
+		return nil
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+// planTokenPackageMatches reports whether the plan's token package applies to the
+// billing group and model. Empty group/model scopes mean "no restriction".
+func planTokenPackageMatches(plan *SubscriptionPlan, group string, modelName string) bool {
+	if plan == nil || plan.TokenAmount <= 0 {
+		return false
+	}
+	if groups := ParseSubscriptionTokenScope(plan.TokenGroups); len(groups) > 0 && !slices.Contains(groups, group) {
+		return false
+	}
+	if models := ParseSubscriptionTokenScope(plan.TokenModels); len(models) > 0 && !slices.Contains(models, modelName) {
+		return false
+	}
+	return true
+}
+
+func subscriptionTokenModeIsPerModel(plan *SubscriptionPlan) bool {
+	return plan.TokenCountMode == SubscriptionTokenModePerModel
+}
+
+// lockTokenUsageTx loads (or creates) the per-model token usage row for update.
+func lockTokenUsageTx(tx *gorm.DB, userSubscriptionId int, modelName string) (*UserSubscriptionTokenUsage, error) {
+	var usage UserSubscriptionTokenUsage
+	err := lockForUpdate(tx).
+		Where("user_subscription_id = ? AND model_name = ?", userSubscriptionId, modelName).
+		First(&usage).Error
+	if err == nil {
+		return &usage, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	usage = UserSubscriptionTokenUsage{
+		UserSubscriptionId: userSubscriptionId,
+		ModelName:          modelName,
+	}
+	if err := tx.Create(&usage).Error; err != nil {
+		return nil, err
+	}
+	return &usage, nil
+}
+
+// subscriptionTokenRemainTx peeks the token package remainder for the subscription/model
+// without consuming; per-model peek may create the (empty) usage row.
+func subscriptionTokenRemainTx(tx *gorm.DB, sub *UserSubscription, plan *SubscriptionPlan, modelName string) (int64, error) {
+	if subscriptionTokenModeIsPerModel(plan) {
+		usage, err := lockTokenUsageTx(tx, sub.Id, modelName)
+		if err != nil {
+			return 0, err
+		}
+		return plan.TokenAmount - usage.Used, nil
+	}
+	return plan.TokenAmount - sub.TokenUsed, nil
+}
+
+// reserveSubscriptionTokensTx reserves up to amount tokens from the subscription's package
+// and persists the usage. Returns the reserved count and the package usage after reservation.
+func reserveSubscriptionTokensTx(tx *gorm.DB, sub *UserSubscription, plan *SubscriptionPlan, modelName string, amount int64) (int64, int64, error) {
+	if amount <= 0 {
+		return 0, sub.TokenUsed, nil
+	}
+	if subscriptionTokenModeIsPerModel(plan) {
+		usage, err := lockTokenUsageTx(tx, sub.Id, modelName)
+		if err != nil {
+			return 0, 0, err
+		}
+		remain := plan.TokenAmount - usage.Used
+		if remain <= 0 {
+			return 0, usage.Used, nil
+		}
+		reserved := min(amount, remain)
+		usage.Used += reserved
+		if err := tx.Save(usage).Error; err != nil {
+			return 0, 0, err
+		}
+		return reserved, usage.Used, nil
+	}
+	remain := plan.TokenAmount - sub.TokenUsed
+	if remain <= 0 {
+		return 0, sub.TokenUsed, nil
+	}
+	reserved := min(amount, remain)
+	sub.TokenUsed += reserved
+	if err := tx.Save(sub).Error; err != nil {
+		return 0, 0, err
+	}
+	return reserved, sub.TokenUsed, nil
+}
+
+// applySubscriptionTokenDeltaTx applies a settle delta (positive consume, negative refund)
+// to the subscription's package usage. Admins changing TokenCountMode between reserve and
+// settle may move the delta to the other bucket; clamping keeps usage non-negative.
+func applySubscriptionTokenDeltaTx(tx *gorm.DB, sub *UserSubscription, plan *SubscriptionPlan, modelName string, delta int64) error {
+	if delta == 0 {
+		return nil
+	}
+	if subscriptionTokenModeIsPerModel(plan) {
+		usage, err := lockTokenUsageTx(tx, sub.Id, modelName)
+		if err != nil {
+			return err
+		}
+		usage.Used = max(usage.Used+delta, 0)
+		return tx.Save(usage).Error
+	}
+	sub.TokenUsed = max(sub.TokenUsed+delta, 0)
+	return tx.Save(sub).Error
+}
+
+// PreConsumeSubscriptionTokens reserves estimated tokens from matching token packages,
+// walking active subscriptions in deduction order (priority desc, end_time asc, id asc)
+// and accumulating across packages until the estimate is covered. Having no matching
+// package is not an error: zero tokens are reserved and the caller falls back to the
+// regular funding sources.
+func PreConsumeSubscriptionTokens(requestId string, userId int, group string, modelName string, estimatedTokens int64) (*SubscriptionTokenPreConsumeResult, error) {
+	if userId <= 0 {
+		return nil, errors.New("invalid userId")
+	}
+	if strings.TrimSpace(requestId) == "" {
+		return nil, errors.New("requestId is empty")
+	}
+	result := &SubscriptionTokenPreConsumeResult{EstimatedTokens: estimatedTokens}
+	if estimatedTokens <= 0 {
+		return result, nil
+	}
+	now := GetDBTimestamp()
+	var leases []*common.ChannelConcurrencyLease
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var existing []SubscriptionTokenConsumeRecord
+		if err := tx.Where("request_id = ?", requestId).Order("id asc").Find(&existing).Error; err != nil {
+			return err
+		}
+		if len(existing) > 0 {
+			// Idempotent replay: report what was already reserved (or settled) for this request.
+			for _, rec := range existing {
+				if rec.Status == "refunded" {
+					return errors.New("subscription token pre-consume already refunded")
+				}
+				if rec.Status == "settled" {
+					result.ReservedTokens += rec.Consumed
+					continue
+				}
+				result.ReservedTokens += rec.Reserved
+			}
+			return nil
+		}
+
+		var subs []UserSubscription
+		if err := lockForUpdate(tx).
+			Where("user_id = ? AND status = ? AND end_time > ?", userId, "active", now).
+			Order("priority desc, end_time asc, id asc").
+			Find(&subs).Error; err != nil {
+			return err
+		}
+		remaining := estimatedTokens
+		for i := range subs {
+			if remaining <= 0 {
+				break
+			}
+			sub := &subs[i]
+			plan, err := getSubscriptionPlanByIdTx(tx, sub.PlanId)
+			if err != nil {
+				return err
+			}
+			if err := maybeResetUserSubscriptionWithPlanTx(tx, sub, plan, now); err != nil {
+				return err
+			}
+			if !planTokenPackageMatches(plan, group, modelName) {
+				continue
+			}
+			remain, err := subscriptionTokenRemainTx(tx, sub, plan, modelName)
+			if err != nil {
+				return err
+			}
+			if remain <= 0 {
+				continue
+			}
+			// 套餐并发限制：满了就跳过该包，继续尝试下一个订阅的包。
+			if plan.MaxConcurrency > 0 {
+				lease, acquired, leaseErr := common.AcquireSubscriptionConcurrency(sub.Id, plan.MaxConcurrency)
+				if leaseErr != nil {
+					return leaseErr
+				}
+				if !acquired {
+					continue
+				}
+				leases = append(leases, lease)
+			}
+			reserved, usedAfter, err := reserveSubscriptionTokensTx(tx, sub, plan, modelName, remaining)
+			if err != nil {
+				return err
+			}
+			if reserved <= 0 {
+				// Defensive: release the slot just acquired for this package.
+				if n := len(leases); n > 0 {
+					leases[n-1].Release()
+					leases = leases[:n-1]
+				}
+				continue
+			}
+			record := &SubscriptionTokenConsumeRecord{
+				RequestId:          requestId,
+				UserId:             userId,
+				UserSubscriptionId: sub.Id,
+				ModelName:          modelName,
+				Reserved:           reserved,
+				Status:             "consumed",
+			}
+			if err := tx.Create(record).Error; err != nil {
+				return err
+			}
+			remaining -= reserved
+			result.ReservedTokens += reserved
+			result.Details = append(result.Details, SubscriptionTokenConsumeDetail{
+				UserSubscriptionId: sub.Id,
+				Reserved:           reserved,
+				TokenTotal:         plan.TokenAmount,
+				TokenUsedAfter:     usedAfter,
+				PlanId:             plan.Id,
+				PlanTitle:          plan.Title,
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		for _, lease := range leases {
+			lease.Release()
+		}
+		return nil, err
+	}
+	result.ConcurrencyLeases = leases
+	return result, nil
+}
+
+type SubscriptionTokenSettleDetail struct {
+	UserSubscriptionId int    `json:"user_subscription_id"`
+	Consumed           int64  `json:"consumed"`
+	PlanTitle          string `json:"plan_title"`
+}
+
+// SettleSubscriptionTokens adjusts the request's token reservations to the actual token
+// usage: packages are charged in deduction order, each up to its remaining capacity
+// beyond its reservation; over-reservation is returned to the packages. Returns the
+// number of tokens actually covered by packages and a per-package breakdown.
+func SettleSubscriptionTokens(requestId string, actualTokens int64) (int64, []SubscriptionTokenSettleDetail, error) {
+	if strings.TrimSpace(requestId) == "" {
+		return 0, nil, errors.New("requestId is empty")
+	}
+	if actualTokens < 0 {
+		actualTokens = 0
+	}
+	var covered int64
+	var details []SubscriptionTokenSettleDetail
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var records []SubscriptionTokenConsumeRecord
+		if err := lockForUpdate(tx).Where("request_id = ?", requestId).Order("id asc").Find(&records).Error; err != nil {
+			return err
+		}
+		if len(records) == 0 {
+			return nil
+		}
+		remaining := actualTokens
+		for i := range records {
+			record := &records[i]
+			if record.Status == "refunded" {
+				continue
+			}
+			if record.Status == "settled" {
+				covered += record.Consumed
+				continue
+			}
+			var sub UserSubscription
+			if err := lockForUpdate(tx).Where("id = ?", record.UserSubscriptionId).First(&sub).Error; err != nil {
+				return err
+			}
+			plan, err := getSubscriptionPlanByIdTx(tx, sub.PlanId)
+			if err != nil {
+				return err
+			}
+			// Capacity covers the reservation itself plus whatever remainder is left now.
+			final := int64(0)
+			if remaining > 0 {
+				if subscriptionTokenModeIsPerModel(plan) {
+					usage, err := lockTokenUsageTx(tx, sub.Id, record.ModelName)
+					if err != nil {
+						return err
+					}
+					final = min(remaining, plan.TokenAmount-(usage.Used-record.Reserved))
+				} else {
+					final = min(remaining, plan.TokenAmount-(sub.TokenUsed-record.Reserved))
+				}
+			}
+			if err := applySubscriptionTokenDeltaTx(tx, &sub, plan, record.ModelName, final-record.Reserved); err != nil {
+				return err
+			}
+			record.Consumed = final
+			record.Status = "settled"
+			if err := tx.Save(record).Error; err != nil {
+				return err
+			}
+			remaining -= final
+			covered += final
+			details = append(details, SubscriptionTokenSettleDetail{
+				UserSubscriptionId: sub.Id,
+				Consumed:           final,
+				PlanTitle:          plan.Title,
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, nil, err
+	}
+	return covered, details, nil
+}
+
+// RefundSubscriptionTokens idempotently refunds all outstanding token reservations for the request.
+func RefundSubscriptionTokens(requestId string) error {
+	if strings.TrimSpace(requestId) == "" {
+		return errors.New("requestId is empty")
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var records []SubscriptionTokenConsumeRecord
+		if err := lockForUpdate(tx).Where("request_id = ?", requestId).Order("id asc").Find(&records).Error; err != nil {
+			return err
+		}
+		for i := range records {
+			record := &records[i]
+			if record.Status != "consumed" {
+				continue
+			}
+			var sub UserSubscription
+			if err := lockForUpdate(tx).Where("id = ?", record.UserSubscriptionId).First(&sub).Error; err != nil {
+				return err
+			}
+			plan, err := getSubscriptionPlanByIdTx(tx, sub.PlanId)
+			if err != nil {
+				return err
+			}
+			if err := applySubscriptionTokenDeltaTx(tx, &sub, plan, record.ModelName, -record.Reserved); err != nil {
+				return err
+			}
+			record.Status = "refunded"
+			if err := tx.Save(record).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// UpdateUserSubscriptionPriority moves the user's active subscription one position up
+// (moveUp=true) or down in the deduction order. On the first interaction all active
+// subscriptions receive explicit dense ranks so swaps are stable; newly purchased
+// subscriptions start at priority 0 (lowest) until the user reorders.
+func UpdateUserSubscriptionPriority(userId int, userSubscriptionId int, moveUp bool) error {
+	if userId <= 0 || userSubscriptionId <= 0 {
+		return errors.New("invalid userId or userSubscriptionId")
+	}
+	now := GetDBTimestamp()
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var subs []UserSubscription
+		if err := lockForUpdate(tx).
+			Where("user_id = ? AND status = ? AND end_time > ?", userId, "active", now).
+			Order("priority desc, end_time asc, id asc").
+			Find(&subs).Error; err != nil {
+			return err
+		}
+		if len(subs) < 2 {
+			return errors.New("只有一个有效订阅，无需调整优先级")
+		}
+		index := -1
+		for i := range subs {
+			if subs[i].Id == userSubscriptionId {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			return errors.New("订阅不存在或已失效")
+		}
+		target := index - 1
+		if !moveUp {
+			target = index + 1
+		}
+		if target < 0 {
+			return errors.New("已是最高优先级")
+		}
+		if target >= len(subs) {
+			return errors.New("已是最低优先级")
+		}
+		subs[index], subs[target] = subs[target], subs[index]
+		for i := range subs {
+			newPriority := len(subs) - i
+			if subs[i].Priority == newPriority {
+				continue
+			}
+			if err := tx.Model(&UserSubscription{}).Where("id = ?", subs[i].Id).Updates(map[string]any{
+				"priority":   newPriority,
+				"updated_at": common.GetTimestamp(),
+			}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 type SubscriptionPlanInfo struct {

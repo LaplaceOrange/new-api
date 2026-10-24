@@ -103,6 +103,8 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		if meta.MaxTokens != 0 {
 			preConsumedTokens += meta.MaxTokens
 		}
+		// Exposed for subscription token-package reservation sizing at pre-consume.
+		info.SetEstimatedTotalTokens(preConsumedTokens)
 		var success bool
 		var matchName string
 		modelRatio, success, matchName = ratio_setting.GetModelRatio(billingModelName)
@@ -367,6 +369,8 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, billing
 	if estimatedCompletionTokens == 0 && groupRatioInfo.GroupRatio != 0 {
 		estimatedCompletionTokens = defaultTieredPreConsumeMaxTokens
 	}
+	// Exposed for subscription token-package reservation sizing at pre-consume.
+	info.SetEstimatedTotalTokens(promptTokens + estimatedCompletionTokens)
 
 	requestInput, err := ResolveIncomingBillingExprRequestInput(c, info)
 	if err != nil {

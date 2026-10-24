@@ -459,7 +459,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
 	}
 
-	if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
+	if err := SettleBilling(ctx, relayInfo, summary.Quota, summary.TotalTokens); err != nil {
 		logger.LogError(ctx, "error settling billing: "+err.Error())
 	} else if ctx.GetBool("image_studio") {
 		ctx.Set("image_studio_billed_quota", summary.Quota)

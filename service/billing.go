@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -50,8 +51,13 @@ func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycom
 
 // SettleBilling 执行计费结算。如果 RelayInfo 上有 BillingSession 则通过 session 结算，
 // 否则回退到旧的 PostConsumeQuota 路径（兼容按次计费等场景）。
-func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuota int) error {
+// actualTokens 是本请求的实际用量 token 数（prompt+completion）；用于将套餐 Token
+// 预占调整为实际消耗，并按未覆盖比例降低实际计费额度。
+func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuota int, actualTokens int) error {
 	if relayInfo.Billing != nil {
+		if session, ok := relayInfo.Billing.(*BillingSession); ok && session.tokenReserve != nil {
+			actualQuota = settleSubscriptionTokenPackage(ctx, relayInfo, session, actualQuota, actualTokens)
+		}
 		preConsumed := relayInfo.Billing.GetPreConsumedQuota()
 		delta := actualQuota - preConsumed
 
@@ -100,6 +106,37 @@ func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuo
 	SettleChannelContributionReward(ctx, relayInfo, actualQuota)
 	SettleReferralReward(ctx, relayInfo, actualQuota)
 	return nil
+}
+
+// settleSubscriptionTokenPackage settles the request's token-package reservations against
+// the actual usage tokens and returns the quota that remains chargeable after coverage.
+// The charge is reduced proportionally by the covered token fraction; on settle failure the
+// full quota is charged (safe direction, error is logged for investigation).
+func settleSubscriptionTokenPackage(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, session *BillingSession, actualQuota int, actualTokens int) int {
+	if actualTokens < 0 {
+		actualTokens = 0
+	}
+	covered, details, err := model.SettleSubscriptionTokens(relayInfo.RequestId, int64(actualTokens))
+	if err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("subscription token package settle failed (requestId=%s): %s", relayInfo.RequestId, err.Error()))
+		return actualQuota
+	}
+	relayInfo.TokenPackageCoveredTokens = covered
+	relayInfo.TokenPackageTotalTokens = int64(actualTokens)
+	for _, d := range details {
+		relayInfo.TokenPackageDetails = append(relayInfo.TokenPackageDetails, relaycommon.TokenPackageDetail{
+			SubscriptionId: d.UserSubscriptionId,
+			PlanTitle:      d.PlanTitle,
+			ConsumedTokens: d.Consumed,
+		})
+	}
+	if covered <= 0 || actualTokens <= 0 || actualQuota <= 0 {
+		return actualQuota
+	}
+	uncoveredRatio := float64(int64(actualTokens)-covered) / float64(actualTokens)
+	reduced, clamp := common.QuotaFromFloatChecked(float64(actualQuota) * uncoveredRatio)
+	noteQuotaClamp(relayInfo, clamp)
+	return reduced
 }
 
 func SettleReferralReward(ctx *gin.Context, info *relaycommon.RelayInfo, quota int) {

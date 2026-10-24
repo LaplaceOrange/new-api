@@ -216,6 +216,25 @@ func appendBillingInfo(relayInfo *relaycommon.RelayInfo, other *model.LogOther) 
 		// Wallet quota is not deducted when billed from subscription.
 		other.SetPublic("wallet_quota_deducted", 0)
 	}
+	// 套餐 Token 抵扣明细（与 billing_source 无关，订阅分支的请求均可能命中）
+	if relayInfo.TokenPackageTotalTokens > 0 || relayInfo.TokenPackageCoveredTokens > 0 {
+		tokenPackage := map[string]any{
+			"covered_tokens": relayInfo.TokenPackageCoveredTokens,
+			"total_tokens":   relayInfo.TokenPackageTotalTokens,
+		}
+		if len(relayInfo.TokenPackageDetails) > 0 {
+			details := make([]map[string]any, 0, len(relayInfo.TokenPackageDetails))
+			for _, d := range relayInfo.TokenPackageDetails {
+				details = append(details, map[string]any{
+					"subscription_id": d.SubscriptionId,
+					"plan_title":      d.PlanTitle,
+					"consumed_tokens": d.ConsumedTokens,
+				})
+			}
+			tokenPackage["details"] = details
+		}
+		other.SetPublic("token_package", tokenPackage)
+	}
 }
 
 func appendRequestConversionChain(relayInfo *relaycommon.RelayInfo, other *model.LogOther) {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 )
 
@@ -109,6 +110,8 @@ type SubscriptionFunding struct {
 	amount         int64 // 预扣的订阅额度（subConsume）
 	subscriptionId int
 	preConsumed    int64
+	// concurrencyLease 是该订阅占用的并发槽位（套餐并发限制），由 BillingSession 统一释放。
+	concurrencyLease *common.ChannelConcurrencyLease
 	// 以下字段在 PreConsume 成功后填充，供 RelayInfo 同步使用
 	AmountTotal     int64
 	AmountUsedAfter int64
@@ -128,6 +131,9 @@ func (s *SubscriptionFunding) PreConsume(_ int) error {
 	s.preConsumed = res.PreConsumed
 	s.AmountTotal = res.AmountTotal
 	s.AmountUsedAfter = res.AmountUsedAfter
+	if len(res.ConcurrencyLeases) > 0 {
+		s.concurrencyLease = res.ConcurrencyLeases[0]
+	}
 	// 获取订阅计划信息
 	if planInfo, err := model.GetSubscriptionPlanInfoByUserSubscriptionId(res.UserSubscriptionId); err == nil && planInfo != nil {
 		s.PlanId = planInfo.PlanId

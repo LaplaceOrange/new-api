@@ -81,6 +81,13 @@ type TokenCountMeta struct {
 	estimatePromptTokens int
 }
 
+// TokenPackageDetail is the per-package token deduction summary written to consume logs.
+type TokenPackageDetail struct {
+	SubscriptionId int    `json:"subscription_id"`
+	PlanTitle      string `json:"plan_title"`
+	ConsumedTokens int64  `json:"consumed_tokens"`
+}
+
 type RelayInfo struct {
 	TokenId        int
 	TokenKey       string
@@ -159,16 +166,23 @@ type RelayInfo struct {
 	// SubscriptionAmountTotal / SubscriptionAmountUsedAfterPreConsume are used to compute remaining in logs.
 	SubscriptionAmountTotal               int64
 	SubscriptionAmountUsedAfterPreConsume int64
-	IsClaudeBetaQuery                     bool // /v1/messages?beta=true
-	IsChannelTest                         bool // channel test request
-	UseSSRFProtectedClient                bool // user-controlled upstream URL must use the protected outbound client
-	ContributionRewardBps                 int
-	ContributionRewardSnapshotted         bool
-	RetryIndex                            int
-	LastError                             *types.NewAPIError
-	RuntimeHeadersOverride                map[string]any
-	UseRuntimeHeadersOverride             bool
-	ParamOverrideAudit                    []string
+	// estimatedTotalTokens is the pre-consume token estimate (prompt estimate +
+	// max_tokens headroom) used to size subscription token-package reservations.
+	estimatedTotalTokens int
+	// Token package (套餐Token) settlement results, filled at SettleBilling for logs.
+	TokenPackageCoveredTokens     int64
+	TokenPackageTotalTokens       int64
+	TokenPackageDetails           []TokenPackageDetail
+	IsClaudeBetaQuery             bool // /v1/messages?beta=true
+	IsChannelTest                 bool // channel test request
+	UseSSRFProtectedClient        bool // user-controlled upstream URL must use the protected outbound client
+	ContributionRewardBps         int
+	ContributionRewardSnapshotted bool
+	RetryIndex                    int
+	LastError                     *types.NewAPIError
+	RuntimeHeadersOverride        map[string]any
+	UseRuntimeHeadersOverride     bool
+	ParamOverrideAudit            []string
 
 	PriceData hosttypes.PriceData
 
@@ -811,6 +825,20 @@ func (info *RelayInfo) GetEstimatePromptTokens() int {
 		return 0
 	}
 	return info.estimatePromptTokens
+}
+
+func (info *RelayInfo) SetEstimatedTotalTokens(tokens int) {
+	if info == nil {
+		return
+	}
+	info.estimatedTotalTokens = tokens
+}
+
+func (info *RelayInfo) GetEstimatedTotalTokens() int {
+	if info == nil {
+		return 0
+	}
+	return info.estimatedTotalTokens
 }
 
 // ---------------------------------------------------------------------------

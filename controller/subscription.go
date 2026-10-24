@@ -24,8 +24,79 @@ type BillingPreferenceRequest struct {
 	BillingPreference string `json:"billing_preference"`
 }
 
+type SubscriptionPriorityRequest struct {
+	SubscriptionId int    `json:"subscription_id"`
+	Move           string `json:"move"` // up | down
+}
+
 type SubscriptionBalancePayRequest struct {
 	PlanId int `json:"plan_id"`
+}
+
+// normalizeSubscriptionPlanTokenPackage validates and normalizes the plan's token-package
+// fields (amount / counting mode / deductible group & model scopes). Returns a non-empty
+// user-facing error message when invalid.
+func normalizeSubscriptionPlanTokenPackage(plan *model.SubscriptionPlan) string {
+	if plan.TokenAmount < 0 || plan.TokenAmount > model.SubscriptionTokenAmountMax {
+		return "套餐Token数量无效"
+	}
+	if plan.TokenCountMode == "" {
+		plan.TokenCountMode = model.SubscriptionTokenModeShared
+	}
+	if plan.TokenCountMode != model.SubscriptionTokenModeShared && plan.TokenCountMode != model.SubscriptionTokenModePerModel {
+		return "套餐Token计数模式无效"
+	}
+	if plan.MaxConcurrency < 0 || plan.MaxConcurrency > 100000 {
+		return "套餐并发限制必须在 0 到 100000 之间"
+	}
+	groupRatios := ratio_setting.GetGroupRatioCopy()
+	normalizeScope := func(raw string, groupScope bool) (string, string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return "", ""
+		}
+		var items []string
+		if err := common.UnmarshalJsonStr(raw, &items); err != nil {
+			return "", "套餐Token抵扣范围格式错误"
+		}
+		seen := make(map[string]struct{}, len(items))
+		normalized := make([]string, 0, len(items))
+		for _, item := range items {
+			item = strings.TrimSpace(item)
+			if item == "" {
+				continue
+			}
+			if _, ok := seen[item]; ok {
+				continue
+			}
+			seen[item] = struct{}{}
+			if groupScope {
+				if _, ok := groupRatios[item]; !ok {
+					return "", "套餐Token可抵扣分组不存在: " + item
+				}
+			}
+			normalized = append(normalized, item)
+		}
+		if len(normalized) == 0 {
+			return "", ""
+		}
+		data, err := common.Marshal(normalized)
+		if err != nil {
+			return "", "套餐Token抵扣范围序列化失败"
+		}
+		return string(data), ""
+	}
+	tokenGroups, errMsg := normalizeScope(plan.TokenGroups, true)
+	if errMsg != "" {
+		return errMsg
+	}
+	tokenModels, errMsg := normalizeScope(plan.TokenModels, false)
+	if errMsg != "" {
+		return errMsg
+	}
+	plan.TokenGroups = tokenGroups
+	plan.TokenModels = tokenModels
+	return ""
 }
 
 // ---- User APIs ----
@@ -57,6 +128,22 @@ func GetSubscriptionPlans(c *gin.Context) {
 	common.ApiSuccess(c, result)
 }
 
+// subscriptionTokenUsageDTO describes a subscription's token-package usage for the user UI.
+type subscriptionTokenUsageDTO struct {
+	Enabled  bool                 `json:"enabled"`
+	Mode     string               `json:"mode"`
+	Total    int64                `json:"total"`
+	Used     int64                `json:"used"`
+	PerModel []tokenModelUsageDTO `json:"per_model,omitempty"`
+	Groups   []string             `json:"groups,omitempty"`
+	Models   []string             `json:"models,omitempty"`
+}
+
+type tokenModelUsageDTO struct {
+	Model string `json:"model"`
+	Used  int64  `json:"used"`
+}
+
 func GetSubscriptionSelf(c *gin.Context) {
 	userId := c.GetInt("id")
 	settingMap, _ := model.GetUserSetting(userId, false)
@@ -74,11 +161,90 @@ func GetSubscriptionSelf(c *gin.Context) {
 		activeSubscriptions = []model.SubscriptionSummary{}
 	}
 
+	// Token-package usage per subscription (keyed by subscription id)
+	tokenUsages := buildSubscriptionTokenUsages(allSubscriptions)
+
 	common.ApiSuccess(c, gin.H{
 		"billing_preference": pref,
 		"subscriptions":      activeSubscriptions, // all active subscriptions
 		"all_subscriptions":  allSubscriptions,    // all subscriptions including expired
+		"token_usages":       tokenUsages,
 	})
+}
+
+func buildSubscriptionTokenUsages(subscriptions []model.SubscriptionSummary) map[int]*subscriptionTokenUsageDTO {
+	result := make(map[int]*subscriptionTokenUsageDTO)
+	subIds := make([]int, 0, len(subscriptions))
+	for _, summary := range subscriptions {
+		if summary.Subscription != nil {
+			subIds = append(subIds, summary.Subscription.Id)
+		}
+	}
+	if len(subIds) == 0 {
+		return result
+	}
+	perModelRows, err := model.GetUserSubscriptionTokenUsages(subIds)
+	if err != nil {
+		common.SysError("failed to load subscription token usages: " + err.Error())
+		perModelRows = nil
+	}
+	perModelBySub := make(map[int][]tokenModelUsageDTO)
+	for _, row := range perModelRows {
+		perModelBySub[row.UserSubscriptionId] = append(perModelBySub[row.UserSubscriptionId], tokenModelUsageDTO{
+			Model: row.ModelName,
+			Used:  row.Used,
+		})
+	}
+	for _, summary := range subscriptions {
+		sub := summary.Subscription
+		if sub == nil {
+			continue
+		}
+		plan, err := model.GetSubscriptionPlanById(sub.PlanId)
+		if err != nil || plan == nil {
+			continue
+		}
+		usage := &subscriptionTokenUsageDTO{
+			Enabled: plan.TokenAmount > 0,
+			Total:   plan.TokenAmount,
+			Used:    sub.TokenUsed,
+		}
+		if plan.TokenCountMode == model.SubscriptionTokenModePerModel {
+			usage.Mode = model.SubscriptionTokenModePerModel
+			usage.PerModel = perModelBySub[sub.Id]
+			if usage.PerModel == nil {
+				usage.PerModel = []tokenModelUsageDTO{}
+			}
+		} else {
+			usage.Mode = model.SubscriptionTokenModeShared
+		}
+		if groups := model.ParseSubscriptionTokenScope(plan.TokenGroups); len(groups) > 0 {
+			usage.Groups = groups
+		}
+		if models := model.ParseSubscriptionTokenScope(plan.TokenModels); len(models) > 0 {
+			usage.Models = models
+		}
+		result[sub.Id] = usage
+	}
+	return result
+}
+
+func UpdateSubscriptionSelfPriority(c *gin.Context) {
+	userId := c.GetInt("id")
+	var req SubscriptionPriorityRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.SubscriptionId <= 0 {
+		common.ApiErrorMsg(c, "参数错误")
+		return
+	}
+	if req.Move != "up" && req.Move != "down" {
+		common.ApiErrorMsg(c, "移动方向无效")
+		return
+	}
+	if err := model.UpdateUserSubscriptionPriority(userId, req.SubscriptionId, req.Move == "up"); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, nil)
 }
 
 func UpdateSubscriptionPreference(c *gin.Context) {
@@ -211,6 +377,10 @@ func AdminCreateSubscriptionPlan(c *gin.Context) {
 		common.ApiErrorMsg(c, "自定义重置周期需大于0秒")
 		return
 	}
+	if errMsg := normalizeSubscriptionPlanTokenPackage(&req.Plan); errMsg != "" {
+		common.ApiErrorMsg(c, errMsg)
+		return
+	}
 	err := model.DB.Create(&req.Plan).Error
 	if err != nil {
 		common.ApiError(c, err)
@@ -285,6 +455,10 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 		common.ApiErrorMsg(c, "自定义重置周期需大于0秒")
 		return
 	}
+	if errMsg := normalizeSubscriptionPlanTokenPackage(&req.Plan); errMsg != "" {
+		common.ApiErrorMsg(c, errMsg)
+		return
+	}
 
 	err := model.DB.Transaction(func(tx *gorm.DB) error {
 		// update plan (allow zero values updates with map)
@@ -307,6 +481,11 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 			"downgrade_group":            req.Plan.DowngradeGroup,
 			"quota_reset_period":         req.Plan.QuotaResetPeriod,
 			"quota_reset_custom_seconds": req.Plan.QuotaResetCustomSeconds,
+			"token_amount":               req.Plan.TokenAmount,
+			"token_count_mode":           req.Plan.TokenCountMode,
+			"token_groups":               req.Plan.TokenGroups,
+			"token_models":               req.Plan.TokenModels,
+			"max_concurrency":            req.Plan.MaxConcurrency,
 			"updated_at":                 common.GetTimestamp(),
 		}
 		if req.Plan.AllowBalancePay != nil {
