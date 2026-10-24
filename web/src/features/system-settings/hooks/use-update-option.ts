@@ -58,7 +58,10 @@ export function useUpdateOption() {
       if (data.success) {
         // Always refresh system-options
         queryClient.invalidateQueries({ queryKey: ['system-options'] })
-        if (variables.key === 'GroupTypes') {
+        if (
+          variables.key === 'GroupTypes' ||
+          variables.key === 'GroupModelPolicies'
+        ) {
           queryClient.invalidateQueries({ queryKey: ['pricing'] })
           queryClient.invalidateQueries({ queryKey: ['user-groups'] })
         }

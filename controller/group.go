@@ -26,6 +26,27 @@ func GetGroups(c *gin.Context) {
 	})
 }
 
+func GetGroupModelCandidates(c *gin.Context) {
+	group := c.Query("group")
+	if group == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "group is required",
+		})
+		return
+	}
+	models, err := model.GetGroupModelsOnEnabledChannels(group)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    models,
+	})
+}
+
 func GetUserGroups(c *gin.Context) {
 	usableGroups := make(map[string]map[string]any)
 	userId := c.GetInt("id")

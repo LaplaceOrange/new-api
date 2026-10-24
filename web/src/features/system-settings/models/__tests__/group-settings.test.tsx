@@ -17,13 +17,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createInstance } from 'i18next'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { I18nextProvider } from 'react-i18next'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { GroupTypeSection } from '@/components/group-type-section'
@@ -32,8 +39,19 @@ import { groupTypesSchema } from '@/lib/group-types'
 import { SettingsPageProvider } from '../../components/settings-page-context'
 import { GroupRatioForm } from '../group-ratio-form'
 
+const { getGroupModelCandidatesMock } = vi.hoisted(() => ({
+  getGroupModelCandidatesMock: vi.fn(),
+}))
+
+vi.mock('@/features/system-settings/api', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/features/system-settings/api')>()
+  return { ...actual, getGroupModelCandidates: getGroupModelCandidatesMock }
+})
+
 const defaults = {
   GroupRatio: '{"default":1,"vip":0.8}',
+  GroupModelPolicies: '{}',
   TopupGroupRatio: '{"vip":1.2}',
   UserUsableGroups: '{"default":"Standard access","vip":"Premium access"}',
   GroupGroupRatio: '{}',
@@ -46,6 +64,7 @@ const defaults = {
 
 const schema = z.object({
   GroupRatio: z.string(),
+  GroupModelPolicies: z.string(),
   TopupGroupRatio: z.string(),
   UserUsableGroups: z.string(),
   GroupGroupRatio: z.string(),
@@ -67,23 +86,42 @@ function Fixture(props: {
   initial?: Partial<typeof defaults>
 }) {
   const [actions, setActions] = useState<HTMLDivElement | null>(null)
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+          mutations: { retry: false },
+        },
+      })
+  )
   const form = useForm({
     defaultValues: { ...defaults, ...props.initial },
     resolver: zodResolver(schema),
   })
   return (
-    <SettingsPageProvider actionsContainer={actions}>
-      <div ref={setActions} />
-      <GroupRatioForm
-        form={form}
-        onSave={props.onSave ?? (async () => {})}
-        isSaving={false}
-      />
-    </SettingsPageProvider>
+    <QueryClientProvider client={queryClient}>
+      <SettingsPageProvider actionsContainer={actions}>
+        <div ref={setActions} />
+        <GroupRatioForm
+          form={form}
+          onSave={props.onSave ?? (async () => {})}
+          isSaving={false}
+        />
+      </SettingsPageProvider>
+    </QueryClientProvider>
   )
 }
 
 describe('group type settings', () => {
+  beforeEach(() => {
+    getGroupModelCandidatesMock.mockReset()
+    getGroupModelCandidatesMock.mockResolvedValue({
+      success: true,
+      data: ['blocked-model', 'allowed-model'],
+    })
+  })
+
   it('saves a custom LobeHub icon ID selected from suggestions', async () => {
     const user = userEvent.setup()
     const onSave = vi.fn(async (_values: typeof defaults) => {})
@@ -278,5 +316,180 @@ describe('group type settings', () => {
     await user.click(screen.getByRole('tab', { name: 'Group types' }))
     expect(screen.getByText('Invalid group type configuration')).toBeVisible()
     expect(screen.queryByRole('textbox', { name: 'Type name' })).toBeNull()
+  })
+
+  it('keeps blacklist and whitelist selections when switching modes', async () => {
+    const user = userEvent.setup()
+    const onSave = vi.fn(async (_values: typeof defaults) => {})
+    render(<Fixture onSave={onSave} />)
+
+    await user.click(
+      within(screen.getByRole('row', { name: /default/ })).getByRole('button', {
+        name: 'Details',
+      })
+    )
+    await screen.findByRole('heading', { name: 'Model access policy' })
+
+    const mode = () =>
+      screen.getByRole('combobox', { name: 'Model access mode' })
+    await user.click(mode())
+    await user.click(
+      await screen.findByRole('option', { name: 'Disable blacklisted models' })
+    )
+    await user.click(
+      await screen.findByRole('combobox', { name: 'Blacklisted models' })
+    )
+    await user.click(
+      await screen.findByRole('option', { name: 'blocked-model' })
+    )
+    await user.keyboard('{Escape}')
+
+    await user.click(mode())
+    await user.click(
+      await screen.findByRole('option', {
+        name: 'Allow only whitelisted models',
+      })
+    )
+    await user.click(
+      await screen.findByRole('combobox', { name: 'Whitelisted models' })
+    )
+    await user.click(
+      await screen.findByRole('option', { name: 'allowed-model' })
+    )
+    await user.keyboard('{Escape}')
+
+    await user.click(mode())
+    await user.click(
+      await screen.findByRole('option', { name: 'Disable blacklisted models' })
+    )
+    expect(screen.getByText('blocked-model')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    await user.click(screen.getByRole('button', { name: 'Save group ratios' }))
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1))
+    expect(
+      JSON.parse(onSave.mock.calls[0][0].GroupModelPolicies).default
+    ).toEqual({
+      mode: 'blacklist',
+      blacklist: ['blocked-model'],
+      whitelist: ['allowed-model'],
+    })
+  })
+
+  it('keeps saved models outside the current candidates removable', async () => {
+    getGroupModelCandidatesMock.mockResolvedValue({
+      success: true,
+      data: ['available-model'],
+    })
+    const user = userEvent.setup()
+    const onSave = vi.fn(async (_values: typeof defaults) => {})
+    render(
+      <Fixture
+        onSave={onSave}
+        initial={{
+          GroupModelPolicies: JSON.stringify({
+            default: {
+              mode: 'blacklist',
+              blacklist: ['retired-model'],
+              whitelist: [],
+            },
+          }),
+        }}
+      />
+    )
+
+    await user.click(
+      within(screen.getByRole('row', { name: /default/ })).getByRole('button', {
+        name: 'Details',
+      })
+    )
+    await screen.findByRole('heading', { name: 'Model access policy' })
+    expect(screen.getByText('retired-model')).toBeVisible()
+    await user.click(
+      screen.getByRole('button', { name: 'Remove retired-model' })
+    )
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    await user.click(screen.getByRole('button', { name: 'Save group ratios' }))
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1))
+    expect(
+      JSON.parse(onSave.mock.calls[0][0].GroupModelPolicies).default.blacklist
+    ).toEqual([])
+  })
+
+  it('loads only the selected group candidates and refreshes them when opening another group', async () => {
+    getGroupModelCandidatesMock.mockImplementation(async (group: string) => ({
+      success: true,
+      data: [`${group}-model`],
+    }))
+    const user = userEvent.setup()
+    render(
+      <Fixture
+        initial={{
+          GroupModelPolicies: JSON.stringify({
+            default: { mode: 'blacklist', blacklist: [], whitelist: [] },
+            vip: { mode: 'whitelist', blacklist: [], whitelist: [] },
+          }),
+        }}
+      />
+    )
+
+    await user.click(
+      within(screen.getByRole('row', { name: /default/ })).getByRole('button', {
+        name: 'Details',
+      })
+    )
+    await user.click(
+      await screen.findByRole('combobox', { name: 'Blacklisted models' })
+    )
+    expect(
+      await screen.findByRole('option', { name: 'default-model' })
+    ).toBeVisible()
+    expect(screen.queryByRole('option', { name: 'vip-model' })).toBeNull()
+    await user.keyboard('{Escape}')
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+
+    await user.click(
+      within(screen.getByRole('row', { name: /vip/ })).getByRole('button', {
+        name: 'Details',
+      })
+    )
+    await user.click(
+      await screen.findByRole('combobox', { name: 'Whitelisted models' })
+    )
+    expect(
+      await screen.findByRole('option', { name: 'vip-model' })
+    ).toBeVisible()
+    expect(screen.queryByRole('option', { name: 'default-model' })).toBeNull()
+  })
+
+  it('keeps saved selections editable after a candidate load error and offers retry', async () => {
+    getGroupModelCandidatesMock.mockRejectedValueOnce(new Error('offline'))
+    const user = userEvent.setup()
+    render(
+      <Fixture
+        initial={{
+          GroupModelPolicies: JSON.stringify({
+            default: {
+              mode: 'whitelist',
+              blacklist: [],
+              whitelist: ['saved-model'],
+            },
+          }),
+        }}
+      />
+    )
+    await user.click(
+      within(screen.getByRole('row', { name: /default/ })).getByRole('button', {
+        name: 'Details',
+      })
+    )
+    expect(await screen.findByText('Failed to load models')).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: 'Remove saved-model' })
+    ).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() =>
+      expect(screen.queryByText('Failed to load models')).toBeNull()
+    )
   })
 })

@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -347,7 +348,13 @@ func EnabledListModels(c *gin.Context) {
 
 func RetrieveModel(c *gin.Context, modelType int) {
 	modelId := c.Param("model")
-	if aiModel, ok := openAIModelsMap[modelId]; ok {
+	allowed := false
+	if groups, err := getModelListGroups(c); err == nil {
+		allowed = slices.ContainsFunc(groups.ownerGroups, func(group string) bool {
+			return service.IsModelAllowedForGroup(group, modelId)
+		})
+	}
+	if aiModel, ok := openAIModelsMap[modelId]; ok && allowed {
 		switch modelType {
 		case constant.ChannelTypeAnthropic:
 			c.JSON(200, dto.AnthropicModel{

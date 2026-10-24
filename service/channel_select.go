@@ -226,6 +226,13 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 		for i := startGroupIndex; i < len(autoGroups); i++ {
 			autoGroup := autoGroups[i]
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s", autoGroup)
+			if !IsModelAllowedForGroup(autoGroup, param.ModelName) {
+				logger.LogDebug(param.Ctx, "Model %s is denied by group policy in %s, trying next group", param.ModelName, autoGroup)
+				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
+				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
+				param.SetRetry(0)
+				continue
+			}
 
 			var lease *common.ChannelConcurrencyLease
 			channel, lease, err = model.GetRandomSatisfiedChannelWithConcurrencyAndAcquirer(
@@ -272,6 +279,9 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			break
 		}
 	} else {
+		if !IsModelAllowedForGroup(param.TokenGroup, param.ModelName) {
+			return nil, selectGroup, nil
+		}
 
 		var lease *common.ChannelConcurrencyLease
 		channel, lease, err = model.GetRandomSatisfiedChannelWithConcurrencyAndAcquirer(

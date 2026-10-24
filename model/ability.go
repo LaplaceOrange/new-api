@@ -49,6 +49,17 @@ func GetGroupEnabledModels(group string) []string {
 	return models
 }
 
+func GetGroupModelsOnEnabledChannels(group string) ([]string, error) {
+	var models []string
+	err := DB.Table("abilities").
+		Select("DISTINCT abilities.model").
+		Joins("JOIN channels ON channels.id = abilities.channel_id").
+		Where("abilities."+commonGroupCol+" = ? AND abilities.enabled = ? AND channels.status = ?", group, true, common.ChannelStatusEnabled).
+		Order("abilities.model ASC").
+		Pluck("abilities.model", &models).Error
+	return models, err
+}
+
 func GetEnabledModels() []string {
 	var models []string
 	// Find distinct models

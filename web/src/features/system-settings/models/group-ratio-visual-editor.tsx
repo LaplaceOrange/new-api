@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Combobox } from '@/components/ui/combobox'
+import { useQuery } from '@tanstack/react-query'
 import {
   AlertTriangle,
   ChevronDown,
@@ -43,6 +43,8 @@ import {
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
+import { ErrorState } from '@/components/error-state'
+import { MultiSelect } from '@/components/multi-select'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -58,9 +60,16 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import { Combobox } from '@/components/ui/combobox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Sheet,
   SheetContent,
@@ -68,11 +77,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { getGroupModelCandidates } from '@/features/system-settings/api'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 import { safeJsonParse } from '../utils/json-parser'
 
 type GroupRatioVisualEditorProps = {
   groupRatio: string
+  groupModelPolicies: string
   topupGroupRatio: string
   userUsableGroups: string
   groupGroupRatio: string
@@ -94,6 +106,53 @@ type GroupPricingRow = {
 type RegistryEntry = {
   name: string
   ratio: number
+}
+
+type GroupModelPolicyMode = 'all' | 'blacklist' | 'whitelist'
+
+type GroupModelPolicy = {
+  mode: GroupModelPolicyMode
+  blacklist: string[]
+  whitelist: string[]
+}
+
+type GroupModelPolicies = Record<string, GroupModelPolicy>
+
+function parseGroupModelPolicies(value: string): GroupModelPolicies {
+  const parsed = safeJsonParse<unknown>(value, {
+    fallback: {},
+    silent: true,
+  })
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return {}
+  }
+  const policies: GroupModelPolicies = {}
+  for (const [groupName, rawPolicy] of Object.entries(parsed)) {
+    if (typeof rawPolicy !== 'object' || rawPolicy === null) continue
+    const candidate = rawPolicy as Partial<GroupModelPolicy>
+    const mode: GroupModelPolicyMode =
+      candidate.mode === 'blacklist' || candidate.mode === 'whitelist'
+        ? candidate.mode
+        : 'all'
+    policies[groupName] = {
+      mode,
+      blacklist: Array.isArray(candidate.blacklist)
+        ? candidate.blacklist.filter(
+            (item): item is string => typeof item === 'string'
+          )
+        : [],
+      whitelist: Array.isArray(candidate.whitelist)
+        ? candidate.whitelist.filter(
+            (item): item is string => typeof item === 'string'
+          )
+        : [],
+    }
+  }
+  return policies
+}
+
+function defaultGroupModelPolicy(): GroupModelPolicy {
+  return { mode: 'all', blacklist: [], whitelist: [] }
 }
 
 const sectionCardClassName =
@@ -232,18 +291,21 @@ function GroupNameSelect(props: GroupNameSelectProps) {
 
   return (
     <Combobox
-  options={options.map((name) => ({ value: name, label: name }))}
-  value={props.value}
-  onValueChange={(value) => { if (value) props.onValueChange(value) }}
-  className={props.className ?? 'w-48'}
-  placeholder={props.placeholder}
-  aria-label={props.placeholder}
-/>
+      options={options.map((name) => ({ value: name, label: name }))}
+      value={props.value}
+      onValueChange={(value) => {
+        if (value) props.onValueChange(value)
+      }}
+      className={props.className ?? 'w-48'}
+      placeholder={props.placeholder}
+      aria-label={props.placeholder}
+    />
   )
 }
 
 export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
   groupRatio,
+  groupModelPolicies,
   topupGroupRatio,
   userUsableGroups,
   groupGroupRatio,
@@ -399,6 +461,10 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
           if (!open) setDetailGroup(null)
         }}
         registry={registry}
+        groupModelPolicies={groupModelPolicies}
+        onGroupModelPoliciesChange={(value) =>
+          onChange('GroupModelPolicies', value)
+        }
         topupGroupRatio={topupGroupRatio}
         userUsableGroups={userUsableGroups}
         groupGroupRatio={groupGroupRatio}
@@ -1111,6 +1177,8 @@ type GroupDetailSheetProps = {
   groupName: string | null
   onOpenChange: (open: boolean) => void
   registry: RegistryEntry[]
+  groupModelPolicies: string
+  onGroupModelPoliciesChange: (value: string) => void
   topupGroupRatio: string
   userUsableGroups: string
   groupGroupRatio: string
@@ -1140,6 +1208,34 @@ function parseSpecialGroupKey(rawKey: string): {
 function GroupDetailSheet(props: GroupDetailSheetProps) {
   const { t } = useTranslation()
   const name = props.groupName
+  const policies = useMemo(
+    () => parseGroupModelPolicies(props.groupModelPolicies),
+    [props.groupModelPolicies]
+  )
+  const policy = name
+    ? (policies[name] ?? defaultGroupModelPolicy())
+    : defaultGroupModelPolicy()
+  const activePolicyModels =
+    policy.mode === 'blacklist' ? policy.blacklist : policy.whitelist
+  const modelCandidatesQuery = useQuery({
+    queryKey: ['group-model-candidates', name],
+    queryFn: async () => {
+      if (!name) return []
+      return requireServerSuccess(await getGroupModelCandidates(name)).data
+    },
+    enabled: name !== null,
+    staleTime: 60 * 1000,
+  })
+
+  const updatePolicy = (changes: Partial<GroupModelPolicy>) => {
+    if (!name) return
+    const nextPolicies = parseGroupModelPolicies(props.groupModelPolicies)
+    nextPolicies[name] = {
+      ...(nextPolicies[name] ?? defaultGroupModelPolicy()),
+      ...changes,
+    }
+    props.onGroupModelPoliciesChange(JSON.stringify(nextPolicies, null, 2))
+  }
 
   const detail = useMemo(() => {
     if (!name) return null
@@ -1265,6 +1361,100 @@ function GroupDetailSheet(props: GroupDetailSheetProps) {
                   </dd>
                 </div>
               </dl>
+            </section>
+
+            <section className='space-y-2'>
+              <h3 className='text-sm font-semibold'>
+                {t('Model access policy')}
+              </h3>
+              <div className='space-y-2'>
+                <Label>{t('Model access mode')}</Label>
+                <Select
+                  value={policy.mode}
+                  items={[
+                    { value: 'all', label: t('All available models') },
+                    {
+                      value: 'blacklist',
+                      label: t('Disable blacklisted models'),
+                    },
+                    {
+                      value: 'whitelist',
+                      label: t('Allow only whitelisted models'),
+                    },
+                  ]}
+                  onValueChange={(value) => {
+                    if (
+                      value === 'all' ||
+                      value === 'blacklist' ||
+                      value === 'whitelist'
+                    ) {
+                      updatePolicy({ mode: value })
+                    }
+                  }}
+                >
+                  <SelectTrigger
+                    className='w-full'
+                    aria-label={t('Model access mode')}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='all'>
+                      {t('All available models')}
+                    </SelectItem>
+                    <SelectItem value='blacklist'>
+                      {t('Disable blacklisted models')}
+                    </SelectItem>
+                    <SelectItem value='whitelist'>
+                      {t('Allow only whitelisted models')}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {policy.mode !== 'all' && (
+                <div className='space-y-2'>
+                  <Label>
+                    {policy.mode === 'blacklist'
+                      ? t('Blacklisted models')
+                      : t('Whitelisted models')}
+                  </Label>
+                  <MultiSelect
+                    aria-label={
+                      policy.mode === 'blacklist'
+                        ? t('Blacklisted models')
+                        : t('Whitelisted models')
+                    }
+                    options={(modelCandidatesQuery.data ?? []).map(
+                      (modelName) => ({
+                        value: modelName,
+                        label: modelName,
+                      })
+                    )}
+                    selected={activePolicyModels}
+                    onChange={(models) =>
+                      updatePolicy({
+                        [policy.mode === 'blacklist'
+                          ? 'blacklist'
+                          : 'whitelist']: models,
+                      })
+                    }
+                    placeholder={t('Search available models')}
+                    emptyText={
+                      modelCandidatesQuery.isPending
+                        ? t('Loading...')
+                        : t('No models available for this group')
+                    }
+                    maxVisibleChips={5}
+                  />
+                  {modelCandidatesQuery.isError && (
+                    <ErrorState
+                      className='min-h-0 py-3'
+                      title={t('Failed to load models')}
+                      onRetry={() => void modelCandidatesQuery.refetch()}
+                    />
+                  )}
+                </div>
+              )}
             </section>
 
             <section className='space-y-2'>

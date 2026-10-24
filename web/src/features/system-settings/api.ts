@@ -41,6 +41,15 @@ export async function getSystemOptions() {
   return res.data
 }
 
+export async function getGroupModelCandidates(group: string) {
+  const res = await api.get<{
+    success: boolean
+    message?: string
+    data: string[]
+  }>('/api/group/models', { params: { group } })
+  return res.data
+}
+
 export async function updateSystemOption(request: UpdateOptionRequest) {
   const res = await api.put<UpdateOptionResponse>('/api/option/', request)
   return res.data
@@ -67,7 +76,9 @@ export async function getSensitiveWordIPBans(page: number, search: string) {
 }
 
 export async function unbanSensitiveWordUser(userId: number) {
-  const res = await api.delete(`/api/option/sensitive-word-bans/users/${userId}`)
+  const res = await api.delete(
+    `/api/option/sensitive-word-bans/users/${userId}`
+  )
   return res.data
 }
 
