@@ -371,7 +371,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		channelID := c.GetInt("channel_id")
 		if channelID > 0 {
 			if selectedChannel, err := model.CacheGetChannel(channelID); err == nil && selectedChannel != nil {
-				if acquired, acquireErr := service.AcquireChannelConcurrency(c, selectedChannel); acquireErr != nil {
+				if acquired, acquireErr := service.AcquireChannelConcurrencyForModel(c, selectedChannel, info.OriginModelName); acquireErr != nil {
 					return nil, types.NewError(acquireErr, types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 				} else if !acquired {
 					return nil, types.NewError(errors.New("channel concurrency limit reached"), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
@@ -619,7 +619,7 @@ func RelayTask(c *gin.Context) {
 		return
 	}
 	if lockedChannel, ok := relayInfo.LockedChannel.(*model.Channel); ok && lockedChannel != nil {
-		if acquired, acquireErr := service.AcquireChannelConcurrency(c, lockedChannel); acquireErr != nil {
+		if acquired, acquireErr := service.AcquireChannelConcurrencyForModel(c, lockedChannel, relayInfo.OriginModelName); acquireErr != nil {
 			respondTaskError(c, service.TaskErrorWrapperLocal(acquireErr, "acquire_channel_concurrency_failed", http.StatusServiceUnavailable))
 			return
 		} else if !acquired {

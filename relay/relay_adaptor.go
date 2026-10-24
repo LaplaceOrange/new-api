@@ -41,6 +41,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/vertex"
 	"github.com/QuantumNous/new-api/relay/channel/volcengine"
 	"github.com/QuantumNous/new-api/relay/channel/wavespeed"
+	"github.com/QuantumNous/new-api/relay/channel/workbuddy2api"
 	"github.com/QuantumNous/new-api/relay/channel/xai"
 	"github.com/QuantumNous/new-api/relay/channel/xunfei"
 	"github.com/QuantumNous/new-api/relay/channel/zhipu"
@@ -126,6 +127,8 @@ func GetAdaptor(apiType int) channel.Adaptor {
 		return &newapi.Adaptor{}
 	case constant.APITypeWaveSpeed:
 		return &wavespeed.Adaptor{}
+	case constant.APITypeWorkbuddy2API:
+		return &workbuddy2api.Adaptor{}
 	}
 	return nil
 }

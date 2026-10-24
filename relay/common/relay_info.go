@@ -243,6 +243,15 @@ func (info *RelayInfo) RequestedImageCount() int {
 	return 1
 }
 
+// Workbuddy2API always needs protocol conversion, even when passthrough is global.
+func (info *RelayInfo) IsRequestBodyPassthroughEnabled() bool {
+	if info.ChannelMeta != nil && info.ChannelType == constant.ChannelTypeWorkbuddy2API {
+		return false
+	}
+	return model_setting.GetGlobalSettings().PassThroughRequestEnabled ||
+		info.ChannelMeta != nil && info.ChannelSetting.PassThroughBodyEnabled
+}
+
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	info.FinalRequestRelayFormat = ""
 	info.RequestConversionChain = nil
@@ -300,7 +309,7 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	// Channel identity feeds the converter options snapshot (e.g.
 	// OpenRouterDialect); drop the cache so a cross-channel retry rebuilds it.
 	info.convOptions = nil
-	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || channelMeta.ChannelSetting.PassThroughBodyEnabled {
+	if info.IsRequestBodyPassthroughEnabled() {
 		info.ReasoningEffort = ""
 		info.ReasoningConversion = nil
 	} else {
@@ -416,6 +425,7 @@ var streamSupportedChannels = map[int]bool{
 	constant.ChannelTypeAdvancedCustom: true,
 	constant.ChannelTypeSub2API:        true,
 	constant.ChannelTypeNewAPI:         true,
+	constant.ChannelTypeWorkbuddy2API:  true,
 	constant.ChannelTypeTencent:        true,
 }
 

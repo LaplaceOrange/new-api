@@ -1376,6 +1376,33 @@ test('a failed detail request blocks updating until retry loads the saved channe
   expect(screen.getByRole('button', { name: 'Update Channel' })).toBeEnabled()
 })
 
+test('Workbuddy shows required per-account concurrency and disables body passthrough', async () => {
+  editingChannel = { ...editingChannel, type: 63, concurrency_limit: 2 }
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  await user.click(screen.getByRole('tab', { name: /Routing & Mapping/ }))
+  const input = screen.getByRole('spinbutton', {
+    name: /Per-account Concurrency/,
+  })
+  expect(input).toHaveAttribute('min', '1')
+  expect(input).toHaveValue(2)
+  fireEvent.change(input, { target: { value: '' } })
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  expect(
+    await screen.findByText(
+      'Per-account concurrency must be a positive integer'
+    )
+  ).toBeVisible()
+  expect(
+    screen.getByRole('tabpanel', { name: /Routing & Mapping/ })
+  ).toBeVisible()
+  await user.click(screen.getByRole('tab', { name: /Request & Response/ }))
+  expect(
+    screen.queryByRole('switch', { name: 'Pass Through Body' })
+  ).not.toBeInTheDocument()
+}, 20_000)
+
 test('restoring routing defaults clears the configured indicator for both the block and category', async () => {
   editingChannel = { ...editingChannel, auto_ban: 0 }
   const user = userEvent.setup()

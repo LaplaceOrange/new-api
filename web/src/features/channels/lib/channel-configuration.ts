@@ -48,6 +48,7 @@ const CONFIGURATION_BLOCKS = {
     fields: [
       'priority',
       'weight',
+      'concurrency_limit',
       'test_model',
       'auto_ban',
       'upstream_rate_multiplier_check_enabled',
@@ -146,6 +147,7 @@ export function getChannelConfigurationState(
     routingStrategy: Boolean(
       values.priority ||
       values.weight ||
+      (values.concurrency_limit ?? 0) > 0 ||
       values.test_model?.trim() ||
       (values.auto_ban ?? 1) !== 1 ||
       values.upstream_rate_multiplier_check_enabled ||

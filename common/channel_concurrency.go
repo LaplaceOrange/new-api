@@ -3,6 +3,7 @@ package common
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
@@ -16,16 +17,18 @@ const (
 
 var (
 	channelConcurrencyLocalMu sync.Mutex
-	channelConcurrencyLocal   = make(map[int]map[string]time.Time)
+	channelConcurrencyLocal   = make(map[string]map[string]time.Time)
 )
 
 // ChannelConcurrencyLease represents one formal relay request occupying a
 // channel slot. Release is idempotent and should be deferred by the caller.
 type ChannelConcurrencyLease struct {
 	channelID int
+	key       string
 	token     string
 	redis     bool
 	cancel    context.CancelFunc
+	children  []*ChannelConcurrencyLease
 	once      sync.Once
 }
 
@@ -43,13 +46,36 @@ func AcquireChannelConcurrency(ctx context.Context, channelID int, limit *int) (
 	if channelID <= 0 {
 		return nil, true, nil
 	}
+	return acquireScopedConcurrency(ctx, channelID, channelConcurrencyKey(channelID), limit)
+}
+
+// AcquireChannelAndModelConcurrency reserves both the channel-wide and
+// channel/model-wide slots. A rejected second reservation releases the first.
+func AcquireChannelAndModelConcurrency(ctx context.Context, channelID int, model string, channelLimit, modelLimit *int) (*ChannelConcurrencyLease, bool, error) {
+	channelLease, acquired, err := AcquireChannelConcurrency(ctx, channelID, channelLimit)
+	if err != nil || !acquired || model == "" {
+		return channelLease, acquired, err
+	}
+
+	modelLease, acquired, err := acquireScopedConcurrency(ctx, channelID, modelConcurrencyKey(channelID, model), modelLimit)
+	if err != nil || !acquired {
+		channelLease.Release()
+		return nil, acquired, err
+	}
+	return &ChannelConcurrencyLease{
+		channelID: channelID,
+		children:  []*ChannelConcurrencyLease{channelLease, modelLease},
+	}, true, nil
+}
+
+func acquireScopedConcurrency(ctx context.Context, channelID int, key string, limit *int) (*ChannelConcurrencyLease, bool, error) {
 	max := 0
 	if limit != nil && *limit > 0 {
 		max = *limit
 	}
 	token := uuid.NewString()
 	if RedisEnabled && RDB != nil {
-		lease, acquired, err := acquireRedisChannelConcurrency(ctx, channelID, token, max)
+		lease, acquired, err := acquireRedisChannelConcurrency(ctx, channelID, key, token, max)
 		if err == nil {
 			return lease, acquired, nil
 		}
@@ -59,7 +85,7 @@ func AcquireChannelConcurrency(ctx context.Context, channelID int, limit *int) (
 
 	channelConcurrencyLocalMu.Lock()
 	defer channelConcurrencyLocalMu.Unlock()
-	entries := localChannelConcurrencyEntries(channelID)
+	entries := localChannelConcurrencyEntries(key)
 	now := time.Now()
 	for leaseToken, expiresAt := range entries {
 		if !expiresAt.After(now) {
@@ -70,7 +96,7 @@ func AcquireChannelConcurrency(ctx context.Context, channelID int, limit *int) (
 		return nil, false, nil
 	}
 	entries[token] = now.Add(channelConcurrencyLeaseTTL)
-	return newChannelConcurrencyLease(channelID, token, false, ctx), true, nil
+	return newChannelConcurrencyLease(channelID, key, token, false, ctx), true, nil
 }
 
 // GetChannelConcurrency returns the current number of formal relay leases.
@@ -81,7 +107,7 @@ func GetChannelConcurrency(ctx context.Context, channelID int) (count int, known
 		return 0, true, nil
 	}
 	if RedisEnabled && RDB != nil {
-		count, err = countRedisChannelConcurrency(ctx, channelID)
+		count, err = countRedisChannelConcurrency(ctx, channelConcurrencyKey(channelID))
 		if err != nil {
 			return 0, false, err
 		}
@@ -90,7 +116,7 @@ func GetChannelConcurrency(ctx context.Context, channelID int) (count int, known
 
 	channelConcurrencyLocalMu.Lock()
 	defer channelConcurrencyLocalMu.Unlock()
-	entries := localChannelConcurrencyEntries(channelID)
+	entries := localChannelConcurrencyEntries(channelConcurrencyKey(channelID))
 	now := time.Now()
 	for leaseToken, expiresAt := range entries {
 		if !expiresAt.After(now) {
@@ -117,36 +143,42 @@ func GetChannelsConcurrency(ctx context.Context, channelIDs []int) (map[int]int,
 }
 
 func (lease *ChannelConcurrencyLease) Release() {
-	if lease == nil || lease.token == "" {
+	if lease == nil {
 		return
 	}
 	lease.once.Do(func() {
+		for _, child := range lease.children {
+			child.Release()
+		}
+		if lease.token == "" {
+			return
+		}
 		if lease.cancel != nil {
 			lease.cancel()
 		}
 		if lease.redis {
-			if err := releaseRedisChannelConcurrency(lease.channelID, lease.token); err != nil {
+			if err := releaseRedisChannelConcurrency(lease.key, lease.token); err != nil {
 				SysError(fmt.Sprintf("channel concurrency Redis release failed: channel_id=%d err=%v", lease.channelID, err))
 			}
 			return
 		}
 		channelConcurrencyLocalMu.Lock()
-		if entries, ok := channelConcurrencyLocal[lease.channelID]; ok {
+		if entries, ok := channelConcurrencyLocal[lease.key]; ok {
 			delete(entries, lease.token)
 			if len(entries) == 0 {
-				delete(channelConcurrencyLocal, lease.channelID)
+				delete(channelConcurrencyLocal, lease.key)
 			}
 		}
 		channelConcurrencyLocalMu.Unlock()
 	})
 }
 
-func newChannelConcurrencyLease(channelID int, token string, useRedis bool, parent context.Context) *ChannelConcurrencyLease {
+func newChannelConcurrencyLease(channelID int, key, token string, useRedis bool, parent context.Context) *ChannelConcurrencyLease {
 	if parent == nil {
 		parent = context.Background()
 	}
 	ctx, cancel := context.WithCancel(parent)
-	lease := &ChannelConcurrencyLease{channelID: channelID, token: token, redis: useRedis, cancel: cancel}
+	lease := &ChannelConcurrencyLease{channelID: channelID, key: key, token: token, redis: useRedis, cancel: cancel}
 	go renewChannelConcurrencyLease(ctx, lease)
 	return lease
 }
@@ -160,13 +192,13 @@ func renewChannelConcurrencyLease(ctx context.Context, lease *ChannelConcurrency
 			return
 		case <-ticker.C:
 			if lease.redis {
-				if err := renewRedisChannelConcurrency(lease.channelID, lease.token); err != nil {
+				if err := renewRedisChannelConcurrency(lease.key, lease.token); err != nil {
 					SysError(fmt.Sprintf("channel concurrency Redis renew failed: channel_id=%d err=%v", lease.channelID, err))
 				}
 				continue
 			}
 			channelConcurrencyLocalMu.Lock()
-			if entries, ok := channelConcurrencyLocal[lease.channelID]; ok {
+			if entries, ok := channelConcurrencyLocal[lease.key]; ok {
 				if _, exists := entries[lease.token]; exists {
 					entries[lease.token] = time.Now().Add(channelConcurrencyLeaseTTL)
 				}
@@ -176,11 +208,11 @@ func renewChannelConcurrencyLease(ctx context.Context, lease *ChannelConcurrency
 	}
 }
 
-func localChannelConcurrencyEntries(channelID int) map[string]time.Time {
-	entries := channelConcurrencyLocal[channelID]
+func localChannelConcurrencyEntries(key string) map[string]time.Time {
+	entries := channelConcurrencyLocal[key]
 	if entries == nil {
 		entries = make(map[string]time.Time)
-		channelConcurrencyLocal[channelID] = entries
+		channelConcurrencyLocal[key] = entries
 	}
 	return entries
 }
@@ -229,19 +261,23 @@ func channelConcurrencyKey(channelID int) string {
 	return fmt.Sprintf("%s%d", channelConcurrencyKeyPrefix, channelID)
 }
 
+func modelConcurrencyKey(channelID int, model string) string {
+	return fmt.Sprintf("new-api:model-concurrency:v1:%d:%s", channelID, url.QueryEscape(model))
+}
+
 func redisNowMilliseconds() int64 {
 	return time.Now().UnixMilli()
 }
 
-func acquireRedisChannelConcurrency(ctx context.Context, channelID int, token string, limit int) (*ChannelConcurrencyLease, bool, error) {
+func acquireRedisChannelConcurrency(ctx context.Context, channelID int, key, token string, limit int) (*ChannelConcurrencyLease, bool, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	result, err := RDB.Eval(ctx, acquireChannelConcurrencyScript, []string{channelConcurrencyKey(channelID)}, redisNowMilliseconds(), channelConcurrencyLeaseTTL.Milliseconds(), limit, token).Result()
+	result, err := RDB.Eval(ctx, acquireChannelConcurrencyScript, []string{key}, redisNowMilliseconds(), channelConcurrencyLeaseTTL.Milliseconds(), limit, token).Result()
 	if err != nil {
 		return nil, false, err
 	}
-	values, ok := result.([]interface{})
+	values, ok := result.([]any)
 	if !ok || len(values) != 2 {
 		return nil, false, fmt.Errorf("unexpected Redis concurrency response: %T", result)
 	}
@@ -252,24 +288,24 @@ func acquireRedisChannelConcurrency(ctx context.Context, channelID int, token st
 	if acquired == 0 {
 		return nil, false, nil
 	}
-	return newChannelConcurrencyLease(channelID, token, true, ctx), true, nil
+	return newChannelConcurrencyLease(channelID, key, token, true, ctx), true, nil
 }
 
-func renewRedisChannelConcurrency(channelID int, token string) error {
-	_, err := RDB.Eval(context.Background(), renewChannelConcurrencyScript, []string{channelConcurrencyKey(channelID)}, redisNowMilliseconds(), channelConcurrencyLeaseTTL.Milliseconds(), token).Result()
+func renewRedisChannelConcurrency(key, token string) error {
+	_, err := RDB.Eval(context.Background(), renewChannelConcurrencyScript, []string{key}, redisNowMilliseconds(), channelConcurrencyLeaseTTL.Milliseconds(), token).Result()
 	return err
 }
 
-func releaseRedisChannelConcurrency(channelID int, token string) error {
-	_, err := RDB.Eval(context.Background(), releaseChannelConcurrencyScript, []string{channelConcurrencyKey(channelID)}, token).Result()
+func releaseRedisChannelConcurrency(key, token string) error {
+	_, err := RDB.Eval(context.Background(), releaseChannelConcurrencyScript, []string{key}, token).Result()
 	return err
 }
 
-func countRedisChannelConcurrency(ctx context.Context, channelID int) (int, error) {
+func countRedisChannelConcurrency(ctx context.Context, key string) (int, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	result, err := RDB.Eval(ctx, countChannelConcurrencyScript, []string{channelConcurrencyKey(channelID)}, redisNowMilliseconds()).Result()
+	result, err := RDB.Eval(ctx, countChannelConcurrencyScript, []string{key}, redisNowMilliseconds()).Result()
 	if err != nil {
 		return 0, err
 	}
@@ -280,7 +316,7 @@ func countRedisChannelConcurrency(ctx context.Context, channelID int) (int, erro
 	return int(value), nil
 }
 
-func redisInt64(value interface{}) (int64, bool) {
+func redisInt64(value any) (int64, bool) {
 	switch v := value.(type) {
 	case int64:
 		return v, true

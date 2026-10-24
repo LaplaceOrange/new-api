@@ -495,7 +495,7 @@ test.each(migratedProviders)(
 )
 
 test.each([true, false])(
-  'gateway category contains only New API and Sub2API without changing existing categories (plugin permission: %s)',
+  'gateway category includes Workbuddy2API without changing existing categories (plugin permission: %s)',
   async (canBindPlugin) => {
     const user = userEvent.setup()
     const select = vi.fn()
@@ -519,8 +519,20 @@ test.each([true, false])(
       expect(
         screen.getByRole('option', { name: 'Sub2API Built-in #59' })
       ).toBeVisible()
+      expect(
+        screen.getByRole('option', { name: 'Workbuddy2API Built-in #63' })
+      ).toBeVisible()
     }
-    expect(screen.getAllByRole('option')).toHaveLength(2)
+    expect(screen.getAllByRole('option')).toHaveLength(3)
+    const workbuddy = screen.getByRole('option', {
+      name: 'Workbuddy2API Built-in #63',
+    })
+    expect(workbuddy.querySelector('img')).toHaveAttribute(
+      'src',
+      'https://raw.githubusercontent.com/DGZSbot/ai-icon/refs/heads/main/WorkBuddy.png'
+    )
+    await user.click(workbuddy)
+    expect(select).toHaveBeenLastCalledWith({ kind: 'builtin', type: 63 })
     await user.click(
       screen.getByRole('option', { name: 'New API Built-in #60' })
     )

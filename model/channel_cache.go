@@ -25,9 +25,17 @@ func GetRandomSatisfiedChannelWithConcurrency(ctx context.Context, group string,
 	return GetRandomSatisfiedChannelWithConcurrencyAndFilters(ctx, group, modelName, requestPath, nil)
 }
 
+type ChannelConcurrencyAcquirer func(context.Context, *Channel, string) (*common.ChannelConcurrencyLease, bool, error)
+
 // GetRandomSatisfiedChannelWithConcurrencyAndFilters combines the concurrency
 // lease selection path with the request/plugin filters used by normal routing.
 func GetRandomSatisfiedChannelWithConcurrencyAndFilters(ctx context.Context, group string, modelName string, requestPath string, filters []dto.ChannelFilter) (*Channel, *common.ChannelConcurrencyLease, error) {
+	return GetRandomSatisfiedChannelWithConcurrencyAndAcquirer(ctx, group, modelName, requestPath, filters, nil)
+}
+
+// GetRandomSatisfiedChannelWithConcurrencyAndAcquirer lets protocol-specific
+// channels supply admission rules while preserving normal candidate ordering.
+func GetRandomSatisfiedChannelWithConcurrencyAndAcquirer(ctx context.Context, group string, modelName string, requestPath string, filters []dto.ChannelFilter, acquire ChannelConcurrencyAcquirer) (*Channel, *common.ChannelConcurrencyLease, error) {
 	if common.MemoryCacheEnabled {
 		channelSyncLock.RLock()
 
@@ -49,7 +57,7 @@ func GetRandomSatisfiedChannelWithConcurrencyAndFilters(ctx context.Context, gro
 			}
 		}
 		channelSyncLock.RUnlock()
-		return selectChannelWithConcurrency(ctx, channels)
+		return selectChannelWithConcurrency(ctx, channels, modelName, acquire)
 	}
 
 	abilities := make([]Ability, 0)
@@ -94,10 +102,10 @@ func GetRandomSatisfiedChannelWithConcurrencyAndFilters(ctx context.Context, gro
 			routable = append(routable, channel)
 		}
 	}
-	return selectChannelWithConcurrency(ctx, routable)
+	return selectChannelWithConcurrency(ctx, routable, modelName, acquire)
 }
 
-func selectChannelWithConcurrency(ctx context.Context, channels []*Channel) (*Channel, *common.ChannelConcurrencyLease, error) {
+func selectChannelWithConcurrency(ctx context.Context, channels []*Channel, modelName string, acquire ChannelConcurrencyAcquirer) (*Channel, *common.ChannelConcurrencyLease, error) {
 	if len(channels) == 0 {
 		return nil, nil, nil
 	}
@@ -116,7 +124,14 @@ func selectChannelWithConcurrency(ctx context.Context, channels []*Channel) (*Ch
 
 	for _, priority := range priorities {
 		for _, channel := range weightedChannelOrder(byPriority[priority]) {
-			lease, acquired, err := common.AcquireChannelConcurrency(ctx, channel.Id, channel.ConcurrencyLimit)
+			var lease *common.ChannelConcurrencyLease
+			var acquired bool
+			var err error
+			if acquire != nil {
+				lease, acquired, err = acquire(ctx, channel, modelName)
+			} else {
+				lease, acquired, err = common.AcquireChannelConcurrency(ctx, channel.Id, channel.ConcurrencyLimit)
+			}
 			if err != nil {
 				return nil, nil, err
 			}

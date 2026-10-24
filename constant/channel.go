@@ -60,6 +60,7 @@ const (
 	ChannelTypeNewAPI         = 60
 	ChannelTypeTaskPlugin     = 61
 	ChannelTypeWaveSpeed      = 62
+	ChannelTypeWorkbuddy2API  = 63
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
 )
@@ -130,6 +131,7 @@ var ChannelBaseURLs = []string{
 	"",                                          //60
 	"",                                          //61
 	"https://api.wavespeed.ai",                  //62
+	"",                                          //63
 }
 
 func GetChannelBaseURL(channelType int) string {
@@ -199,6 +201,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeNewAPI:         "New API",
 	ChannelTypeTaskPlugin:     "Task Plugin",
 	ChannelTypeWaveSpeed:      "WaveSpeed",
+	ChannelTypeWorkbuddy2API:  "Workbuddy2API",
 }
 
 func GetChannelTypeName(channelType int) string {

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -10,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
 )
 
@@ -85,16 +87,23 @@ func ReleaseChannelConcurrency(c *gin.Context) {
 		return
 	}
 	value, ok := common.GetContextKey(c, constant.ContextKeyChannelConcurrencyLease)
-	if !ok || value == nil {
-		return
-	}
-	if lease, ok := value.(*common.ChannelConcurrencyLease); ok && lease != nil {
-		lease.Release()
+	if ok && value != nil {
+		if lease, ok := value.(*common.ChannelConcurrencyLease); ok && lease != nil {
+			lease.Release()
+		}
 	}
 	common.SetContextKey(c, constant.ContextKeyChannelConcurrencyLease, nil)
+	common.SetContextKey(c, constant.ContextKeyChannelPreselectedChannelID, 0)
+	common.SetContextKey(c, constant.ContextKeyChannelPreselectedKey, "")
+	common.SetContextKey(c, constant.ContextKeyChannelPreselectedKeyIndex, 0)
 }
 
 func AcquireChannelConcurrency(c *gin.Context, channel *model.Channel) (bool, error) {
+	requestModel := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
+	return AcquireChannelConcurrencyForModel(c, channel, requestModel)
+}
+
+func AcquireChannelConcurrencyForModel(c *gin.Context, channel *model.Channel, requestModel string) (bool, error) {
 	if c == nil || channel == nil {
 		return false, nil
 	}
@@ -107,12 +116,51 @@ func AcquireChannelConcurrency(c *gin.Context, channel *model.Channel) (bool, er
 			common.SetContextKey(c, constant.ContextKeyChannelConcurrencyLease, nil)
 		}
 	}
-	lease, acquired, err := common.AcquireChannelConcurrency(retryContext(c), channel.Id, channel.ConcurrencyLimit)
+	lease, acquired, err := acquireChannelConcurrencyForSelection(retryContext(c), c, channel, requestModel)
 	if err != nil || !acquired {
 		return acquired, err
 	}
 	common.SetContextKey(c, constant.ContextKeyChannelConcurrencyLease, lease)
 	return true, nil
+}
+
+func acquireChannelConcurrencyForSelection(ctx context.Context, c *gin.Context, channel *model.Channel, requestModel string) (*common.ChannelConcurrencyLease, bool, error) {
+	if channel == nil {
+		return nil, false, nil
+	}
+	if channel.Type != constant.ChannelTypeWorkbuddy2API {
+		return common.AcquireChannelConcurrency(ctx, channel.Id, channel.ConcurrencyLimit)
+	}
+	var apiKey string
+	var keyIndex int
+	var apiErr *types.NewAPIError
+	if selectedID := common.GetContextKeyInt(c, constant.ContextKeyChannelPreselectedChannelID); selectedID == channel.Id {
+		apiKey = common.GetContextKeyString(c, constant.ContextKeyChannelPreselectedKey)
+		keyIndex = common.GetContextKeyInt(c, constant.ContextKeyChannelPreselectedKeyIndex)
+	}
+	if apiKey == "" {
+		apiKey, keyIndex, apiErr = channel.GetNextEnabledKey()
+		if apiErr != nil {
+			return nil, false, nil
+		}
+	}
+	lease, acquired, err := AcquireWorkbuddy2APIConcurrency(ctx, channel, requestModel, apiKey)
+	if err != nil {
+		logger.LogWarn(c, fmt.Sprintf("Workbuddy2API capacity check failed for channel %d; skipping candidate", channel.Id))
+		return nil, false, nil
+	}
+	if acquired && c != nil {
+		common.SetContextKey(c, constant.ContextKeyChannelPreselectedChannelID, channel.Id)
+		common.SetContextKey(c, constant.ContextKeyChannelPreselectedKey, apiKey)
+		common.SetContextKey(c, constant.ContextKeyChannelPreselectedKeyIndex, keyIndex)
+	}
+	return lease, acquired, nil
+}
+
+func channelConcurrencyAcquirer(c *gin.Context) model.ChannelConcurrencyAcquirer {
+	return func(ctx context.Context, channel *model.Channel, requestModel string) (*common.ChannelConcurrencyLease, bool, error) {
+		return acquireChannelConcurrencyForSelection(ctx, c, channel, requestModel)
+	}
 }
 
 // CacheGetRandomSatisfiedChannel tries to get a random channel that satisfies the requirements.
@@ -180,8 +228,8 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s", autoGroup)
 
 			var lease *common.ChannelConcurrencyLease
-			channel, lease, err = model.GetRandomSatisfiedChannelWithConcurrencyAndFilters(
-				retryContext(param.Ctx), autoGroup, param.ModelName, param.RequestPath, filters,
+			channel, lease, err = model.GetRandomSatisfiedChannelWithConcurrencyAndAcquirer(
+				retryContext(param.Ctx), autoGroup, param.ModelName, param.RequestPath, filters, channelConcurrencyAcquirer(param.Ctx),
 			)
 			if err != nil {
 				return nil, selectGroup, err
@@ -226,8 +274,8 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 	} else {
 
 		var lease *common.ChannelConcurrencyLease
-		channel, lease, err = model.GetRandomSatisfiedChannelWithConcurrencyAndFilters(
-			retryContext(param.Ctx), param.TokenGroup, param.ModelName, param.RequestPath, filters,
+		channel, lease, err = model.GetRandomSatisfiedChannelWithConcurrencyAndAcquirer(
+			retryContext(param.Ctx), param.TokenGroup, param.ModelName, param.RequestPath, filters, channelConcurrencyAcquirer(param.Ctx),
 		)
 
 		if err != nil {

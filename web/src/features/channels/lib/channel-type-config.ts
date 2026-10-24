@@ -45,6 +45,16 @@ export interface ChannelTypeConfig {
  * Configuration for each channel type
  */
 export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
+  63: {
+    id: 63,
+    name: CHANNEL_TYPES[63],
+    icon: 'WorkBuddy',
+    hints: {
+      baseUrl: 'Base URL is required for this channel type',
+      key: 'Enter API key for this channel',
+      models: 'Models',
+    },
+  },
   1: {
     id: 1,
     name: CHANNEL_TYPES[1],

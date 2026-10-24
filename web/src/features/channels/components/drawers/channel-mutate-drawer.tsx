@@ -139,6 +139,7 @@ import {
   CHANNEL_STATUS_LABELS,
   CHANNEL_TYPE_OPTIONS,
   CHANNEL_TYPE_TASK_PLUGIN,
+  CHANNEL_TYPE_WORKBUDDY2API,
   CHANNEL_TYPE_WARNINGS,
   ERROR_MESSAGES,
   FIELD_PASSTHROUGH_TYPES,
@@ -1585,7 +1586,7 @@ export function ChannelMutateDrawer({
     />
   )
 
-  const passthroughFields = (
+  const passthroughFields = currentType !== CHANNEL_TYPE_WORKBUDDY2API && (
     <FormField
       control={form.control}
       name='pass_through_body_enabled'
@@ -1659,7 +1660,8 @@ export function ChannelMutateDrawer({
     />
   )
 
-  const formatFields = currentType === 1 && (
+  const formatFields = (currentType === 1 ||
+    currentType === CHANNEL_TYPE_WORKBUDDY2API) && (
     <FormField
       control={form.control}
       name='force_format'
@@ -1908,14 +1910,20 @@ export function ChannelMutateDrawer({
         name='concurrency_limit'
         render={({ field }) => (
           <FormItem>
-            <FormLabel>{t('Concurrency Limit')}</FormLabel>
+            <FormLabel required={currentType === CHANNEL_TYPE_WORKBUDDY2API}>
+              {currentType === CHANNEL_TYPE_WORKBUDDY2API
+                ? t('Per-account Concurrency')
+                : t('Concurrency Limit')}
+            </FormLabel>
             <FormControl>
               <Input
                 type='number'
-                min={0}
+                min={currentType === CHANNEL_TYPE_WORKBUDDY2API ? 1 : 0}
                 step={1}
                 value={field.value ?? ''}
-                placeholder='0'
+                placeholder={
+                  currentType === CHANNEL_TYPE_WORKBUDDY2API ? '1' : '0'
+                }
                 onChange={(event) => {
                   const value = event.target.value
                   field.onChange(value === '' ? undefined : Number(value))
@@ -1923,7 +1931,11 @@ export function ChannelMutateDrawer({
               />
             </FormControl>
             <FormDescription>
-              {t('Leave blank or enter 0 for unlimited concurrency.')}
+              {currentType === CHANNEL_TYPE_WORKBUDDY2API
+                ? t(
+                    'Maximum concurrent requests per WorkBuddy account across all models. Channel limits adjust automatically to available accounts.'
+                  )
+                : t('Leave blank or enter 0 for unlimited concurrency.')}
             </FormDescription>
             <FormMessage />
           </FormItem>
@@ -3698,12 +3710,22 @@ export function ChannelMutateDrawer({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel
-                      required={currentType === CHANNEL_TYPE_TASK_PLUGIN}
+                      required={
+                        currentType === CHANNEL_TYPE_TASK_PLUGIN ||
+                        currentType === CHANNEL_TYPE_WORKBUDDY2API
+                      }
                     >
                       {t('Base URL')}
                     </FormLabel>
                     <FormControl>
-                      <Input placeholder={baseUrlPlaceholder} {...field} />
+                      <Input
+                        placeholder={
+                          currentType === CHANNEL_TYPE_WORKBUDDY2API
+                            ? t('Base URL is required for this channel type')
+                            : baseUrlPlaceholder
+                        }
+                        {...field}
+                      />
                     </FormControl>
                     {currentType !== CHANNEL_TYPE_TASK_PLUGIN && (
                       <FormDescription>

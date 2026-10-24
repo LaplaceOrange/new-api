@@ -552,8 +552,13 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		}
 	}
 
-	if channel.Type == constant.ChannelTypeNewAPI && strings.TrimSpace(channel.GetBaseURL()) == "" {
-		return fmt.Errorf("New API channel base URL cannot be empty")
+	if (channel.Type == constant.ChannelTypeNewAPI || channel.Type == constant.ChannelTypeWorkbuddy2API) &&
+		strings.TrimSpace(channel.GetBaseURL()) == "" {
+		return fmt.Errorf("%s channel base URL cannot be empty", constant.GetChannelTypeName(channel.Type))
+	}
+	if channel.Type == constant.ChannelTypeWorkbuddy2API &&
+		(channel.ConcurrencyLimit == nil || *channel.ConcurrencyLimit <= 0) {
+		return fmt.Errorf("Workbuddy2API per-account concurrency limit must be a positive integer")
 	}
 
 	// Empty means "keep the existing key" on update, but an explicitly blank

@@ -40,5 +40,6 @@ const (
 	APITypeSub2API
 	APITypeNewAPI
 	APITypeWaveSpeed
+	APITypeWorkbuddy2API
 	APITypeDummy // this one is only for count, do not add any channel after this
 )

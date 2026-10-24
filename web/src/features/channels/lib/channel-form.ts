@@ -21,6 +21,7 @@ import { z } from 'zod'
 import {
   CLAUDE_FIELD_PASSTHROUGH_TYPES,
   CHANNEL_TYPE_NEW_API,
+  CHANNEL_TYPE_WORKBUDDY2API,
   CHANNEL_TYPE_TASK_PLUGIN,
   CHANNEL_STATUS,
   ERROR_MESSAGES,
@@ -312,9 +313,25 @@ export const channelFormSchema = z
   })
   .superRefine((data, ctx) => {
     if (
-      [3, 8, 36, 45, CHANNEL_TYPE_NEW_API, CHANNEL_TYPE_TASK_PLUGIN].includes(
-        data.type
-      ) &&
+      data.type === CHANNEL_TYPE_WORKBUDDY2API &&
+      !(data.concurrency_limit && data.concurrency_limit > 0)
+    ) {
+      addRequiredIssue(
+        ctx,
+        'concurrency_limit',
+        'Per-account concurrency must be a positive integer'
+      )
+    }
+    if (
+      [
+        3,
+        8,
+        36,
+        45,
+        CHANNEL_TYPE_NEW_API,
+        CHANNEL_TYPE_TASK_PLUGIN,
+        CHANNEL_TYPE_WORKBUDDY2API,
+      ].includes(data.type) &&
       !data.base_url?.trim()
     ) {
       addRequiredIssue(
@@ -677,7 +694,9 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     force_format: formData.force_format || false,
     thinking_to_content: formData.thinking_to_content || false,
     proxy: formData.proxy?.trim() || '',
-    pass_through_body_enabled: formData.pass_through_body_enabled || false,
+    pass_through_body_enabled:
+      formData.type !== CHANNEL_TYPE_WORKBUDDY2API &&
+      (formData.pass_through_body_enabled || false),
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
   }

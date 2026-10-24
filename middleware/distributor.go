@@ -77,7 +77,7 @@ func Distribute() func(c *gin.Context) {
 				abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": common.GetContextKeyString(c, constant.ContextKeyUsingGroup), "Model": modelRequest.Model}), types.ErrorCode(kind))
 				return
 			}
-			acquired, acquireErr := service.AcquireChannelConcurrency(c, channel)
+			acquired, acquireErr := service.AcquireChannelConcurrencyForModel(c, channel, modelRequest.Model)
 			if acquireErr != nil {
 				abortWithOpenAiMessage(c, http.StatusServiceUnavailable, acquireErr.Error(), types.ErrorCodeGetChannelFailed)
 				return
@@ -142,7 +142,7 @@ func Distribute() func(c *gin.Context) {
 						affinitySatisfied, _ = model.ChannelSatisfiesFilters(preferred, modelRequest.Model, constraints.Filters)
 					}
 					if affinitySatisfied {
-						acquired, acquireErr := service.AcquireChannelConcurrency(c, preferred)
+						acquired, acquireErr := service.AcquireChannelConcurrencyForModel(c, preferred, modelRequest.Model)
 						if acquireErr != nil || !acquired {
 							affinitySatisfied = false
 						}
@@ -705,7 +705,15 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	common.SetContextKey(c, constant.ContextKeyChannelModelMapping, channel.GetModelMapping())
 	common.SetContextKey(c, constant.ContextKeyChannelStatusCodeMapping, channel.GetStatusCodeMapping())
 
-	key, index, newAPIError := channel.GetNextEnabledKey()
+	key, index := "", 0
+	if selectedID := common.GetContextKeyInt(c, constant.ContextKeyChannelPreselectedChannelID); selectedID == channel.Id {
+		key = common.GetContextKeyString(c, constant.ContextKeyChannelPreselectedKey)
+		index = common.GetContextKeyInt(c, constant.ContextKeyChannelPreselectedKeyIndex)
+	}
+	var newAPIError *types.NewAPIError
+	if key == "" {
+		key, index, newAPIError = channel.GetNextEnabledKey()
+	}
 	if newAPIError != nil {
 		return newAPIError
 	}

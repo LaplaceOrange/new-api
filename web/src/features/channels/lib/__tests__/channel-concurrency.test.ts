@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
+import { channelSchema, type Channel } from '../../types'
 import {
   CHANNEL_FORM_DEFAULT_VALUES,
   buildSettingJSON,
@@ -12,7 +13,6 @@ import {
   aggregateChannelsByTag,
   formatChannelConcurrency,
 } from '../channel-utils'
-import { channelSchema, type Channel } from '../../types'
 
 function createChannel(overrides: Partial<Channel> = {}): Channel {
   return channelSchema.parse({
@@ -31,6 +31,44 @@ function createChannel(overrides: Partial<Channel> = {}): Channel {
 }
 
 describe('channel concurrency form and display', () => {
+  test('Workbuddy requires a base URL and positive per-account concurrency', () => {
+    const values = {
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      type: 63,
+      name: 'Workbuddy',
+      key: 'key',
+      models: 'gpt-4',
+      base_url: 'https://workbuddy.example',
+      concurrency_limit: 2,
+      pass_through_body_enabled: true,
+    }
+    expect(channelFormSchema.safeParse(values).success).toBe(true)
+    for (const concurrency_limit of [undefined, 0, -1, 1.5]) {
+      expect(
+        channelFormSchema.safeParse({ ...values, concurrency_limit }).success
+      ).toBe(false)
+    }
+    expect(
+      channelFormSchema.safeParse({ ...values, base_url: '' }).success
+    ).toBe(false)
+    expect(JSON.parse(buildSettingJSON(values)).pass_through_body_enabled).toBe(
+      false
+    )
+    expect(
+      transformFormDataToCreatePayload(values).channel.concurrency_limit
+    ).toBe(2)
+    expect(
+      formatChannelConcurrency(
+        createChannel({
+          type: 63,
+          current_concurrency: 5,
+          concurrency_limit: 2,
+          concurrency_known: true,
+        })
+      )
+    ).toBe('5 / Auto')
+  })
+
   test('accepts blank, zero, and positive integer limits only', () => {
     const validDefaults = {
       ...CHANNEL_FORM_DEFAULT_VALUES,
@@ -61,16 +99,31 @@ describe('channel concurrency form and display', () => {
   })
 
   test('normalizes blank and zero limits to null in create and update payloads', () => {
-    const blank = { ...CHANNEL_FORM_DEFAULT_VALUES, concurrency_limit: undefined }
+    const blank = {
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      concurrency_limit: undefined,
+    }
     const zero = { ...CHANNEL_FORM_DEFAULT_VALUES, concurrency_limit: 0 }
     const positive = { ...CHANNEL_FORM_DEFAULT_VALUES, concurrency_limit: 8 }
 
-    expect(transformFormDataToCreatePayload(blank).channel.concurrency_limit).toBeNull()
-    expect(transformFormDataToCreatePayload(zero).channel.concurrency_limit).toBeNull()
-    expect(transformFormDataToCreatePayload(positive).channel.concurrency_limit).toBe(8)
-    expect(transformFormDataToUpdatePayload(blank, 1).concurrency_limit).toBeNull()
-    expect(transformFormDataToUpdatePayload(zero, 1).concurrency_limit).toBeNull()
-    expect(transformFormDataToUpdatePayload(positive, 1).concurrency_limit).toBe(8)
+    expect(
+      transformFormDataToCreatePayload(blank).channel.concurrency_limit
+    ).toBeNull()
+    expect(
+      transformFormDataToCreatePayload(zero).channel.concurrency_limit
+    ).toBeNull()
+    expect(
+      transformFormDataToCreatePayload(positive).channel.concurrency_limit
+    ).toBe(8)
+    expect(
+      transformFormDataToUpdatePayload(blank, 1).concurrency_limit
+    ).toBeNull()
+    expect(
+      transformFormDataToUpdatePayload(zero, 1).concurrency_limit
+    ).toBeNull()
+    expect(
+      transformFormDataToUpdatePayload(positive, 1).concurrency_limit
+    ).toBe(8)
   })
 
   test('loads a persisted positive limit into form defaults', () => {
@@ -158,8 +211,18 @@ describe('channel health check token settings', () => {
 describe('channel tag concurrency aggregation', () => {
   test('sums current counts and finite limits', () => {
     const [row] = aggregateChannelsByTag([
-      createChannel({ id: 1, current_concurrency: 2, concurrency_limit: 5, concurrency_known: true }),
-      createChannel({ id: 2, current_concurrency: 3, concurrency_limit: 7, concurrency_known: true }),
+      createChannel({
+        id: 1,
+        current_concurrency: 2,
+        concurrency_limit: 5,
+        concurrency_known: true,
+      }),
+      createChannel({
+        id: 2,
+        current_concurrency: 3,
+        concurrency_limit: 7,
+        concurrency_known: true,
+      }),
     ])
     expect(row).toMatchObject({
       current_concurrency: 5,
@@ -170,8 +233,18 @@ describe('channel tag concurrency aggregation', () => {
 
   test('uses unlimited aggregate limit when any child is unlimited', () => {
     const [row] = aggregateChannelsByTag([
-      createChannel({ id: 1, current_concurrency: 2, concurrency_limit: 5, concurrency_known: true }),
-      createChannel({ id: 2, current_concurrency: 3, concurrency_limit: null, concurrency_known: true }),
+      createChannel({
+        id: 1,
+        current_concurrency: 2,
+        concurrency_limit: 5,
+        concurrency_known: true,
+      }),
+      createChannel({
+        id: 2,
+        current_concurrency: 3,
+        concurrency_limit: null,
+        concurrency_known: true,
+      }),
     ])
     expect(row).toMatchObject({
       current_concurrency: 5,
@@ -182,7 +255,12 @@ describe('channel tag concurrency aggregation', () => {
 
   test('marks aggregate monitoring unavailable when any child is unknown', () => {
     const [row] = aggregateChannelsByTag([
-      createChannel({ id: 1, current_concurrency: 2, concurrency_limit: 5, concurrency_known: true }),
+      createChannel({
+        id: 1,
+        current_concurrency: 2,
+        concurrency_limit: 5,
+        concurrency_known: true,
+      }),
       createChannel({ id: 2, concurrency_known: false }),
     ])
     expect(row).toMatchObject({

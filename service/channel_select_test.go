@@ -1,15 +1,125 @@
 package service
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestWorkbuddyCapacityAdmissionAndFallback(t *testing.T) {
+	for index, scenario := range []struct {
+		name     string
+		status   int
+		capacity string
+		occupy   bool
+	}{
+		{"available", 200, `{"model_available_accounts":1,"available_accounts":2}`, false},
+		{"model full", 200, `{"model_available_accounts":1,"available_accounts":2}`, true},
+		{"zero capacity", 200, `{"model_available_accounts":0,"available_accounts":2}`, false},
+		{"upstream failure", 503, `{}`, false},
+		{"redirect rejected", 302, `{}`, false},
+		{"invalid counts", 200, `{"model_available_accounts":3,"available_accounts":2}`, false},
+		{"malformed response", 200, `invalid`, false},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			db := setupChannelSelectAutoGroupsTest(t)
+			oldRedis := common.RedisEnabled
+			common.RedisEnabled = false
+			t.Cleanup(func() { common.RedisEnabled = oldRedis })
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				assert.Equal(t, "/v1/capacity", r.URL.Path)
+				assert.Equal(t, "upstream-model", r.URL.Query().Get("model"))
+				assert.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
+				if scenario.status == http.StatusFound {
+					w.Header().Set("Location", "/redirected")
+				}
+				w.WriteHeader(scenario.status)
+				_, _ = w.Write([]byte(scenario.capacity))
+			}))
+			t.Cleanup(server.Close)
+			id := 7300 + index*10
+			createChannelSelectAutoGroupsChannel(t, db, id, "default", "alias")
+			createChannelSelectAutoGroupsChannel(t, db, id+1, "default", "alias")
+			perAccount := 1
+			mapping := `{"alias":"upstream-model","another-alias":"upstream-model"}`
+			require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", id).Updates(map[string]any{
+				"type": constant.ChannelTypeWorkbuddy2API, "base_url": server.URL,
+				"key": "test-key", "model_mapping": mapping, "concurrency_limit": perAccount, "priority": 10,
+			}).Error)
+			model.InitChannelCache()
+			candidate := &model.Channel{Id: id, Type: constant.ChannelTypeWorkbuddy2API,
+				BaseURL: &server.URL, Key: "test-key", ModelMapping: &mapping, ConcurrencyLimit: &perAccount}
+			if scenario.occupy {
+				lease, acquired, err := AcquireWorkbuddy2APIConcurrency(context.Background(), candidate, "another-alias", "test-key")
+				require.NoError(t, err)
+				require.True(t, acquired)
+				t.Cleanup(lease.Release)
+			}
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			selected, _, err := CacheGetRandomSatisfiedChannel(&RetryParam{Ctx: c, TokenGroup: "default", ModelName: "alias", RequestPath: "/v1/chat/completions"})
+			require.NoError(t, err)
+			require.NotNil(t, selected)
+			if scenario.name == "available" {
+				assert.Equal(t, id, selected.Id)
+				assert.Equal(t, "test-key", common.GetContextKeyString(c, constant.ContextKeyChannelPreselectedKey))
+			} else {
+				assert.Equal(t, id+1, selected.Id)
+			}
+			ReleaseChannelConcurrency(c)
+			count, known, err := common.GetChannelConcurrency(context.Background(), selected.Id)
+			require.NoError(t, err)
+			assert.True(t, known)
+			assert.Zero(t, count)
+			assert.EqualValues(t, 1, calls.Load(), "aliases share the one-second upstream-model capacity cache")
+		})
+	}
+}
+
+func TestWorkbuddyChannelLimitAppliesAcrossModels(t *testing.T) {
+	oldRedis := common.RedisEnabled
+	common.RedisEnabled = false
+	t.Cleanup(func() { common.RedisEnabled = oldRedis })
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"model_available_accounts":2,"available_accounts":2}`))
+	}))
+	t.Cleanup(server.Close)
+	perAccount := 1
+	candidate := &model.Channel{Id: 7401, Type: constant.ChannelTypeWorkbuddy2API, BaseURL: &server.URL, ConcurrencyLimit: &perAccount}
+	first, ok, err := AcquireWorkbuddy2APIConcurrency(context.Background(), candidate, "model-a", "key")
+	require.NoError(t, err)
+	require.True(t, ok)
+	defer first.Release()
+	second, ok, err := AcquireWorkbuddy2APIConcurrency(context.Background(), candidate, "model-b", "key")
+	require.NoError(t, err)
+	require.True(t, ok)
+	defer second.Release()
+	_, ok, err = AcquireWorkbuddy2APIConcurrency(context.Background(), candidate, "model-c", "key")
+	require.NoError(t, err)
+	assert.False(t, ok)
+	first.Release()
+	replacement, ok, err := AcquireWorkbuddy2APIConcurrency(context.Background(), candidate, "model-c", "key")
+	require.NoError(t, err)
+	require.True(t, ok)
+	replacement.Release()
+	second.Release()
+	count, _, err := common.GetChannelConcurrency(context.Background(), candidate.Id)
+	require.NoError(t, err)
+	assert.Zero(t, count)
+}
 
 func TestPinnedTaskPluginChannelTypesUsesPinnedGenerationIndex(t *testing.T) {
 	registry := jsplugin.NewRegistry()

@@ -26,6 +26,23 @@ func TestValidateChannelNormalizesZeroConcurrencyLimit(t *testing.T) {
 	assert.ErrorContains(t, validateChannel(channel, false), "concurrency limit cannot be negative")
 }
 
+func TestValidateWorkbuddyRequiresPositivePerAccountLimit(t *testing.T) {
+	baseURL := "https://workbuddy.example"
+	for _, value := range []int{0, 1, 3} {
+		channel := &model.Channel{Type: constant.ChannelTypeWorkbuddy2API, BaseURL: &baseURL, ConcurrencyLimit: &value}
+		err := validateChannel(channel, false)
+		if value == 0 {
+			assert.ErrorContains(t, err, "positive integer")
+		} else {
+			assert.NoError(t, err)
+		}
+	}
+	channel := &model.Channel{Type: constant.ChannelTypeWorkbuddy2API, BaseURL: &baseURL}
+	assert.ErrorContains(t, validateChannel(channel, false), "positive integer")
+	channel.BaseURL = nil
+	assert.ErrorContains(t, validateChannel(channel, false), "base URL cannot be empty")
+}
+
 func TestGetChannelConcurrencyReturnsCurrentCountLimitAndKnownState(t *testing.T) {
 	db := setupMultiKeyControllerTest(t)
 	limit := 4

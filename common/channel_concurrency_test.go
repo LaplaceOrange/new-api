@@ -14,7 +14,7 @@ import (
 
 func resetLocalChannelConcurrencyForTest() {
 	channelConcurrencyLocalMu.Lock()
-	channelConcurrencyLocal = make(map[int]map[string]time.Time)
+	channelConcurrencyLocal = make(map[string]map[string]time.Time)
 	channelConcurrencyLocalMu.Unlock()
 }
 
@@ -79,13 +79,46 @@ func TestChannelConcurrencyMemoryUnlimitedAndExpiry(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, acquired)
 	channelConcurrencyLocalMu.Lock()
-	channelConcurrencyLocal[1003][lease.token] = time.Now().Add(-time.Second)
+	channelConcurrencyLocal[lease.key][lease.token] = time.Now().Add(-time.Second)
 	channelConcurrencyLocalMu.Unlock()
 	count, known, err := GetChannelConcurrency(context.Background(), 1003)
 	require.NoError(t, err)
 	assert.True(t, known)
 	assert.Equal(t, 0, count)
 	lease.Release()
+}
+
+func TestChannelAndModelConcurrencyLeaseLifecycle(t *testing.T) {
+	previousRedisEnabled, previousRDB := RedisEnabled, RDB
+	RedisEnabled = false
+	RDB = nil
+	resetLocalChannelConcurrencyForTest()
+	t.Cleanup(func() {
+		RedisEnabled, RDB = previousRedisEnabled, previousRDB
+		resetLocalChannelConcurrencyForTest()
+	})
+
+	channelLimit, modelLimit := 2, 1
+	first, acquired, err := AcquireChannelAndModelConcurrency(context.Background(), 1007, "gpt-4", &channelLimit, &modelLimit)
+	require.NoError(t, err)
+	require.True(t, acquired)
+	second, acquired, err := AcquireChannelAndModelConcurrency(context.Background(), 1007, "gpt-4", &channelLimit, &modelLimit)
+	require.NoError(t, err)
+	assert.False(t, acquired)
+	assert.Nil(t, second)
+	channelCount, known, err := GetChannelConcurrency(context.Background(), 1007)
+	require.NoError(t, err)
+	assert.True(t, known)
+	assert.Equal(t, 1, channelCount, "rejected model lease must release its channel lease")
+
+	otherModel, acquired, err := AcquireChannelAndModelConcurrency(context.Background(), 1007, "gpt-4-mini", &channelLimit, &modelLimit)
+	require.NoError(t, err)
+	require.True(t, acquired, "a saturated model must not block another model")
+	first.Release()
+	otherModel.Release()
+	channelCount, _, err = GetChannelConcurrency(context.Background(), 1007)
+	require.NoError(t, err)
+	assert.Equal(t, 0, channelCount)
 }
 
 func TestChannelConcurrencyMemoryConcurrentAcquireDoesNotOversell(t *testing.T) {
@@ -175,6 +208,22 @@ func TestChannelConcurrencyRedisAtomicLifecycleAndFailureOpen(t *testing.T) {
 
 	first.Release()
 	second.Release()
+	modelLimit := 1
+	combined, acquired, err := AcquireChannelAndModelConcurrency(context.Background(), 1008, "model", &limit, &modelLimit)
+	require.NoError(t, err)
+	require.True(t, acquired)
+	denied, acquired, err := AcquireChannelAndModelConcurrency(context.Background(), 1008, "model", &limit, &modelLimit)
+	require.NoError(t, err)
+	assert.False(t, acquired)
+	assert.Nil(t, denied)
+	count, _, err = GetChannelConcurrency(context.Background(), 1008)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count, "failed model admission rolls back its Redis channel slot")
+	combined.Release()
+	combined.Release()
+	count, _, err = GetChannelConcurrency(context.Background(), 1008)
+	require.NoError(t, err)
+	assert.Zero(t, count)
 	server.Close()
 	lease, acquired, err := AcquireChannelConcurrency(context.Background(), 1006, &limit)
 	require.NoError(t, err)

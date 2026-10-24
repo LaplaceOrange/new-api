@@ -32,6 +32,16 @@ import { IconSub2api } from '@/assets/custom/icon-sub2api'
 
 const CUSTOM_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
   Sub2API: IconSub2api,
+  WorkBuddy: (props) => (
+    <img
+      src='https://raw.githubusercontent.com/DGZSbot/ai-icon/refs/heads/main/WorkBuddy.png'
+      alt=''
+      width={props.size ?? 20}
+      height={props.size ?? 20}
+      className='shrink-0 object-contain'
+      referrerPolicy='no-referrer'
+    />
+  ),
 }
 
 /**

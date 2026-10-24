@@ -24,6 +24,7 @@ For commercial licensing, please contact support@quantumnous.com
 export const CHANNEL_TYPE_NEW_API = 60
 
 export const CHANNEL_TYPE_TASK_PLUGIN = 61
+export const CHANNEL_TYPE_WORKBUDDY2API = 63
 
 export const CHANNEL_TYPES = {
   0: 'Unknown',
@@ -84,6 +85,7 @@ export const CHANNEL_TYPES = {
   59: 'Sub2API',
   60: 'New API',
   61: 'Task Plugin',
+  63: 'Workbuddy2API',
 } as const
 
 export type ChannelProviderPresentation = {
@@ -163,15 +165,19 @@ export const CHANNEL_PROVIDER_PRESENTATION: Partial<
   60: {
     descriptionKey: 'Connect to model services from another New API instance',
   },
+  63: {
+    descriptionKey:
+      'Connect through Workbuddy2API with automatic concurrency limits',
+  },
 } satisfies Record<
   Exclude<keyof typeof CHANNEL_TYPES, 0 | typeof CHANNEL_TYPE_TASK_PLUGIN>,
   ChannelProviderPresentation
 >
 
 const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [
-  1, 14, 24, 33, 43, 3, 41, 17, 45, 25, 26, 23, 48, 60, 58, 59, 61, 42, 34, 20,
-  4, 40, 27, 15, 46, 18, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 57, 22, 21, 44,
-  2, 5, 36, 50, 51, 52, 53, 54, 55, 56,
+  1, 14, 24, 33, 43, 3, 41, 17, 45, 25, 26, 23, 48, 60, 58, 59, 63, 61, 42, 34,
+  20, 4, 40, 27, 15, 46, 18, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 57, 22, 21,
+  44, 2, 5, 36, 50, 51, 52, 53, 54, 55, 56,
 ]
 
 export const CHANNEL_TYPE_OPTIONS: { value: number; label: string }[] = (() => {
@@ -468,7 +474,8 @@ export const FIELD_DESCRIPTIONS = {
   PRIORITY: 'Higher priority channels are selected first',
   WEIGHT: 'Used for load balancing. Higher weight = more requests',
   TEST_MODEL: 'Model to use when testing channel connectivity',
-  HEALTH_CHECK_MAX_TOKENS: 'Maximum tokens sent during channel health checks. Defaults to 1 when empty.',
+  HEALTH_CHECK_MAX_TOKENS:
+    'Maximum tokens sent during channel health checks. Defaults to 1 when empty.',
   AUTO_BAN: 'Automatically disable channel on repeated failures',
   STATUS_CODE_MAPPING: 'Map response status codes (JSON format)',
   TAG: 'Group channels by tag for batch operations',
@@ -487,7 +494,7 @@ export const FIELD_DESCRIPTIONS = {
 
 export const MODEL_FETCHABLE_TYPES = new Set([
   1, 4, 14, 17, 20, 23, 24, 25, 26, 27, 31, 34, 35, 40, 42, 43, 47, 48, 57, 58,
-  59, 60,
+  59, 60, 63,
 ])
 
 export const FIELD_PASSTHROUGH_TYPES = new Set([
@@ -497,6 +504,7 @@ export const FIELD_PASSTHROUGH_TYPES = new Set([
   58,
   59,
   CHANNEL_TYPE_NEW_API,
+  CHANNEL_TYPE_WORKBUDDY2API,
 ])
 
 export const OPENAI_FIELD_PASSTHROUGH_TYPES = new Set([
@@ -505,6 +513,7 @@ export const OPENAI_FIELD_PASSTHROUGH_TYPES = new Set([
   58,
   59,
   CHANNEL_TYPE_NEW_API,
+  CHANNEL_TYPE_WORKBUDDY2API,
 ])
 
 export const CLAUDE_FIELD_PASSTHROUGH_TYPES = new Set([

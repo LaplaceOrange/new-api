@@ -16,12 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { t } from 'i18next'
+
 import { formatCurrencyFromUSD, formatQuotaWithCurrency } from '@/lib/currency'
 import { formatTimestampToDate } from '@/lib/format'
 
 import {
   CHANNEL_STATUS_CONFIG,
   CHANNEL_TYPES,
+  CHANNEL_TYPE_WORKBUDDY2API,
   MULTI_KEY_STATUS_CONFIG,
   RESPONSE_TIME_CONFIG,
   RESPONSE_TIME_THRESHOLDS,
@@ -29,11 +32,20 @@ import {
 } from '../constants'
 import type { Channel, ChannelSettings, ChannelOtherSettings } from '../types'
 
-export function formatChannelConcurrency(channel: Pick<Channel, 'current_concurrency' | 'concurrency_limit' | 'concurrency_known'>): string {
+export function formatChannelConcurrency(
+  channel: Pick<
+    Channel,
+    'current_concurrency' | 'concurrency_limit' | 'concurrency_known'
+  > &
+    Partial<Pick<Channel, 'type'>>
+): string {
   if (channel.concurrency_known !== true) {
     return '—'
   }
   const current = channel.current_concurrency ?? 0
+  if (channel.type === CHANNEL_TYPE_WORKBUDDY2API) {
+    return `${current} / ${t('Auto')}`
+  }
   const limit = channel.concurrency_limit
   return typeof limit === 'number' && limit > 0
     ? `${current} / ${limit}`
@@ -65,6 +77,7 @@ export function getChannelTypeIcon(type: number): string {
     58: 'NewAPI', // Advanced Custom
     59: 'Sub2API', // Sub2API
     60: 'NewAPI', // New API
+    63: 'WorkBuddy',
     3: 'Azure', // Azure
 
     // Anthropic
@@ -695,6 +708,7 @@ export function aggregateChannelsByTag(
     // child monitors are available; any unknown child makes the aggregate
     // unknown. An unlimited child makes the aggregate limit unlimited.
     if (
+      channel.type === CHANNEL_TYPE_WORKBUDDY2API ||
       channel.concurrency_known !== true ||
       typeof channel.current_concurrency !== 'number'
     ) {
@@ -703,10 +717,7 @@ export function aggregateChannelsByTag(
       tagRow.current_concurrency =
         (tagRow.current_concurrency ?? 0) + channel.current_concurrency
     }
-    if (
-      channel.concurrency_limit == null ||
-      channel.concurrency_limit <= 0
-    ) {
+    if (channel.concurrency_limit == null || channel.concurrency_limit <= 0) {
       tagRow.concurrency_limit = null
     } else if (tagRow.concurrency_limit !== null) {
       tagRow.concurrency_limit =
