@@ -5237,6 +5237,7 @@
     "Remark": "Nhận xét",
     "Remove": "Xóa",
     "Remove {{group}}": "Xóa {{group}}",
+    "Remove {{item}}": "Xóa {{item}}",
     "Remove {{value}}": "Xóa {{value}}",
     "Remove ${{amount}}": "Xóa ${{amount}}",
     "Remove all custom prices, ratios and billing expressions for these exact model names. Built-in pricing may become effective again.": "Xóa toàn bộ giá, hệ số và biểu thức tính phí tùy chỉnh cho các tên mô hình khớp chính xác. Giá tích hợp có thể có hiệu lực trở lại.",

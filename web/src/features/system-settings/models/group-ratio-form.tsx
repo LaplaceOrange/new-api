@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Code2, Eye, HelpCircle } from 'lucide-react'
 import { memo, useCallback, useMemo, useState, type ReactNode } from 'react'
-import type { UseFormReturn } from 'react-hook-form'
+import { useWatch, type UseFormReturn } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -68,6 +68,7 @@ import { GroupTypeEditor } from './group-type-editor'
 
 type GroupFormValues = {
   GroupRatio: string
+  GroupModelPolicies: string
   TopupGroupRatio: string
   UserUsableGroups: string
   GroupGroupRatio: string
@@ -109,6 +110,10 @@ export const GroupRatioForm = memo(function GroupRatioForm({
   }, [])
 
   const watchedGroupRatio = form.watch('GroupRatio')
+  const watchedGroupModelPolicies = useWatch({
+    control: form.control,
+    name: 'GroupModelPolicies',
+  })
   const watchedUserUsableGroups = form.watch('UserUsableGroups')
   const watchedTopupGroupRatio = form.watch('TopupGroupRatio')
   const groupNames = useMemo(() => {
@@ -185,6 +190,7 @@ export const GroupRatioForm = memo(function GroupRatioForm({
             <TabsContent value='ratios' keepMounted className='space-y-6'>
               <GroupRatioVisualEditor
                 groupRatio={form.watch('GroupRatio')}
+                groupModelPolicies={watchedGroupModelPolicies}
                 topupGroupRatio={form.watch('TopupGroupRatio')}
                 userUsableGroups={form.watch('UserUsableGroups')}
                 groupGroupRatio={form.watch('GroupGroupRatio')}
@@ -291,6 +297,32 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                   <FormDescription>
                     {t(
                       'JSON map of group → ratio applied when the user selects the group explicitly.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='GroupModelPolicies'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Model access policies')}</FormLabel>
+                  <FormControl>
+                    <JsonCodeEditor
+                      value={field.value}
+                      onChange={field.onChange}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      textareaRef={field.ref}
+                      heightClassName='h-40 min-h-40 max-h-40'
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'JSON map of group names to independent model access policies.'
                     )}
                   </FormDescription>
                   <FormMessage />

@@ -303,7 +303,10 @@ export function MultiSelect(props: MultiSelectProps) {
                 {visibleValues.map((value) => {
                   const label = labelMap.get(value) ?? value
                   return (
-                    <ComboboxChip key={value}>
+                    <ComboboxChip
+                      key={value}
+                      removeLabel={t('Remove {{item}}', { item: label })}
+                    >
                       {props.copyChipOnClick ? (
                         <button
                           type='button'

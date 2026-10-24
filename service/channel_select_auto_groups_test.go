@@ -28,6 +28,7 @@ func setupChannelSelectAutoGroupsTest(t *testing.T) *gorm.DB {
 	originalUsableGroups := setting.UserUsableGroups2JSONString()
 	originalGroupRatios := ratio_setting.GroupRatio2JSONString()
 	originalMaxTokenAutoGroups := setting.GetMaxTokenAutoGroups()
+	originalPolicies := setting.GetGroupModelPoliciesCopy()
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -50,6 +51,9 @@ func setupChannelSelectAutoGroupsTest(t *testing.T) *gorm.DB {
 		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalUsableGroups))
 		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalGroupRatios))
 		require.NoError(t, setting.UpdateMaxTokenAutoGroups(fmt.Sprintf("%d", originalMaxTokenAutoGroups)))
+		raw, err := common.Marshal(originalPolicies)
+		require.NoError(t, err)
+		require.NoError(t, setting.UpdateGroupModelPoliciesByJSONString(string(raw)))
 
 		if originalMemoryCacheEnabled && originalDB != nil &&
 			originalDB.Migrator().HasTable(&model.Channel{}) && originalDB.Migrator().HasTable(&model.Ability{}) {
@@ -126,4 +130,37 @@ func TestCacheGetRandomSatisfiedChannelUsesTokenAutoGroupsWhenGlobalAutoIsEmpty(
 	assert.Equal(t, 2102, second.Id)
 	assert.Equal(t, "default", selectedGroup)
 	assert.Equal(t, "default", common.GetContextKeyString(ctx, constant.ContextKeyAutoGroup))
+}
+
+func TestCacheGetRandomSatisfiedChannelSkipsDeniedAutoGroup(t *testing.T) {
+	db := setupChannelSelectAutoGroupsTest(t)
+	const modelName = "auto-policy-model"
+	createChannelSelectAutoGroupsChannel(t, db, 2201, "vip", modelName)
+	createChannelSelectAutoGroupsChannel(t, db, 2202, "default", modelName)
+	model.InitChannelCache()
+	require.NoError(t, setting.UpdateGroupModelPoliciesByJSONString(`{
+		"vip": {
+			"mode": "blacklist",
+			"blacklist": ["auto-policy-model"],
+			"whitelist": []
+		}
+	}`))
+
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroups, []string{"vip", "default"})
+
+	retry := 0
+	selected, selectedGroup, err := CacheGetRandomSatisfiedChannel(&RetryParam{
+		Ctx:         ctx,
+		TokenGroup:  "auto",
+		ModelName:   modelName,
+		RequestPath: "/v1/chat/completions",
+		Retry:       &retry,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	assert.Equal(t, 2202, selected.Id)
+	assert.Equal(t, "default", selectedGroup)
 }

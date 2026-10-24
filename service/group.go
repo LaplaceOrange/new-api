@@ -112,6 +112,9 @@ func GetGroupsEnabledModels(groups []string) []string {
 	models := make([]string, 0)
 	for _, group := range groups {
 		for _, modelName := range model.GetGroupEnabledModels(group) {
+			if !setting.IsModelAllowedByGroupPolicy(group, modelName) {
+				continue
+			}
 			if _, ok := seen[modelName]; !ok {
 				seen[modelName] = struct{}{}
 				models = append(models, modelName)
@@ -119,6 +122,27 @@ func GetGroupsEnabledModels(groups []string) []string {
 		}
 	}
 	return models
+}
+
+func IsModelAllowedForGroup(group, modelName string) bool {
+	if group == "" || group == "auto" {
+		return false
+	}
+	return setting.IsModelAllowedByGroupPolicy(group, modelName)
+}
+
+func IsChannelAllowedForGroupModel(group, modelName string, channelID int) bool {
+	return IsModelAllowedForGroup(group, modelName) &&
+		model.IsChannelEnabledForGroupModel(group, modelName, channelID)
+}
+
+func GetAllowedGroupForChannelModel(groups []string, modelName string, channelID int) string {
+	for _, group := range groups {
+		if IsChannelAllowedForGroupModel(group, modelName, channelID) {
+			return group
+		}
+	}
+	return ""
 }
 
 // GetUserGroupRatio 获取用户使用某个计费分组时的实际倍率。

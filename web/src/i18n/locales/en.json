@@ -5237,6 +5237,7 @@
     "Remark": "Remark",
     "Remove": "Remove",
     "Remove {{group}}": "Remove {{group}}",
+    "Remove {{item}}": "Remove {{item}}",
     "Remove {{value}}": "Remove {{value}}",
     "Remove ${{amount}}": "Remove ${{amount}}",
     "Remove all custom prices, ratios and billing expressions for these exact model names. Built-in pricing may become effective again.": "Remove all custom prices, ratios and billing expressions for these exact model names. Built-in pricing may become effective again.",

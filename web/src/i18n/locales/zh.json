@@ -5237,6 +5237,7 @@
     "Remark": "备注",
     "Remove": "移除",
     "Remove {{group}}": "移除 {{group}}",
+    "Remove {{item}}": "移除 {{item}}",
     "Remove {{value}}": "移除 {{value}}",
     "Remove ${{amount}}": "移除 ${{amount}}",
     "Remove all custom prices, ratios and billing expressions for these exact model names. Built-in pricing may become effective again.": "清除这些模型名称对应的全部自定义价格、倍率和计费表达式，内置定价可能会重新生效。",

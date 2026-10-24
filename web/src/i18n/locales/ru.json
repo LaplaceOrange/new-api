@@ -5237,6 +5237,7 @@
     "Remark": "Примечания",
     "Remove": "Удалить",
     "Remove {{group}}": "Удалить {{group}}",
+    "Remove {{item}}": "Удалить {{item}}",
     "Remove {{value}}": "Удалить {{value}}",
     "Remove ${{amount}}": "Удалить ${{amount}}",
     "Remove all custom prices, ratios and billing expressions for these exact model names. Built-in pricing may become effective again.": "Удаляет все пользовательские цены, коэффициенты и выражения тарификации для точных имён моделей. Встроенные цены могут снова вступить в силу.",

@@ -70,6 +70,37 @@ func Distribute() func(c *gin.Context) {
 				}
 				return
 			}
+			usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
+			if modelRequest.Model != "" {
+				selectedGroup := usingGroup
+				if usingGroup == "auto" {
+					userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+					selectedGroup = service.GetAllowedGroupForChannelModel(
+						service.GetRequestAutoGroups(c, userGroup),
+						modelRequest.Model,
+						channel.Id,
+					)
+					if selectedGroup != "" {
+						common.SetContextKey(c, constant.ContextKeyAutoGroup, selectedGroup)
+					}
+				}
+				denied := false
+				if usingGroup == "auto" {
+					denied = selectedGroup == "" ||
+						!service.IsChannelAllowedForGroupModel(selectedGroup, modelRequest.Model, channel.Id)
+				} else if usingGroup != "" {
+					denied = !service.IsChannelAllowedForGroupModel(usingGroup, modelRequest.Model, channel.Id)
+				}
+				if denied {
+					abortWithOpenAiMessage(
+						c,
+						http.StatusServiceUnavailable,
+						noAvailableChannelMessage(c, usingGroup, modelRequest.Model),
+						types.ErrorCodeModelNotFound,
+					)
+					return
+				}
+			}
 			if ok, kind := model.ChannelSatisfiesFilters(channel, modelRequest.Model, constraints.Filters); !ok {
 				if kind == taskdto.FilterTaskPluginIdentity {
 					logTaskPluginChannelDecision(c, channel, modelRequest.Model, "channel_rejected", "identity_mismatch")
@@ -152,7 +183,7 @@ func Distribute() func(c *gin.Context) {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetRequestAutoGroups(c, userGroup)
 							for _, g := range autoGroups {
-								if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, preferred.Id) {
+								if service.IsChannelAllowedForGroupModel(g, modelRequest.Model, preferred.Id) {
 									selectGroup = g
 									common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
 									channel = preferred
@@ -161,7 +192,7 @@ func Distribute() func(c *gin.Context) {
 									break
 								}
 							}
-						} else if model.IsChannelEnabledForGroupModel(usingGroup, modelRequest.Model, preferred.Id) {
+						} else if service.IsChannelAllowedForGroupModel(usingGroup, modelRequest.Model, preferred.Id) {
 							channel = preferred
 							selectGroup = usingGroup
 							affinityUsable = true
@@ -203,6 +234,19 @@ func Distribute() func(c *gin.Context) {
 			}
 		}
 		if channel != nil {
+			selectedGroup := common.GetContextKeyString(c, constant.ContextKeyAutoGroup)
+			if selectedGroup == "" {
+				selectedGroup = common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
+			}
+			if modelRequest.Model != "" && selectedGroup == "auto" {
+				abortWithOpenAiMessage(c, http.StatusServiceUnavailable, noAvailableChannelMessage(c, selectedGroup, modelRequest.Model), types.ErrorCodeModelNotFound)
+				return
+			}
+			if modelRequest.Model != "" && selectedGroup != "" &&
+				!service.IsModelAllowedForGroup(selectedGroup, modelRequest.Model) {
+				abortWithOpenAiMessage(c, http.StatusServiceUnavailable, noAvailableChannelMessage(c, selectedGroup, modelRequest.Model), types.ErrorCodeModelNotFound)
+				return
+			}
 			if ok, kind := model.ChannelSatisfiesFilters(channel, modelRequest.Model, constraints.Filters); !ok {
 				if kind == taskdto.FilterTaskPluginIdentity {
 					logTaskPluginChannelDecision(c, channel, modelRequest.Model, "channel_rejected", "identity_mismatch")

@@ -5237,6 +5237,7 @@
     "Remark": "備考",
     "Remove": "削除",
     "Remove {{group}}": "{{group}} を削除",
+    "Remove {{item}}": "{{item}}を削除",
     "Remove {{value}}": "{{value}} を削除",
     "Remove ${{amount}}": "${{amount}}を削除",
     "Remove all custom prices, ratios and billing expressions for these exact model names. Built-in pricing may become effective again.": "完全に一致するモデル名のカスタム価格、倍率、課金式をすべて削除します。組み込みの料金設定が再び適用される場合があります。",

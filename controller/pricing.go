@@ -57,6 +57,7 @@ func GetPricing(c *gin.Context) {
 
 	usableGroup = service.GetUserUsableGroups(group)
 	pricing = filterPricingByUsableGroups(pricing, usableGroup)
+	pricing = filterPricingByGroupModelPolicies(pricing, usableGroup)
 	// check groupRatio contains usableGroup
 	for group := range ratio_setting.GetGroupRatioCopy() {
 		if _, ok := usableGroup[group]; !ok {
@@ -77,6 +78,39 @@ func GetPricing(c *gin.Context) {
 		"auto_groups":        service.GetUserAutoGroup(group),
 		"pricing_version":    "a42d372ccf0b5dd13ecf71203521f9d2",
 	})
+}
+
+func filterPricingByGroupModelPolicies(pricing []model.Pricing, usableGroup map[string]string) []model.Pricing {
+	if len(pricing) == 0 || len(usableGroup) == 0 {
+		return []model.Pricing{}
+	}
+
+	usableGroups := slices.Collect(maps.Keys(usableGroup))
+	slices.Sort(usableGroups)
+	filtered := make([]model.Pricing, 0, len(pricing))
+	for _, item := range pricing {
+		allowedGroups := make([]string, 0, len(item.EnableGroup))
+		if common.StringsContains(item.EnableGroup, "all") {
+			for _, group := range usableGroups {
+				if service.IsModelAllowedForGroup(group, item.ModelName) {
+					allowedGroups = append(allowedGroups, group)
+				}
+			}
+		} else {
+			for _, group := range item.EnableGroup {
+				if _, ok := usableGroup[group]; !ok || !service.IsModelAllowedForGroup(group, item.ModelName) {
+					continue
+				}
+				allowedGroups = append(allowedGroups, group)
+			}
+		}
+		if len(allowedGroups) == 0 {
+			continue
+		}
+		item.EnableGroup = allowedGroups
+		filtered = append(filtered, item)
+	}
+	return filtered
 }
 
 func ResetModelRatio(c *gin.Context) {

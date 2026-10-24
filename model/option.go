@@ -165,6 +165,7 @@ func InitOptionMap() {
 	common.OptionMap["CacheRatio"] = ratio_setting.CacheRatio2JSONString()
 	common.OptionMap["CreateCacheRatio"] = ratio_setting.CreateCacheRatio2JSONString()
 	common.OptionMap["GroupRatio"] = ratio_setting.GroupRatio2JSONString()
+	common.OptionMap[setting.GroupModelPoliciesOptionKey] = setting.GroupModelPolicies2JSONString()
 	common.OptionMap["GroupTypes"] = "[]"
 	common.OptionMap["GroupGroupRatio"] = ratio_setting.GroupGroupRatio2JSONString()
 	common.OptionMap["UserUsableGroups"] = setting.UserUsableGroups2JSONString()
@@ -296,11 +297,14 @@ func validateOptionValue(key string, value string) error {
 	if key == "GroupTypes" {
 		return setting.ValidateGroupTypes(value)
 	}
+	if key == setting.GroupModelPoliciesOptionKey {
+		return setting.ValidateGroupModelPolicies(value)
+	}
 	return nil
 }
 
 func UpdateOption(key string, value string) error {
-	if key == automaticDisableModelOptionKey || key == automaticEnableModelOptionKey {
+	if key == automaticDisableModelOptionKey || key == automaticEnableModelOptionKey || key == setting.GroupModelPoliciesOptionKey {
 		return UpdateOptionsBulk(map[string]string{key: value})
 	}
 	if IsPasskeyDomainOption(key) {
@@ -767,6 +771,8 @@ func updateOptionMap(key string, value string) (err error) {
 		err = ratio_setting.UpdateModelRatioByJSONString(value)
 	case "GroupRatio":
 		err = ratio_setting.UpdateGroupRatioByJSONString(value)
+	case setting.GroupModelPoliciesOptionKey:
+		err = setting.UpdateGroupModelPoliciesByJSONString(value)
 	case "GroupGroupRatio":
 		err = ratio_setting.UpdateGroupGroupRatioByJSONString(value)
 	case "UserUsableGroups":
