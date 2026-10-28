@@ -39,13 +39,20 @@ export const subscriptionPlanSchema = z.object({
   allow_wallet_overflow: z.boolean().optional().default(true),
   max_purchase_per_user: z.number(),
   total_amount: z.number(),
+  content_type: z
+    .enum(['quota', 'token', 'legacy', ''])
+    .optional()
+    .default('legacy'),
   upgrade_group: z.string().optional(),
   downgrade_group: z.string().optional(),
   stripe_price_id: z.string().optional(),
   creem_product_id: z.string().optional(),
   waffo_pancake_product_id: z.string().optional(),
   token_amount: z.number().optional().default(0),
-  token_count_mode: z.enum(['shared', 'per_model']).optional().default('shared'),
+  token_count_mode: z
+    .enum(['shared', 'per_model'])
+    .optional()
+    .default('shared'),
   token_groups: z.string().optional(),
   token_models: z.string().optional(),
   max_concurrency: z.number().optional().default(0),
@@ -158,17 +165,26 @@ export interface SelfSubscriptionData {
   subscriptions: UserSubscriptionRecord[]
   all_subscriptions: UserSubscriptionRecord[]
   token_usages?: Record<string, SubscriptionTokenUsage>
+  concurrency_usages?: Record<string, SubscriptionConcurrencyUsage>
 }
 
 // Subscription token-package usage keyed by subscription id (from /api/subscription/self).
 export interface SubscriptionTokenUsage {
   enabled: boolean
+  quota_enabled: boolean
   mode: 'shared' | 'per_model'
   total: number
   used: number
   per_model?: { model: string; used: number }[]
   groups?: string[]
   models?: string[]
+}
+
+export interface SubscriptionConcurrencyUsage {
+  current: number
+  limit: number
+  known: boolean
+  limit_known: boolean
 }
 
 // ============================================================================

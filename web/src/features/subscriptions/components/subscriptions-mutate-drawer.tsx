@@ -167,6 +167,7 @@ export function SubscriptionsMutateDrawer({
 
   const durationUnit = form.watch('duration_unit')
   const resetPeriod = form.watch('quota_reset_period')
+  const contentType = form.watch('content_type')
   // Gate "+ Create on Pancake" on the same checks the mint handler runs.
   const watchedTitle = form.watch('title')
   const watchedPrice = form.watch('price_amount')
@@ -374,44 +375,95 @@ export function SubscriptionsMutateDrawer({
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name='total_amount'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        {t('Quota ({{currency}})', { currency: currencyLabel })}
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          type='number'
-                          min={0}
-                          step={tokensOnly ? 1 : 0.01}
-                          placeholder={
-                            tokensOnly
-                              ? t('Enter quota in tokens')
-                              : t('Enter quota in {{currency}}', {
-                                  currency: currencyLabel,
-                                })
-                          }
-                          onChange={(e) =>
-                            field.onChange(
-                              Number.parseFloat(e.target.value) || 0
-                            )
-                          }
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t(
-                          'Total quota included in the plan, usable per billing period. 0 means unlimited.'
-                        )}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {contentType !== 'token' && (
+                  <FormField
+                    control={form.control}
+                    name='total_amount'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {t('Quota ({{currency}})', {
+                            currency: currencyLabel,
+                          })}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type='number'
+                            min={0}
+                            step={tokensOnly ? 1 : 0.01}
+                            placeholder={
+                              tokensOnly
+                                ? t('Enter quota in tokens')
+                                : t('Enter quota in {{currency}}', {
+                                    currency: currencyLabel,
+                                  })
+                            }
+                            onChange={(e) =>
+                              field.onChange(
+                                Number.parseFloat(e.target.value) || 0
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Total quota included in the plan, usable per billing period. 0 means unlimited.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
               </div>
+
+              <FormField
+                control={form.control}
+                name='content_type'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Subscription Content')}</FormLabel>
+                    <Select
+                      items={[
+                        { value: 'quota', label: t('Quota') },
+                        { value: 'token', label: t('Token') },
+                        ...(field.value === 'legacy'
+                          ? [{ value: 'legacy', label: t('Legacy combined') }]
+                          : []),
+                      ]}
+                      value={field.value}
+                      onValueChange={(value) => {
+                        if (!value) return
+                        field.onChange(value)
+                      }}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent alignItemWithTrigger={false}>
+                        <SelectGroup>
+                          <SelectItem value='quota'>{t('Quota')}</SelectItem>
+                          <SelectItem value='token'>{t('Token')}</SelectItem>
+                          {field.value === 'legacy' && (
+                            <SelectItem value='legacy'>
+                              {t('Legacy combined')}
+                            </SelectItem>
+                          )}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      {t(
+                        'Choose whether this subscription includes quota or tokens.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
                 <FormField
@@ -749,37 +801,105 @@ export function SubscriptionsMutateDrawer({
             </SideDrawerSection>
 
             {/* Token Package */}
-            <SideDrawerSection>
-              <h3 className='flex items-center gap-2 text-sm font-medium'>
-                <IconBadge tone='chart-2' size='xs'>
-                  <Coins />
-                </IconBadge>
-                {t('Token Package')}
-              </h3>
+            {contentType !== 'quota' && (
+              <SideDrawerSection>
+                <h3 className='flex items-center gap-2 text-sm font-medium'>
+                  <IconBadge tone='chart-2' size='xs'>
+                    <Coins />
+                  </IconBadge>
+                  {t('Token Package')}
+                </h3>
 
-              <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+                <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+                  <FormField
+                    control={form.control}
+                    name='token_amount'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Package Tokens')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type='number'
+                            min={0}
+                            onChange={(e) =>
+                              field.onChange(
+                                Number.parseInt(e.target.value, 10) || 0
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Tokens deducted for matching models/groups. 0 means unlimited.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='token_count_mode'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Token Counting Mode')}</FormLabel>
+                        <Select
+                          items={[
+                            {
+                              value: 'shared',
+                              label: t('Shared across models'),
+                            },
+                            {
+                              value: 'per_model',
+                              label: t('Per model (full quota each)'),
+                            },
+                          ]}
+                          onValueChange={field.onChange}
+                          value={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent alignItemWithTrigger={false}>
+                            <SelectGroup>
+                              <SelectItem value='shared'>
+                                {t('Shared across models')}
+                              </SelectItem>
+                              <SelectItem value='per_model'>
+                                {t('Per model (full quota each)')}
+                              </SelectItem>
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
                 <FormField
                   control={form.control}
-                  name='token_amount'
+                  name='token_groups'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Package Tokens')}</FormLabel>
+                      <FormLabel>{t('Deductible Groups')}</FormLabel>
                       <FormControl>
-                        <Input
-                          {...field}
-                          type='number'
-                          min={0}
-                          onChange={(e) =>
-                            field.onChange(
-                              Number.parseInt(e.target.value, 10) || 0
-                            )
-                          }
+                        <MultiSelect
+                          options={groupOptions.map((g) => ({
+                            value: g,
+                            label: g,
+                          }))}
+                          selected={field.value}
+                          onChange={field.onChange}
+                          placeholder={t('All groups (no restriction)')}
                         />
                       </FormControl>
                       <FormDescription>
-                        {t(
-                          'Tokens deducted first for matching models/groups. 0 means disabled.'
-                        )}
+                        {t('Empty means all groups are deductible.')}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -788,129 +908,32 @@ export function SubscriptionsMutateDrawer({
 
                 <FormField
                   control={form.control}
-                  name='token_count_mode'
+                  name='token_models'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Token Counting Mode')}</FormLabel>
-                      <Select
-                        items={[
-                          {
-                            value: 'shared',
-                            label: t('Shared across models'),
-                          },
-                          {
-                            value: 'per_model',
-                            label: t('Per model (full quota each)'),
-                          },
-                        ]}
-                        onValueChange={field.onChange}
-                        value={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent alignItemWithTrigger={false}>
-                          <SelectGroup>
-                            <SelectItem value='shared'>
-                              {t('Shared across models')}
-                            </SelectItem>
-                            <SelectItem value='per_model'>
-                              {t('Per model (full quota each)')}
-                            </SelectItem>
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
+                      <FormLabel>{t('Deductible Models')}</FormLabel>
+                      <FormControl>
+                        <MultiSelect
+                          options={modelOptions.map((m) => ({
+                            value: m,
+                            label: m,
+                          }))}
+                          selected={field.value}
+                          onChange={field.onChange}
+                          placeholder={t('All models (no restriction)')}
+                          allowCreate
+                          createLabel={t('Add custom model "{{value}}"')}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t('Empty means all models are deductible.')}
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-              </div>
-
-              <FormField
-                control={form.control}
-                name='token_groups'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Deductible Groups')}</FormLabel>
-                    <FormControl>
-                      <MultiSelect
-                        options={groupOptions.map((g) => ({
-                          value: g,
-                          label: g,
-                        }))}
-                        selected={field.value}
-                        onChange={field.onChange}
-                        placeholder={t('All groups (no restriction)')}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Empty means all groups are deductible.')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='token_models'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Deductible Models')}</FormLabel>
-                    <FormControl>
-                      <MultiSelect
-                        options={modelOptions.map((m) => ({
-                          value: m,
-                          label: m,
-                        }))}
-                        selected={field.value}
-                        onChange={field.onChange}
-                        placeholder={t('All models (no restriction)')}
-                        allowCreate
-                        createLabel={t('Add custom model "{{value}}"')}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Empty means all models are deductible.')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='max_concurrency'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className='flex items-center gap-1.5'>
-                      <Gauge className='h-3.5 w-3.5 text-muted-foreground' />
-                      {t('Concurrency Limit')}
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        type='number'
-                        min={0}
-                        onChange={(e) =>
-                          field.onChange(
-                            Number.parseInt(e.target.value, 10) || 0
-                          )
-                        }
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t(
-                        'Max concurrent requests offset by this subscription. 0 means unlimited.'
-                      )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </SideDrawerSection>
+              </SideDrawerSection>
+            )}
 
             {/* Payment Config */}
             <SideDrawerSection>
@@ -999,6 +1022,43 @@ export function SubscriptionsMutateDrawer({
                     </FormItem>
                   )
                 }}
+              />
+            </SideDrawerSection>
+
+            {/* Shared concurrency */}
+            <SideDrawerSection>
+              <h3 className='flex items-center gap-2 text-sm font-medium'>
+                <IconBadge tone='chart-4' size='xs'>
+                  <Gauge />
+                </IconBadge>
+                {t('Concurrency')}
+              </h3>
+              <FormField
+                control={form.control}
+                name='max_concurrency'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Concurrency Limit')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        type='number'
+                        min={0}
+                        onChange={(e) =>
+                          field.onChange(
+                            Number.parseInt(e.target.value, 10) || 0
+                          )
+                        }
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Maximum requests routed to this subscription at once. 0 means unlimited.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
             </SideDrawerSection>
           </form>

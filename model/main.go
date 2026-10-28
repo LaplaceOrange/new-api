@@ -426,6 +426,9 @@ func migrateDB() error {
 			return err
 		}
 	}
+	if err := migrateLegacySubscriptionPreConsumeRecords(DB); err != nil {
+		return err
+	}
 	return backfillRedemptionUsedCount()
 }
 
@@ -543,6 +546,9 @@ func migrateDBFast() error {
 		if err := DB.AutoMigrate(&SubscriptionPlan{}); err != nil {
 			return err
 		}
+	}
+	if err := migrateLegacySubscriptionPreConsumeRecords(DB); err != nil {
+		return err
 	}
 	common.SysLog("database migrated")
 	return backfillRedemptionUsedCount()
@@ -677,6 +683,7 @@ func ensureSubscriptionPlanTableSQLite() error {
 ` + "`upgrade_group`" + ` varchar(64) DEFAULT '',
 ` + "`downgrade_group`" + ` varchar(64) DEFAULT '',
 ` + "`total_amount`" + ` bigint NOT NULL DEFAULT 0,
+` + "`content_type`" + ` varchar(16) NOT NULL DEFAULT '',
 ` + "`quota_reset_period`" + ` varchar(16) DEFAULT 'never',
 ` + "`quota_reset_custom_seconds`" + ` bigint DEFAULT 0,
 ` + "`token_amount`" + ` bigint NOT NULL DEFAULT 0,
@@ -719,6 +726,7 @@ PRIMARY KEY (` + "`id`" + `)
 		{Name: "upgrade_group", DDL: "`upgrade_group` varchar(64) DEFAULT ''"},
 		{Name: "downgrade_group", DDL: "`downgrade_group` varchar(64) DEFAULT ''"},
 		{Name: "total_amount", DDL: "`total_amount` bigint NOT NULL DEFAULT 0"},
+		{Name: "content_type", DDL: "`content_type` varchar(16) NOT NULL DEFAULT ''"},
 		{Name: "quota_reset_period", DDL: "`quota_reset_period` varchar(16) DEFAULT 'never'"},
 		{Name: "quota_reset_custom_seconds", DDL: "`quota_reset_custom_seconds` bigint DEFAULT 0"},
 		{Name: "token_amount", DDL: "`token_amount` bigint NOT NULL DEFAULT 0"},

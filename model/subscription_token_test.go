@@ -5,9 +5,10 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
-
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func seedTokenPlan(t *testing.T, plan *SubscriptionPlan) {
@@ -275,15 +276,30 @@ func TestTokenPackageResetsWithQuotaPeriod(t *testing.T) {
 		StartTime: now - 2*24*3600, EndTime: now + 30*24*3600, Status: "active",
 		LastResetTime: now - 2*24*3600, NextResetTime: now - 3600})
 	require.NoError(t, DB.Create(&UserSubscriptionTokenUsage{UserSubscriptionId: 9491, ModelName: "gpt-4o", Used: 400}).Error)
+	require.NoError(t, DB.Create(&SubscriptionPreConsumeRecord{
+		RequestId:          "quota-reset-in-flight",
+		UserId:             311,
+		UserSubscriptionId: 9491,
+		PreConsumed:        55,
+		Status:             subscriptionPreConsumeStatusPending,
+	}).Error)
+	require.NoError(t, DB.Create(&SubscriptionTokenConsumeRecord{
+		RequestId:          "token-reset-in-flight",
+		UserId:             311,
+		UserSubscriptionId: 9491,
+		ModelName:          "gpt-4o",
+		Reserved:           100,
+		Status:             "consumed",
+	}).Error)
 
 	res, err := PreConsumeSubscriptionTokens("tok-reset-1", 311, "default", "gpt-4o", 600)
 	require.NoError(t, err)
 	assert.EqualValues(t, 600, res.ReservedTokens)
 
 	sub := getTokenSub(t, 9491)
-	// Both quota and token usage were reset before the new reservation.
-	assert.Zero(t, sub.AmountUsed)
-	assert.EqualValues(t, 600, sub.TokenUsed)
+	// Reset drops settled usage but carries in-flight reservations into the new period.
+	assert.EqualValues(t, 55, sub.AmountUsed)
+	assert.EqualValues(t, 700, sub.TokenUsed)
 	assert.Greater(t, sub.NextResetTime, now)
 	// Per-model usage rows were cleared.
 	rows, err := GetUserSubscriptionTokenUsages([]int{9491})
@@ -352,17 +368,182 @@ func TestPreConsumeSubscriptionTokensUnlimitedConcurrency(t *testing.T) {
 	truncateTables(t)
 
 	now := GetDBTimestamp()
-	plan := &SubscriptionPlan{Id: 9417, Title: "Unlimited", TokenAmount: 10_000}
+	plan := &SubscriptionPlan{Id: 9417, Title: "Unlimited", ContentType: SubscriptionContentToken}
 	seedTokenPlan(t, plan)
 	seedTokenSub(t, &UserSubscription{Id: 9521, UserId: 314, PlanId: plan.Id, StartTime: now - 100, EndTime: now + 30*24*3600, Status: "active"})
 
-	// MaxConcurrency = 0 means unlimited: many parallel requests all reserve.
+	leases := make([]*common.ChannelConcurrencyLease, 0, 5)
 	for i := range 5 {
 		res, err := PreConsumeSubscriptionTokens("tok-unlimited-"+strconv.Itoa(i), 314, "default", "gpt-4o", 10)
 		require.NoError(t, err)
 		require.EqualValues(t, 10, res.ReservedTokens)
-		assert.Empty(t, res.ConcurrencyLeases)
+		require.Len(t, res.ConcurrencyLeases, 1)
+		leases = append(leases, res.ConcurrencyLeases...)
 	}
+	count, known, err := common.GetSubscriptionConcurrency(nil, 9521)
+	require.NoError(t, err)
+	assert.True(t, known)
+	assert.Equal(t, 5, count)
+	for _, lease := range leases {
+		lease.Release()
+	}
+	count, _, err = common.GetSubscriptionConcurrency(nil, 9521)
+	require.NoError(t, err)
+	assert.Zero(t, count)
+
+	_, err = PreConsumeUserSubscription("tok-unlimited-quota", 314, "gpt-4o", 0, 10, nil)
+	require.ErrorIs(t, err, ErrSubscriptionQuotaInsufficient)
+	assert.Zero(t, getTokenSub(t, 9521).AmountUsed)
+
+	quotaPlan := &SubscriptionPlan{Id: 9418, Title: "Quota", ContentType: SubscriptionContentQuota, TotalAmount: 1000}
+	seedTokenPlan(t, quotaPlan)
+	seedTokenSub(t, &UserSubscription{
+		Id: 9522, UserId: 314, PlanId: quotaPlan.Id, AmountTotal: 1000,
+		StartTime: now - 100, EndTime: now + 30*24*3600, Status: "active",
+	})
+	quota, err := PreConsumeUserSubscription("tok-unlimited-quota-fallback", 314, "gpt-4o", 0, 10, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 9522, quota.UserSubscriptionId)
+	assert.EqualValues(t, 10, getTokenSub(t, 9522).AmountUsed)
+	for _, lease := range quota.ConcurrencyLeases {
+		lease.Release()
+	}
+}
+
+func TestMigrateLegacySubscriptionPreConsumeRecordsPreservesActiveTaskReservation(t *testing.T) {
+	truncateTables(t)
+
+	now := GetDBTimestamp()
+	plan := &SubscriptionPlan{Id: 9420, Title: "Migration", TotalAmount: 1000}
+	seedTokenPlan(t, plan)
+	seedTokenSub(t, &UserSubscription{
+		Id: 9421, UserId: 320, PlanId: plan.Id, AmountTotal: 1000, AmountUsed: 125,
+		StartTime: now - 100, EndTime: now + 30*24*3600, Status: "active",
+	})
+	require.NoError(t, DB.Create(&SubscriptionPreConsumeRecord{
+		RequestId: "migration-active", UserId: 320, UserSubscriptionId: 9421,
+		PreConsumed: 100, Status: "consumed",
+	}).Error)
+	require.NoError(t, DB.Create(&SubscriptionPreConsumeRecord{
+		RequestId: "migration-terminal", UserId: 320, UserSubscriptionId: 9421,
+		PreConsumed: 25, Status: "consumed",
+	}).Error)
+	require.NoError(t, DB.Create(&Task{
+		TaskID: "migration-active-task", UserId: 320, Quota: 125, Status: TaskStatusInProgress,
+		PrivateData: TaskPrivateData{
+			BillingSource:  "subscription",
+			SubscriptionId: 9421,
+			Execution:      &TaskExecutionSnapshot{RequestID: "migration-active"},
+		},
+	}).Error)
+	require.NoError(t, DB.Create(&Task{
+		TaskID: "migration-terminal-task", UserId: 320, Quota: 25, Status: TaskStatusSuccess,
+		PrivateData: TaskPrivateData{
+			BillingSource:  "subscription",
+			SubscriptionId: 9421,
+			Execution:      &TaskExecutionSnapshot{RequestID: "migration-terminal"},
+		},
+	}).Error)
+
+	require.NoError(t, migrateLegacySubscriptionPreConsumeRecords(DB))
+
+	var activeRecord, terminalRecord SubscriptionPreConsumeRecord
+	require.NoError(t, DB.Where("request_id = ?", "migration-active").First(&activeRecord).Error)
+	require.NoError(t, DB.Where("request_id = ?", "migration-terminal").First(&terminalRecord).Error)
+	assert.Equal(t, subscriptionPreConsumeStatusPending, activeRecord.Status)
+	assert.EqualValues(t, 125, activeRecord.PreConsumed)
+	assert.Equal(t, subscriptionPreConsumeStatusSettled, terminalRecord.Status)
+
+	require.NoError(t, SettleSubscriptionPreConsume("migration-active", 130))
+	assert.EqualValues(t, 130, getTokenSub(t, 9421).AmountUsed)
+	require.NoError(t, migrateLegacySubscriptionPreConsumeRecords(DB))
+}
+
+func TestSubscriptionPreConsumeTerminalStateTransitionsAreIdempotent(t *testing.T) {
+	truncateTables(t)
+
+	now := GetDBTimestamp()
+	plan := &SubscriptionPlan{Id: 9430, Title: "Settlement", TotalAmount: 1000}
+	seedTokenPlan(t, plan)
+	seedTokenSub(t, &UserSubscription{
+		Id: 9431, UserId: 321, PlanId: plan.Id, AmountTotal: 1000, AmountUsed: 100,
+		StartTime: now - 100, EndTime: now + 30*24*3600, Status: "active",
+	})
+	require.NoError(t, DB.Create(&SubscriptionPreConsumeRecord{
+		RequestId: "settlement-state", UserId: 321, UserSubscriptionId: 9431,
+		PreConsumed: 100, Status: subscriptionPreConsumeStatusPending,
+	}).Error)
+
+	require.NoError(t, UpdateSubscriptionPreConsume("settlement-state", 150, false))
+	require.NoError(t, UpdateSubscriptionPreConsume("settlement-state", 150, false))
+	assert.EqualValues(t, 150, getTokenSub(t, 9431).AmountUsed)
+	require.NoError(t, SettleSubscriptionPreConsume("settlement-state", 120))
+	require.NoError(t, SettleSubscriptionPreConsume("settlement-state", 120))
+	assert.EqualValues(t, 120, getTokenSub(t, 9431).AmountUsed)
+	assert.Error(t, SettleSubscriptionPreConsume("settlement-state", 130))
+	assert.Error(t, RefundSubscriptionPreConsume("settlement-state"))
+	assert.EqualValues(t, 120, getTokenSub(t, 9431).AmountUsed)
+}
+
+func TestEnsureSubscriptionPlanTableSQLiteAddsContentTypeOnFreshAndLegacyTables(t *testing.T) {
+	originalDB := DB
+	originalDatabaseType := common.MainDatabaseType()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	DB = db
+	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+	t.Cleanup(func() {
+		DB = originalDB
+		common.SetMainDatabaseType(originalDatabaseType)
+	})
+
+	require.NoError(t, db.Exec(`CREATE TABLE subscription_plans (
+		id integer PRIMARY KEY,
+		title varchar(128) NOT NULL,
+		subtitle varchar(255) DEFAULT '',
+		price_amount decimal(10,6) NOT NULL,
+		currency varchar(8) NOT NULL DEFAULT 'USD',
+		duration_unit varchar(16) NOT NULL DEFAULT 'month',
+		duration_value integer NOT NULL DEFAULT 1,
+		custom_seconds bigint NOT NULL DEFAULT 0,
+		enabled numeric DEFAULT 1,
+		sort_order integer DEFAULT 0,
+		allow_balance_pay numeric DEFAULT 1,
+		allow_wallet_overflow numeric DEFAULT 1,
+		stripe_price_id varchar(128) DEFAULT '',
+		creem_product_id varchar(128) DEFAULT '',
+		waffo_pancake_product_id varchar(128) DEFAULT '',
+		max_purchase_per_user integer DEFAULT 0,
+		upgrade_group varchar(64) DEFAULT '',
+		downgrade_group varchar(64) DEFAULT '',
+		total_amount bigint NOT NULL DEFAULT 0,
+		quota_reset_period varchar(16) DEFAULT 'never',
+		quota_reset_custom_seconds bigint DEFAULT 0,
+		token_amount bigint NOT NULL DEFAULT 0,
+		token_count_mode varchar(16) NOT NULL DEFAULT 'shared',
+		token_groups text,
+		token_models text,
+		max_concurrency integer NOT NULL DEFAULT 0,
+		created_at bigint,
+		updated_at bigint
+	)`).Error)
+	require.NoError(t, db.Exec(`INSERT INTO subscription_plans (id, title, price_amount, total_amount, token_amount, max_concurrency)
+		VALUES (1, 'Legacy', 5, 5000, 250, 3)`).Error)
+
+	require.NoError(t, ensureSubscriptionPlanTableSQLite())
+	require.NoError(t, ensureSubscriptionPlanTableSQLite())
+	require.True(t, db.Migrator().HasColumn(&SubscriptionPlan{}, "content_type"))
+	var plan SubscriptionPlan
+	require.NoError(t, db.First(&plan, 1).Error)
+	assert.Equal(t, "Legacy", plan.Title)
+	assert.EqualValues(t, 5000, plan.TotalAmount)
+	assert.EqualValues(t, 250, plan.TokenAmount)
+	assert.EqualValues(t, 3, plan.MaxConcurrency)
+
+	require.NoError(t, db.Migrator().DropTable(&SubscriptionPlan{}))
+	require.NoError(t, ensureSubscriptionPlanTableSQLite())
+	require.NoError(t, ensureSubscriptionPlanTableSQLite())
+	require.True(t, db.Migrator().HasColumn(&SubscriptionPlan{}, "content_type"))
 }
 
 func TestSameRequestTokenPackageAndQuotaShareConcurrencySlot(t *testing.T) {

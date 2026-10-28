@@ -115,6 +115,60 @@ func TestAdminResetUserSubscriptionsByPlanKeepsResetTimes(t *testing.T) {
 	assert.Equal(t, nextReset, sub.NextResetTime)
 }
 
+func TestAdminResetPreservesPendingQuotaAndPerModelTokenReservations(t *testing.T) {
+	truncateTables(t)
+
+	now := GetDBTimestamp()
+	plan := &SubscriptionPlan{
+		Id:               9303,
+		Title:            "Pending usage",
+		TotalAmount:      1000,
+		TokenAmount:      1000,
+		TokenCountMode:   SubscriptionTokenModePerModel,
+		QuotaResetPeriod: SubscriptionResetDaily,
+	}
+	seedSubscriptionResetPlan(t, plan)
+	seedSubscriptionResetSub(t, &UserSubscription{
+		Id: 9304, UserId: 202, PlanId: plan.Id, AmountTotal: 1000,
+		AmountUsed: 300, StartTime: now - 86400, EndTime: now + 30*86400,
+		Status: "active", NextResetTime: now + 86400,
+	})
+	require.NoError(t, DB.Create(&UserSubscriptionTokenUsage{
+		UserSubscriptionId: 9304, ModelName: "gpt-4o", Used: 500,
+	}).Error)
+	require.NoError(t, DB.Create(&SubscriptionPreConsumeRecord{
+		RequestId: "reset-pending-quota", UserId: 202, UserSubscriptionId: 9304,
+		PreConsumed: 100, Status: subscriptionPreConsumeStatusPending,
+	}).Error)
+	require.NoError(t, DB.Create(&SubscriptionTokenConsumeRecord{
+		RequestId: "reset-pending-token", UserId: 202, UserSubscriptionId: 9304,
+		ModelName: "gpt-4o", Reserved: 100, Status: "consumed",
+	}).Error)
+	require.NoError(t, DB.Create(&SubscriptionTokenConsumeRecord{
+		RequestId: "reset-settled-token", UserId: 202, UserSubscriptionId: 9304,
+		ModelName: "gpt-4o", Reserved: 400, Consumed: 400, Status: "settled",
+	}).Error)
+
+	_, err := AdminResetUserSubscriptionsByPlan(202, plan.Id, false)
+	require.NoError(t, err)
+	sub := getSubscriptionResetSub(t, 9304)
+	assert.EqualValues(t, 100, sub.AmountUsed)
+	rows, err := GetUserSubscriptionTokenUsages([]int{9304})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.EqualValues(t, 100, rows[0].Used)
+
+	require.NoError(t, SettleSubscriptionPreConsume("reset-pending-quota", 150))
+	covered, _, err := SettleSubscriptionTokens("reset-pending-token", 140)
+	require.NoError(t, err)
+	assert.EqualValues(t, 140, covered)
+	assert.EqualValues(t, 150, getSubscriptionResetSub(t, 9304).AmountUsed)
+	rows, err = GetUserSubscriptionTokenUsages([]int{9304})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.EqualValues(t, 140, rows[0].Used)
+}
+
 func TestAdminResetUserSubscriptionsByPlanNoActiveMatchReturnsError(t *testing.T) {
 	truncateTables(t)
 

@@ -45,6 +45,7 @@ export function getPlanFormSchema(t: TFunction) {
     allow_wallet_overflow: z.boolean(),
     max_purchase_per_user: z.coerce.number().min(0),
     total_amount: z.coerce.number().min(0),
+    content_type: z.enum(['quota', 'token', 'legacy']),
     upgrade_group: z.string().optional(),
     downgrade_group: z.string().optional(),
     stripe_price_id: z.string().optional(),
@@ -75,6 +76,7 @@ export const PLAN_FORM_DEFAULTS: PlanFormValues = {
   allow_wallet_overflow: true,
   max_purchase_per_user: 0,
   total_amount: 0,
+  content_type: 'quota',
   upgrade_group: '',
   downgrade_group: '',
   stripe_price_id: '',
@@ -91,7 +93,9 @@ function parseScopeArray(raw: string | undefined): string[] {
   if (!raw) return []
   try {
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'string' && v) : []
+    return Array.isArray(parsed)
+      ? parsed.filter((v) => typeof v === 'string' && v)
+      : []
   } catch {
     return []
   }
@@ -113,6 +117,10 @@ export function planToFormValues(plan: SubscriptionPlan): PlanFormValues {
     allow_wallet_overflow: plan.allow_wallet_overflow !== false,
     max_purchase_per_user: Number(plan.max_purchase_per_user || 0),
     total_amount: quotaUnitsToDollars(Number(plan.total_amount || 0)),
+    content_type:
+      plan.content_type === 'quota' || plan.content_type === 'token'
+        ? plan.content_type
+        : 'legacy',
     upgrade_group: plan.upgrade_group || '',
     downgrade_group: plan.downgrade_group || '',
     stripe_price_id: plan.stripe_price_id || '',
@@ -141,10 +149,15 @@ export function formValuesToPlanPayload(values: PlanFormValues): PlanPayload {
           : 0,
       sort_order: Number(values.sort_order || 0),
       max_purchase_per_user: Number(values.max_purchase_per_user || 0),
-      total_amount: parseQuotaFromDollars(Number(values.total_amount || 0)),
+      total_amount:
+        values.content_type === 'token'
+          ? 0
+          : parseQuotaFromDollars(Number(values.total_amount || 0)),
+      content_type: values.content_type === 'legacy' ? '' : values.content_type,
       upgrade_group: values.upgrade_group || '',
       downgrade_group: values.downgrade_group || '',
-      token_amount: Number(values.token_amount || 0),
+      token_amount:
+        values.content_type === 'quota' ? 0 : Number(values.token_amount || 0),
       token_count_mode: values.token_count_mode || 'shared',
       token_groups: values.token_groups.length
         ? JSON.stringify(values.token_groups)

@@ -62,6 +62,7 @@ import { SubscriptionPurchaseDialog } from '@/features/subscriptions/components/
 import { formatDuration, formatResetPeriod } from '@/features/subscriptions/lib'
 import type {
   PlanRecord,
+  SubscriptionConcurrencyUsage,
   SubscriptionTokenUsage,
   UserSubscriptionRecord,
 } from '@/features/subscriptions/types'
@@ -123,6 +124,9 @@ export function SubscriptionPlansCard({
   const [tokenUsages, setTokenUsages] = useState<
     Record<string, SubscriptionTokenUsage>
   >({})
+  const [concurrencyUsages, setConcurrencyUsages] = useState<
+    Record<string, SubscriptionConcurrencyUsage>
+  >({})
   const [movingPriority, setMovingPriority] = useState(false)
   const [billingPreference, setBillingPreference] =
     useState('subscription_first')
@@ -163,6 +167,7 @@ export function SubscriptionPlansCard({
         setActiveSubscriptions(res.data.subscriptions || [])
         setAllSubscriptions(res.data.all_subscriptions || [])
         setTokenUsages(res.data.token_usages || {})
+        setConcurrencyUsages(res.data.concurrency_usages || {})
       }
     } catch (error) {
       handleServerError(error)
@@ -488,6 +493,39 @@ export function SubscriptionPlansCard({
                   const tokenUsage = subscription?.id
                     ? tokenUsages[String(subscription.id)]
                     : undefined
+                  const concurrencyUsage = subscription?.id
+                    ? concurrencyUsages[String(subscription.id)]
+                    : undefined
+                  let concurrencyLimitLabel = '-'
+                  if (concurrencyUsage?.limit_known) {
+                    concurrencyLimitLabel =
+                      concurrencyUsage.limit > 0
+                        ? String(concurrencyUsage.limit)
+                        : t('Unlimited')
+                  }
+                  let tokenPackageSummary = ''
+                  if (tokenUsage?.mode === 'per_model') {
+                    tokenPackageSummary = t('Per model (full quota each)')
+                    tokenPackageSummary += ' · '
+                    tokenPackageSummary +=
+                      tokenUsage.total > 0
+                        ? `${formatTokenCount(tokenUsage.total)} ${t('tokens / model')}`
+                        : `${t('Unlimited')} ${t('tokens / model')}`
+                  } else if (tokenUsage) {
+                    tokenPackageSummary = `${formatTokenCount(tokenUsage.used)}/`
+                    tokenPackageSummary +=
+                      tokenUsage.total > 0
+                        ? formatTokenCount(tokenUsage.total)
+                        : t('Unlimited')
+                    tokenPackageSummary += ` · ${t('Remaining')} `
+                    tokenPackageSummary +=
+                      tokenUsage.total > 0
+                        ? formatTokenCount(
+                            Math.max(0, tokenUsage.total - tokenUsage.used)
+                          )
+                        : t('Unlimited')
+                  }
+                  const quotaEnabled = tokenUsage?.quota_enabled ?? true
                   const nextResetTime = subscription?.next_reset_time ?? 0
                   let statusBadge = (
                     <StatusBadge
@@ -585,88 +623,92 @@ export function SubscriptionPlansCard({
                           {new Date(nextResetTime * 1000).toLocaleString()}
                         </div>
                       )}
-                      <div className='text-muted-foreground mt-1'>
-                        {t('Total Quota')}:{' '}
-                        {totalAmount > 0 ? (
-                          <Tooltip>
-                            <TooltipTrigger
-                              render={<span className='cursor-help' />}
-                            >
-                              {formatQuota(usedAmount)}/
-                              {formatQuota(totalAmount)} · {t('Remaining')}{' '}
-                              {formatQuota(remainAmount)}
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {t('Raw Quota')}: {usedAmount}/{totalAmount} ·{' '}
-                              {t('Remaining')} {remainAmount}
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : (
-                          t('Unlimited')
-                        )}
-                        {totalAmount > 0 && (
-                          <span className='ml-2'>
-                            {t('Used')} {usagePercent}%
-                          </span>
-                        )}
-                      </div>
-                      {totalAmount > 0 && isActive && (
+                      {quotaEnabled && (
+                        <div className='text-muted-foreground mt-1'>
+                          {t('Total Quota')}:{' '}
+                          {totalAmount > 0 ? (
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={<span className='cursor-help' />}
+                              >
+                                {formatQuota(usedAmount)}/
+                                {formatQuota(totalAmount)} · {t('Remaining')}{' '}
+                                {formatQuota(remainAmount)}
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {t('Raw Quota')}: {usedAmount}/{totalAmount} ·{' '}
+                                {t('Remaining')} {remainAmount}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <>
+                              {formatQuota(usedAmount)}/{t('Unlimited')} ·{' '}
+                              {t('Remaining')} {t('Unlimited')}
+                            </>
+                          )}
+                          {totalAmount > 0 && (
+                            <span className='ml-2'>
+                              {t('Used')} {usagePercent}%
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {concurrencyUsage && (
+                        <div className='text-muted-foreground mt-1'>
+                          {t('Current Concurrency')}:{' '}
+                          {concurrencyUsage.known
+                            ? concurrencyUsage.current
+                            : '-'}
+                          /{concurrencyLimitLabel}
+                        </div>
+                      )}
+                      {quotaEnabled && totalAmount > 0 && isActive && (
                         <Progress value={usagePercent} className='mt-2 h-1.5' />
                       )}
-                      {tokenUsage?.enabled && tokenUsage.total > 0 && (
-                        <div className='mt-2 rounded-md bg-muted/40 p-2'>
+                      {tokenUsage?.enabled && (
+                        <div className='bg-muted/40 mt-2 rounded-md p-2'>
                           <div className='text-muted-foreground'>
-                            {t('Token Package')}:{' '}
-                            {tokenUsage.mode === 'per_model' ? (
-                              <>
-                                {t('Per model (full quota each)')} ·{' '}
-                                {formatTokenCount(tokenUsage.total)}{' '}
-                                {t('tokens / model')}
-                              </>
-                            ) : (
-                              <>
-                                {formatTokenCount(tokenUsage.used)}/
-                                {formatTokenCount(tokenUsage.total)} ·{' '}
-                                {t('Remaining')}{' '}
-                                {formatTokenCount(
-                                  Math.max(
-                                    0,
-                                    tokenUsage.total - tokenUsage.used
+                            {t('Token Package')}: {tokenPackageSummary}
+                          </div>
+                          {tokenUsage.mode === 'shared' &&
+                            tokenUsage.total > 0 && (
+                              <Progress
+                                value={Math.min(
+                                  100,
+                                  Math.round(
+                                    (tokenUsage.used / tokenUsage.total) * 100
                                   )
                                 )}
-                              </>
+                                className='mt-1.5 h-1.5'
+                              />
                             )}
-                          </div>
-                          {tokenUsage.mode === 'shared' && (
-                            <Progress
-                              value={Math.min(
-                                100,
-                                Math.round(
-                                  (tokenUsage.used / tokenUsage.total) * 100
-                                )
-                              )}
-                              className='mt-1.5 h-1.5'
-                            />
-                          )}
                           {tokenUsage.mode === 'per_model' &&
                             (tokenUsage.per_model?.length ?? 0) > 0 && (
                               <div className='mt-1 space-y-0.5'>
-                                {tokenUsage.per_model
-                                  ?.slice(0, 3)
-                                  .map((m) => (
-                                    <div
-                                      key={m.model}
-                                      className='flex justify-between gap-2'
-                                    >
-                                      <span className='truncate'>
-                                        {m.model}
-                                      </span>
-                                      <span className='shrink-0'>
-                                        {formatTokenCount(m.used)}/
-                                        {formatTokenCount(tokenUsage.total)}
-                                      </span>
-                                    </div>
-                                  ))}
+                                {tokenUsage.per_model?.slice(0, 3).map((m) => (
+                                  <div
+                                    key={m.model}
+                                    className='flex justify-between gap-2'
+                                  >
+                                    <span className='truncate'>{m.model}</span>
+                                    <span className='shrink-0'>
+                                      {formatTokenCount(m.used)}/
+                                      {tokenUsage.total > 0
+                                        ? formatTokenCount(tokenUsage.total)
+                                        : t('Unlimited')}
+                                      {' · '}
+                                      {t('Remaining')}{' '}
+                                      {tokenUsage.total > 0
+                                        ? formatTokenCount(
+                                            Math.max(
+                                              0,
+                                              tokenUsage.total - m.used
+                                            )
+                                          )
+                                        : t('Unlimited')}
+                                    </span>
+                                  </div>
+                                ))}
                                 {(tokenUsage.per_model?.length ?? 0) > 3 && (
                                   <div className='text-muted-foreground'>
                                     …{' '}
@@ -711,30 +753,41 @@ export function SubscriptionPlansCard({
               const plan = p?.plan
               if (!plan) return null
               const totalAmount = Number(plan.total_amount || 0)
+              const tokenAmount = Number(plan.token_amount || 0)
               const price = Number(plan.price_amount || 0).toFixed(2)
               const isPopular = index === 0 && plans.length > 1
               const limit = Number(plan.max_purchase_per_user || 0)
               const count = planPurchaseCountMap.get(plan.id) || 0
               const reached = limit > 0 && count >= limit
+              const hasQuotaBenefit = plan.content_type !== 'token'
+              const hasTokenBenefit =
+                plan.content_type === 'token' ||
+                (!plan.content_type && tokenAmount > 0)
+              let tokenBenefit = t('Unlimited')
+              if (tokenAmount > 0) {
+                tokenBenefit = formatTokenCount(tokenAmount)
+                if (plan.token_count_mode === 'per_model') {
+                  tokenBenefit += ` ${t('tokens / model')}`
+                } else {
+                  tokenBenefit += ` ${t('tokens')}`
+                }
+              }
+              const concurrencyLimit = Number(plan.max_concurrency || 0)
+              const concurrencyLabel =
+                concurrencyLimit > 0 ? String(concurrencyLimit) : t('Unlimited')
 
               const benefits = [
                 `${t('Validity Period')}: ${formatDuration(plan, t)}`,
                 formatResetPeriod(plan, t) !== t('No Reset')
                   ? `${t('Quota Reset')}: ${formatResetPeriod(plan, t)}`
                   : null,
-                totalAmount > 0
-                  ? `${t('Total Quota')}: ${formatQuota(totalAmount)}`
-                  : `${t('Total Quota')}: ${t('Unlimited')}`,
-                Number(plan.token_amount || 0) > 0
-                  ? `${t('Token Package')}: ${formatTokenCount(Number(plan.token_amount))} ${
-                      plan.token_count_mode === 'per_model'
-                        ? t('tokens / model')
-                        : t('tokens')
-                    }`
+                hasQuotaBenefit
+                  ? `${t('Total Quota')}: ${totalAmount > 0 ? formatQuota(totalAmount) : t('Unlimited')}`
                   : null,
-                Number(plan.max_concurrency || 0) > 0
-                  ? `${t('Concurrency Limit')}: ${plan.max_concurrency}`
+                hasTokenBenefit
+                  ? `${t('Token Package')}: ${tokenBenefit}`
                   : null,
+                `${t('Concurrency Limit')}: ${concurrencyLabel}`,
                 limit > 0 ? `${t('Purchase Limit')}: ${limit}` : null,
                 plan.upgrade_group
                   ? `${t('Upgrade Group')}: ${plan.upgrade_group}`

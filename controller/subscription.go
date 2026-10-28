@@ -40,6 +40,20 @@ func normalizeSubscriptionPlanTokenPackage(plan *model.SubscriptionPlan) string 
 	if plan.TokenAmount < 0 || plan.TokenAmount > model.SubscriptionTokenAmountMax {
 		return "套餐Token数量无效"
 	}
+	plan.ContentType = strings.TrimSpace(plan.ContentType)
+	switch plan.ContentType {
+	case model.SubscriptionContentQuota:
+		plan.TokenAmount = 0
+		plan.TokenGroups = ""
+		plan.TokenModels = ""
+	case model.SubscriptionContentToken:
+		plan.TotalAmount = 0
+	case "":
+		// Preserve legacy plans that contain both benefits until an administrator
+		// explicitly chooses one of the new content types.
+	default:
+		return "套餐内容类型无效"
+	}
 	if plan.TokenCountMode == "" {
 		plan.TokenCountMode = model.SubscriptionTokenModeShared
 	}
@@ -130,18 +144,26 @@ func GetSubscriptionPlans(c *gin.Context) {
 
 // subscriptionTokenUsageDTO describes a subscription's token-package usage for the user UI.
 type subscriptionTokenUsageDTO struct {
-	Enabled  bool                 `json:"enabled"`
-	Mode     string               `json:"mode"`
-	Total    int64                `json:"total"`
-	Used     int64                `json:"used"`
-	PerModel []tokenModelUsageDTO `json:"per_model,omitempty"`
-	Groups   []string             `json:"groups,omitempty"`
-	Models   []string             `json:"models,omitempty"`
+	Enabled      bool                 `json:"enabled"`
+	QuotaEnabled bool                 `json:"quota_enabled"`
+	Mode         string               `json:"mode"`
+	Total        int64                `json:"total"`
+	Used         int64                `json:"used"`
+	PerModel     []tokenModelUsageDTO `json:"per_model,omitempty"`
+	Groups       []string             `json:"groups,omitempty"`
+	Models       []string             `json:"models,omitempty"`
 }
 
 type tokenModelUsageDTO struct {
 	Model string `json:"model"`
 	Used  int64  `json:"used"`
+}
+
+type subscriptionConcurrencyDTO struct {
+	Current    int  `json:"current"`
+	Limit      int  `json:"limit"`
+	Known      bool `json:"known"`
+	LimitKnown bool `json:"limit_known"`
 }
 
 func GetSubscriptionSelf(c *gin.Context) {
@@ -163,13 +185,42 @@ func GetSubscriptionSelf(c *gin.Context) {
 
 	// Token-package usage per subscription (keyed by subscription id)
 	tokenUsages := buildSubscriptionTokenUsages(allSubscriptions)
+	concurrencyUsages := buildSubscriptionConcurrencyUsages(c, allSubscriptions)
 
 	common.ApiSuccess(c, gin.H{
 		"billing_preference": pref,
 		"subscriptions":      activeSubscriptions, // all active subscriptions
 		"all_subscriptions":  allSubscriptions,    // all subscriptions including expired
 		"token_usages":       tokenUsages,
+		"concurrency_usages": concurrencyUsages,
 	})
+}
+
+func buildSubscriptionConcurrencyUsages(c *gin.Context, subscriptions []model.SubscriptionSummary) map[int]*subscriptionConcurrencyDTO {
+	result := make(map[int]*subscriptionConcurrencyDTO)
+	for _, summary := range subscriptions {
+		sub := summary.Subscription
+		if sub == nil {
+			continue
+		}
+		usage := &subscriptionConcurrencyDTO{}
+		if plan, err := model.GetSubscriptionPlanById(sub.PlanId); err == nil && plan != nil {
+			usage.Limit = plan.MaxConcurrency
+			usage.LimitKnown = true
+		} else if err != nil {
+			common.SysError(fmt.Sprintf("failed to load subscription plan concurrency: subscription_id=%d err=%v", sub.Id, err))
+		}
+		count, known, err := common.GetSubscriptionConcurrency(c.Request.Context(), sub.Id)
+		if err != nil {
+			common.SysError(fmt.Sprintf("failed to load subscription concurrency: subscription_id=%d err=%v", sub.Id, err))
+			usage.Known = false
+		} else {
+			usage.Current = count
+			usage.Known = known
+		}
+		result[sub.Id] = usage
+	}
+	return result
 }
 
 func buildSubscriptionTokenUsages(subscriptions []model.SubscriptionSummary) map[int]*subscriptionTokenUsageDTO {
@@ -205,9 +256,10 @@ func buildSubscriptionTokenUsages(subscriptions []model.SubscriptionSummary) map
 			continue
 		}
 		usage := &subscriptionTokenUsageDTO{
-			Enabled: plan.TokenAmount > 0,
-			Total:   plan.TokenAmount,
-			Used:    sub.TokenUsed,
+			Enabled:      plan.HasTokenBenefit(),
+			QuotaEnabled: plan.HasQuotaBenefit(),
+			Total:        plan.TokenAmount,
+			Used:         sub.TokenUsed,
 		}
 		if plan.TokenCountMode == model.SubscriptionTokenModePerModel {
 			usage.Mode = model.SubscriptionTokenModePerModel
@@ -377,6 +429,10 @@ func AdminCreateSubscriptionPlan(c *gin.Context) {
 		common.ApiErrorMsg(c, "自定义重置周期需大于0秒")
 		return
 	}
+	if err := model.ValidateSubscriptionPlanDuration(&req.Plan); err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
 	if errMsg := normalizeSubscriptionPlanTokenPackage(&req.Plan); errMsg != "" {
 		common.ApiErrorMsg(c, errMsg)
 		return
@@ -455,6 +511,10 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 		common.ApiErrorMsg(c, "自定义重置周期需大于0秒")
 		return
 	}
+	if err := model.ValidateSubscriptionPlanDuration(&req.Plan); err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
 	if errMsg := normalizeSubscriptionPlanTokenPackage(&req.Plan); errMsg != "" {
 		common.ApiErrorMsg(c, errMsg)
 		return
@@ -477,6 +537,7 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 			"waffo_pancake_product_id":   req.Plan.WaffoPancakeProductId,
 			"max_purchase_per_user":      req.Plan.MaxPurchasePerUser,
 			"total_amount":               req.Plan.TotalAmount,
+			"content_type":               req.Plan.ContentType,
 			"upgrade_group":              req.Plan.UpgradeGroup,
 			"downgrade_group":            req.Plan.DowngradeGroup,
 			"quota_reset_period":         req.Plan.QuotaResetPeriod,

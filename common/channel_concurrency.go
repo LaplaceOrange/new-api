@@ -142,6 +142,31 @@ func GetChannelConcurrency(ctx context.Context, channelID int) (count int, known
 	return len(entries), true, nil
 }
 
+// GetSubscriptionConcurrency returns the current number of requests routed to a
+// subscription. It shares the same Redis/local lease store as acquisition.
+func GetSubscriptionConcurrency(ctx context.Context, userSubscriptionId int) (count int, known bool, err error) {
+	if userSubscriptionId <= 0 {
+		return 0, true, nil
+	}
+	if RedisEnabled && RDB != nil {
+		count, err = countRedisChannelConcurrency(ctx, subscriptionConcurrencyKey(userSubscriptionId))
+		if err != nil {
+			return 0, false, err
+		}
+		return count, true, nil
+	}
+	channelConcurrencyLocalMu.Lock()
+	defer channelConcurrencyLocalMu.Unlock()
+	entries := localChannelConcurrencyEntries(subscriptionConcurrencyKey(userSubscriptionId))
+	now := time.Now()
+	for leaseToken, expiresAt := range entries {
+		if !expiresAt.After(now) {
+			delete(entries, leaseToken)
+		}
+	}
+	return len(entries), true, nil
+}
+
 func GetChannelsConcurrency(ctx context.Context, channelIDs []int) (map[int]int, map[int]bool) {
 	counts := make(map[int]int, len(channelIDs))
 	known := make(map[int]bool, len(channelIDs))

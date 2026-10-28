@@ -88,6 +88,35 @@ func TestChannelConcurrencyMemoryUnlimitedAndExpiry(t *testing.T) {
 	lease.Release()
 }
 
+func TestSubscriptionConcurrencyMemoryLimitLifecycle(t *testing.T) {
+	previousRedisEnabled, previousRDB := RedisEnabled, RDB
+	RedisEnabled = false
+	RDB = nil
+	resetLocalChannelConcurrencyForTest()
+	t.Cleanup(func() {
+		RedisEnabled, RDB = previousRedisEnabled, previousRDB
+		resetLocalChannelConcurrencyForTest()
+	})
+
+	first, acquired, err := AcquireSubscriptionConcurrency(1101, 1)
+	require.NoError(t, err)
+	require.True(t, acquired)
+	second, acquired, err := AcquireSubscriptionConcurrency(1101, 1)
+	require.NoError(t, err)
+	assert.False(t, acquired)
+	assert.Nil(t, second)
+
+	count, known, err := GetSubscriptionConcurrency(context.Background(), 1101)
+	require.NoError(t, err)
+	assert.True(t, known)
+	assert.Equal(t, 1, count)
+
+	first.Release()
+	count, _, err = GetSubscriptionConcurrency(context.Background(), 1101)
+	require.NoError(t, err)
+	assert.Zero(t, count)
+}
+
 func TestChannelAndModelConcurrencyLeaseLifecycle(t *testing.T) {
 	previousRedisEnabled, previousRDB := RedisEnabled, RDB
 	RedisEnabled = false
