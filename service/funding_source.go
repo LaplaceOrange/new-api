@@ -104,12 +104,17 @@ func (w *WalletFunding) Refund() error {
 // ---------------------------------------------------------------------------
 
 type SubscriptionFunding struct {
-	requestId      string
-	userId         int
-	modelName      string
-	amount         int64 // 预扣的订阅额度（subConsume）
-	subscriptionId int
-	preConsumed    int64
+	requestId        string
+	userId           int
+	modelName        string
+	amount           int64 // 预扣的订阅额度（subConsume）
+	subscriptionId   int
+	preConsumed      int64
+	reservedExtra    int64
+	deferSettlement  bool
+	walletFallback   *WalletFunding
+	walletSettled    bool
+	reservedOnSettle bool
 	// concurrencyLease 是该订阅占用的并发槽位（套餐并发限制），由 BillingSession 统一释放。
 	concurrencyLease *common.ChannelConcurrencyLease
 	// ownedConcurrencySubIds 是本请求已持有并发槽的订阅集合（Token 包路径获取），
@@ -122,16 +127,25 @@ type SubscriptionFunding struct {
 	PlanTitle       string
 }
 
-func (s *SubscriptionFunding) Source() string { return BillingSourceSubscription }
+func (s *SubscriptionFunding) Source() string {
+	if s.walletSettled {
+		return BillingSourceWallet
+	}
+	return BillingSourceSubscription
+}
 
 func (s *SubscriptionFunding) PreConsume(_ int) error {
 	// amount 参数被忽略，使用内部 s.amount（已在构造时根据 preConsumedQuota 计算）
+	if s.amount <= 0 {
+		return nil
+	}
 	res, err := model.PreConsumeUserSubscription(s.requestId, s.userId, s.modelName, 0, s.amount, s.ownedConcurrencySubIds)
 	if err != nil {
 		return err
 	}
 	s.subscriptionId = res.UserSubscriptionId
 	s.preConsumed = res.PreConsumed
+	s.reservedExtra = 0
 	s.AmountTotal = res.AmountTotal
 	s.AmountUsedAfter = res.AmountUsedAfter
 	if len(res.ConcurrencyLeases) > 0 {
@@ -146,14 +160,74 @@ func (s *SubscriptionFunding) PreConsume(_ int) error {
 }
 
 func (s *SubscriptionFunding) Settle(delta int) error {
-	if delta == 0 {
+	targetAmount := max(s.preConsumed+s.reservedExtra+int64(delta), 0)
+	if s.reservedOnSettle && s.subscriptionId > 0 {
+		targetAmount = s.preConsumed
+	}
+	if s.subscriptionId <= 0 && targetAmount > 0 {
+		res, err := model.PreConsumeUserSubscription(
+			s.requestId,
+			s.userId,
+			s.modelName,
+			0,
+			targetAmount,
+			s.ownedConcurrencySubIds,
+		)
+		if err != nil {
+			if s.walletFallback == nil ||
+				!errors.Is(err, model.ErrNoActiveSubscription) &&
+					!errors.Is(err, model.ErrSubscriptionQuotaInsufficient) &&
+					!errors.Is(err, model.ErrSubscriptionConcurrencyFull) {
+				return err
+			}
+			if err := s.walletFallback.Settle(int(targetAmount)); err != nil {
+				return err
+			}
+			s.walletSettled = true
+			s.preConsumed = targetAmount
+			s.reservedExtra = 0
+			return nil
+		}
+		s.subscriptionId = res.UserSubscriptionId
+		s.preConsumed = res.PreConsumed
+		s.reservedExtra = 0
+		s.reservedOnSettle = true
+		s.AmountTotal = res.AmountTotal
+		s.AmountUsedAfter = res.AmountUsedAfter
+		if len(res.ConcurrencyLeases) > 0 {
+			s.concurrencyLease = res.ConcurrencyLeases[0]
+		}
+		if planInfo, err := model.GetSubscriptionPlanInfoByUserSubscriptionId(res.UserSubscriptionId); err == nil && planInfo != nil {
+			s.PlanId = planInfo.PlanId
+			s.PlanTitle = planInfo.PlanTitle
+		}
+		targetAmount = s.preConsumed
+	}
+	if s.subscriptionId <= 0 {
 		return nil
 	}
-	return model.PostConsumeUserSubscriptionDelta(s.subscriptionId, int64(delta))
+	if err := model.UpdateSubscriptionPreConsume(s.requestId, targetAmount, !s.deferSettlement); err != nil {
+		return err
+	}
+	s.preConsumed = targetAmount
+	s.reservedExtra = 0
+	return nil
+}
+
+func (s *SubscriptionFunding) AdjustReservation(delta int) error {
+	if s.subscriptionId <= 0 {
+		return nil
+	}
+	targetAmount := max(s.preConsumed+s.reservedExtra+int64(delta), 0)
+	if err := model.UpdateSubscriptionPreConsume(s.requestId, targetAmount, false); err != nil {
+		return err
+	}
+	s.reservedExtra += int64(delta)
+	return nil
 }
 
 func (s *SubscriptionFunding) Refund() error {
-	if s.preConsumed <= 0 {
+	if s.subscriptionId <= 0 || s.requestId == "" {
 		return nil
 	}
 	return refundWithRetry(func() error {

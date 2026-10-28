@@ -32,10 +32,40 @@ func ReconcileReferralTaskQuota(task *Task, target int) (int, error) {
 		if source == "" {
 			source = "wallet"
 		}
+		subscriptionReconciled := false
+		if source == "subscription" && stored.PrivateData.Execution != nil && stored.PrivateData.Execution.RequestID != "" {
+			var record SubscriptionPreConsumeRecord
+			err := lockForUpdate(tx).Where("request_id = ?", stored.PrivateData.Execution.RequestID).First(&record).Error
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			if err == nil {
+				if record.UserId != stored.UserId || record.UserSubscriptionId != stored.PrivateData.SubscriptionId {
+					return errors.New("subscription reservation owner mismatch")
+				}
+				switch record.Status {
+				case subscriptionPreConsumeStatusRefunded:
+					if target != 0 || record.PreConsumed != 0 {
+						return errors.New("subscription pre-consume already refunded")
+					}
+				case subscriptionPreConsumeStatusSettled:
+					if record.PreConsumed != int64(target) {
+						return errors.New("subscription pre-consume already settled with a different amount")
+					}
+				default:
+					if err := updateSubscriptionPreConsumeTx(tx, &record, int64(target), true); err != nil {
+						return err
+					}
+				}
+				subscriptionReconciled = true
+			}
+		}
 		if delta != 0 {
 			if source == "subscription" {
-				if err := postConsumeUserSubscriptionDeltaTx(tx, stored.PrivateData.SubscriptionId, int64(delta)); err != nil {
-					return err
+				if !subscriptionReconciled {
+					if err := postConsumeUserSubscriptionDeltaTx(tx, stored.PrivateData.SubscriptionId, int64(delta)); err != nil {
+						return err
+					}
 				}
 			} else {
 				// Legacy/custom submitters may already have charged the task

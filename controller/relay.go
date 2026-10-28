@@ -847,6 +847,15 @@ func executeTaskSubmissionWith(
 	}
 	service.LogTaskConsumption(c, relayInfo, task)
 	if result.Immediate != nil {
+		if task.Status == model.TaskStatusFailure {
+			if !service.RefundTaskQuota(c, task, task.FailReason) {
+				common.SysError(fmt.Sprintf("refund immediate task billing failed: task=%s", task.TaskID))
+			}
+		} else if task.Status == model.TaskStatusSuccess {
+			if err := service.FinalizeTaskSubscriptionPreConsume(task); err != nil {
+				common.SysError(fmt.Sprintf("finalize immediate task subscription reservation failed: task=%s err=%v", task.TaskID, err))
+			}
+		}
 		service.SettleTaskReferralReward(c, task)
 	}
 	diagnostics.complete(task, result.Quota)

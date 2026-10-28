@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -105,9 +106,38 @@ func taskIsSubscription(task *model.Task) bool {
 	return task.PrivateData.BillingSource == BillingSourceSubscription && task.PrivateData.SubscriptionId > 0
 }
 
+func taskHasSubscriptionReservation(task *model.Task) bool {
+	return taskIsSubscription(task) && taskSubscriptionRequestID(task) != ""
+}
+
+func taskSubscriptionRequestID(task *model.Task) string {
+	if task == nil || task.PrivateData.Execution == nil {
+		return ""
+	}
+	return task.PrivateData.Execution.RequestID
+}
+
+func FinalizeTaskSubscriptionPreConsume(task *model.Task) error {
+	if !taskIsSubscription(task) {
+		return nil
+	}
+	requestID := taskSubscriptionRequestID(task)
+	if requestID == "" {
+		return nil
+	}
+	if task.Quota < 0 {
+		return errors.New("task quota cannot be negative")
+	}
+	return model.SettleSubscriptionPreConsume(requestID, int64(task.Quota))
+}
+
 // taskAdjustFunding 调整任务的资金来源（钱包或订阅），delta > 0 表示扣费，delta < 0 表示退还。
 func taskAdjustFunding(task *model.Task, delta int) error {
 	if taskIsSubscription(task) {
+		if requestID := taskSubscriptionRequestID(task); requestID != "" {
+			targetAmount := max(int64(task.Quota)+int64(delta), int64(0))
+			return model.SettleSubscriptionPreConsume(requestID, targetAmount)
+		}
 		return model.PostConsumeUserSubscriptionDelta(task.PrivateData.SubscriptionId, int64(delta))
 	}
 	if task.PrivateData.ReferralSourceId != "" {
@@ -223,7 +253,26 @@ func taskModelName(task *model.Task) string {
 // 返回资金来源是否已成功退还；失败时保留 quota，供显式重试或人工对账。
 func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool {
 	quota := task.Quota
-	if quota == 0 {
+	hasSubscriptionReservation := taskIsSubscription(task) &&
+		taskSubscriptionRequestID(task) != "" &&
+		task.PrivateData.ReferralSourceId == ""
+	if hasSubscriptionReservation {
+		refunded, err := model.RefundSubscriptionPreConsumeOnce(taskSubscriptionRequestID(task))
+		if err != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("退还订阅资金来源失败 task %s: %s", task.TaskID, err.Error()))
+			return false
+		}
+		if !refunded {
+			task.Quota = 0
+			if err := task.UpdateQuota(); err != nil {
+				logger.LogError(ctx, fmt.Sprintf("订阅退款已完成但清除 task quota 失败 task %s: %s", task.TaskID, err.Error()))
+			}
+			return true
+		}
+		if quota == 0 {
+			return true
+		}
+	} else if quota == 0 {
 		return true
 	}
 
@@ -238,9 +287,13 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 		if quota == 0 {
 			return true
 		}
-	} else if err := taskAdjustFunding(task, -quota); err != nil {
-		logger.LogWarn(ctx, fmt.Sprintf("退还资金来源失败 task %s: %s", task.TaskID, err.Error()))
-		return false
+	} else {
+		if !hasSubscriptionReservation {
+			if err := taskAdjustFunding(task, -quota); err != nil {
+				logger.LogWarn(ctx, fmt.Sprintf("退还资金来源失败 task %s: %s", task.TaskID, err.Error()))
+				return false
+			}
+		}
 	}
 
 	// 2. 退还令牌额度
@@ -298,6 +351,12 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	}
 
 	if quotaDelta == 0 {
+		if taskIsSubscription(task) && taskSubscriptionRequestID(task) != "" {
+			if err := taskAdjustFunding(task, 0); err != nil {
+				logger.LogError(ctx, fmt.Sprintf("差额结算资金调整失败 task %s: %s", task.TaskID, err.Error()))
+				return false
+			}
+		}
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 预扣费准确（%s，%s）",
 			task.TaskID, logger.LogQuota(actualQuota), reason))
 		return true

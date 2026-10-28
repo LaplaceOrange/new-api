@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -56,7 +57,11 @@ func TestMain(m *testing.M) {
 		&model.Option{},
 		&model.Midjourney{},
 		&model.TopUp{},
+		&model.SubscriptionPlan{},
 		&model.UserSubscription{},
+		&model.SubscriptionPreConsumeRecord{},
+		&model.UserSubscriptionTokenUsage{},
+		&model.SubscriptionTokenConsumeRecord{},
 		&model.SystemTask{},
 		&model.SystemTaskLock{},
 		&model.ReferralCampaign{},
@@ -92,6 +97,10 @@ func truncate(t *testing.T) {
 		model.DB.Exec("DELETE FROM midjourneys")
 		model.DB.Exec("DELETE FROM top_ups")
 		model.DB.Exec("DELETE FROM user_subscriptions")
+		model.DB.Exec("DELETE FROM subscription_pre_consume_records")
+		model.DB.Exec("DELETE FROM user_subscription_token_usages")
+		model.DB.Exec("DELETE FROM subscription_token_consume_records")
+		model.DB.Exec("DELETE FROM subscription_plans")
 		model.DB.Exec("DELETE FROM system_task_locks")
 		model.DB.Exec("DELETE FROM system_tasks")
 		model.DB.Exec("DELETE FROM referral_transfers")
@@ -970,6 +979,94 @@ func TestRefundTaskQuota_Subscription(t *testing.T) {
 	assert.Zero(t, getTaskQuota(t, task.ID))
 }
 
+func TestRefundTaskQuota_SubscriptionReservationIsOneTime(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, channelID, subID, preConsumed = 22, 22, 22, 200
+	seedUser(t, userID, 0)
+	seedChannel(t, channelID)
+	seedSubscription(t, subID, userID, 10_000, 500)
+	seedChargedAccounting(t, userID, channelID, 0, preConsumed, 1)
+	require.NoError(t, model.DB.Create(&model.SubscriptionPreConsumeRecord{
+		RequestId:          "task-subscription-refund-once",
+		UserId:             userID,
+		UserSubscriptionId: subID,
+		PreConsumed:        preConsumed,
+		Status:             "pending",
+	}).Error)
+
+	task := makeTask(userID, channelID, preConsumed, 0, BillingSourceSubscription, subID)
+	task.PrivateData.Execution = &model.TaskExecutionSnapshot{RequestID: "task-subscription-refund-once"}
+	require.NoError(t, model.DB.Create(task).Error)
+	staleTask := *task
+
+	require.True(t, RefundTaskQuota(ctx, task, "task failed"))
+	require.True(t, RefundTaskQuota(ctx, &staleTask, "duplicate task failure"))
+	assert.EqualValues(t, 300, getSubscriptionUsed(t, subID))
+	usedQuota, requestCount := getUserUsageAccounting(t, userID)
+	assert.Zero(t, usedQuota)
+	assert.Equal(t, 1, requestCount)
+	assert.Equal(t, int64(1), countLogs(t), "duplicate refund must not add another refund log")
+	assert.Zero(t, getTaskQuota(t, task.ID))
+}
+
+func TestRefundTaskQuota_ZeroQuotaReleasesSubscriptionReservation(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, subID = 23, 23
+	seedUser(t, userID, 0)
+	seedSubscription(t, subID, userID, 1000, 1)
+	require.NoError(t, model.DB.Create(&model.SubscriptionPreConsumeRecord{
+		RequestId:          "task-subscription-zero-quota",
+		UserId:             userID,
+		UserSubscriptionId: subID,
+		PreConsumed:        1,
+		Status:             "pending",
+	}).Error)
+
+	task := makeTask(userID, 0, 0, 0, BillingSourceSubscription, subID)
+	task.PrivateData.Execution = &model.TaskExecutionSnapshot{RequestID: "task-subscription-zero-quota"}
+	require.NoError(t, model.DB.Create(task).Error)
+
+	require.True(t, RefundTaskQuota(ctx, task, "zero quota task failed"))
+	assert.Zero(t, getSubscriptionUsed(t, subID))
+	var record model.SubscriptionPreConsumeRecord
+	require.NoError(t, model.DB.Where("request_id = ?", "task-subscription-zero-quota").First(&record).Error)
+	assert.Equal(t, "refunded", record.Status)
+	assert.Zero(t, countLogs(t))
+}
+
+func TestRefundTaskQuota_RejectsSettledSubscriptionReservation(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, channelID, subID, preConsumed = 24, 24, 24, 200
+	seedUser(t, userID, 0)
+	seedChannel(t, channelID)
+	seedSubscription(t, subID, userID, 10_000, 500)
+	seedChargedAccounting(t, userID, channelID, 0, preConsumed, 1)
+	require.NoError(t, model.DB.Create(&model.SubscriptionPreConsumeRecord{
+		RequestId:          "task-subscription-settled",
+		UserId:             userID,
+		UserSubscriptionId: subID,
+		PreConsumed:        preConsumed,
+		Status:             "settled",
+	}).Error)
+
+	task := makeTask(userID, channelID, preConsumed, 0, BillingSourceSubscription, subID)
+	task.PrivateData.Execution = &model.TaskExecutionSnapshot{RequestID: "task-subscription-settled"}
+	require.NoError(t, model.DB.Create(task).Error)
+
+	assert.False(t, RefundTaskQuota(ctx, task, "late failure"))
+	assert.EqualValues(t, 500, getSubscriptionUsed(t, subID))
+	usedQuota, requestCount := getUserUsageAccounting(t, userID)
+	assert.Equal(t, preConsumed, usedQuota)
+	assert.Equal(t, 1, requestCount)
+	assert.Zero(t, countLogs(t))
+}
+
 func TestRefundTaskQuota_ZeroQuota(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
@@ -1204,6 +1301,106 @@ func TestRecalculate_RejectsNegativeActualQuota(t *testing.T) {
 	assert.Equal(t, initQuota, getUserQuota(t, userID))
 	assert.Equal(t, preConsumed, task.Quota)
 	assert.Equal(t, int64(0), countLogs(t))
+}
+
+func TestSettleTokenSubscriptionRoutesUncoveredQuotaToAllowedWallet(t *testing.T) {
+	tests := []struct {
+		name              string
+		allowWallet       bool
+		wantSettleError   bool
+		wantUserQuota     int
+		wantTokenUsed     int64
+		wantBillingSource string
+	}{
+		{
+			name:              "allowed fallback charges wallet",
+			allowWallet:       true,
+			wantUserQuota:     0,
+			wantTokenUsed:     100,
+			wantBillingSource: BillingSourceWallet,
+		},
+		{
+			name:              "blocked fallback returns settlement error",
+			allowWallet:       false,
+			wantSettleError:   true,
+			wantUserQuota:     1_000,
+			wantTokenUsed:     100,
+			wantBillingSource: BillingSourceSubscription,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			truncate(t)
+			const userID, planID, subscriptionID = 4601, 4602, 4603
+			require.NoError(t, model.DB.Create(&model.User{
+				Id:       userID,
+				Username: "token-overrun-user",
+				Quota:    1_000,
+				Status:   common.UserStatusEnabled,
+			}).Error)
+			require.NoError(t, model.DB.Create(&model.SubscriptionPlan{
+				Id:            planID,
+				Title:         "Token-only",
+				ContentType:   model.SubscriptionContentToken,
+				TokenAmount:   100,
+				Enabled:       true,
+				DurationUnit:  model.SubscriptionDurationMonth,
+				DurationValue: 1,
+			}).Error)
+			model.InvalidateSubscriptionPlanCache(planID)
+			now := time.Now().Unix()
+			require.NoError(t, model.DB.Create(&model.UserSubscription{
+				Id:                  subscriptionID,
+				UserId:              userID,
+				PlanId:              planID,
+				Status:              "active",
+				StartTime:           now - 10,
+				EndTime:             now + 3600,
+				AllowWalletOverflow: testCase.allowWallet,
+			}).Error)
+
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			info := &relaycommon.RelayInfo{
+				UserId:          userID,
+				RequestId:       "token-overrun-" + testCase.name,
+				OriginModelName: "test-model",
+				UsingGroup:      "default",
+				SkipTokenQuota:  true,
+				UserSetting:     dto.UserSetting{BillingPreference: "subscription_first"},
+			}
+			info.SetEstimatedTotalTokens(100)
+
+			require.Nil(t, PreConsumeBilling(ctx, 1_000, info))
+			require.EqualValues(t, 100, getSubscriptionTokenUsed(t, subscriptionID))
+
+			err := SettleBilling(ctx, info, 2_000, 200)
+			assert.Equal(t, testCase.wantSettleError, err != nil)
+			assert.Equal(t, testCase.wantUserQuota, getUserQuotaValue(t, userID))
+			assert.Equal(t, testCase.wantTokenUsed, getSubscriptionTokenUsed(t, subscriptionID))
+			assert.Equal(t, testCase.wantBillingSource, info.BillingSource)
+
+			count, known, countErr := common.GetSubscriptionConcurrency(nil, subscriptionID)
+			require.NoError(t, countErr)
+			assert.True(t, known)
+			assert.Zero(t, count)
+		})
+	}
+}
+
+func getSubscriptionTokenUsed(t *testing.T, subscriptionID int) int64 {
+	t.Helper()
+	var sub model.UserSubscription
+	require.NoError(t, model.DB.First(&sub, subscriptionID).Error)
+	return sub.TokenUsed
+}
+
+func getUserQuotaValue(t *testing.T, userID int) int {
+	t.Helper()
+	quota, err := model.GetUserQuota(userID, false)
+	require.NoError(t, err)
+	return quota
 }
 
 func TestRecalculate_Subscription_NegativeDelta(t *testing.T) {
