@@ -515,6 +515,25 @@ func TestBillingSessionReserveWalletTopUpDecrementsBalance(t *testing.T) {
 	assert.Equal(t, 450_000, userQuota)
 }
 
+func TestBillingSessionSettleZeroDeltaReleasesSubscriptionConcurrency(t *testing.T) {
+	const subscriptionID = 990001
+	lease, acquired, err := common.AcquireSubscriptionConcurrency(subscriptionID, 1)
+	require.NoError(t, err)
+	require.True(t, acquired)
+
+	session := &BillingSession{
+		relayInfo:         &relaycommon.RelayInfo{},
+		funding:           &WalletFunding{},
+		concurrencyLeases: []*common.ChannelConcurrencyLease{lease},
+	}
+	require.NoError(t, session.Settle(0))
+
+	nextLease, acquired, err := common.AcquireSubscriptionConcurrency(subscriptionID, 1)
+	require.NoError(t, err)
+	require.True(t, acquired, "a zero-delta settlement must release the slot")
+	nextLease.Release()
+}
+
 func TestTryTieredSettleUsesFinalGroupAfterRetry(t *testing.T) {
 	const expr = `tier("base", p)`
 	tests := []struct {
