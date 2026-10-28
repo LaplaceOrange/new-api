@@ -112,6 +112,9 @@ type SubscriptionFunding struct {
 	preConsumed    int64
 	// concurrencyLease 是该订阅占用的并发槽位（套餐并发限制），由 BillingSession 统一释放。
 	concurrencyLease *common.ChannelConcurrencyLease
+	// ownedConcurrencySubIds 是本请求已持有并发槽的订阅集合（Token 包路径获取），
+	// 额度预扣对这些订阅不再重复获取，避免同一请求自我争抢槽位。
+	ownedConcurrencySubIds map[int]struct{}
 	// 以下字段在 PreConsume 成功后填充，供 RelayInfo 同步使用
 	AmountTotal     int64
 	AmountUsedAfter int64
@@ -123,7 +126,7 @@ func (s *SubscriptionFunding) Source() string { return BillingSourceSubscription
 
 func (s *SubscriptionFunding) PreConsume(_ int) error {
 	// amount 参数被忽略，使用内部 s.amount（已在构造时根据 preConsumedQuota 计算）
-	res, err := model.PreConsumeUserSubscription(s.requestId, s.userId, s.modelName, 0, s.amount)
+	res, err := model.PreConsumeUserSubscription(s.requestId, s.userId, s.modelName, 0, s.amount, s.ownedConcurrencySubIds)
 	if err != nil {
 		return err
 	}

@@ -257,7 +257,7 @@ func TestPreConsumeUserSubscriptionPrefersPriorityOrder(t *testing.T) {
 	seedTokenSub(t, &UserSubscription{Id: 9481, UserId: 310, PlanId: plan.Id, AmountTotal: 10_000, StartTime: now - 100, EndTime: now + 100, Status: "active"})
 	seedTokenSub(t, &UserSubscription{Id: 9482, UserId: 310, PlanId: plan.Id, AmountTotal: 10_000, StartTime: now - 100, EndTime: now + 30*24*3600, Status: "active", Priority: 7})
 
-	res, err := PreConsumeUserSubscription("quota-req-1", 310, "gpt-4o", 0, 100)
+	res, err := PreConsumeUserSubscription("quota-req-1", 310, "gpt-4o", 0, 100, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 9482, res.UserSubscriptionId)
 	assert.EqualValues(t, 100, getTokenSub(t, 9482).AmountUsed)
@@ -333,17 +333,17 @@ func TestPreConsumeUserSubscriptionConcurrencyFull(t *testing.T) {
 	seedTokenPlan(t, plan)
 	seedTokenSub(t, &UserSubscription{Id: 9511, UserId: 313, PlanId: plan.Id, AmountTotal: 10_000, StartTime: now - 100, EndTime: now + 30*24*3600, Status: "active"})
 
-	first, err := PreConsumeUserSubscription("quota-conc-1", 313, "gpt-4o", 0, 100)
+	first, err := PreConsumeUserSubscription("quota-conc-1", 313, "gpt-4o", 0, 100, nil)
 	require.NoError(t, err)
 	require.Len(t, first.ConcurrencyLeases, 1)
 
-	_, err = PreConsumeUserSubscription("quota-conc-2", 313, "gpt-4o", 0, 100)
+	_, err = PreConsumeUserSubscription("quota-conc-2", 313, "gpt-4o", 0, 100, nil)
 	require.ErrorIs(t, err, ErrSubscriptionConcurrencyFull)
 
 	for _, lease := range first.ConcurrencyLeases {
 		lease.Release()
 	}
-	again, err := PreConsumeUserSubscription("quota-conc-3", 313, "gpt-4o", 0, 100)
+	again, err := PreConsumeUserSubscription("quota-conc-3", 313, "gpt-4o", 0, 100, nil)
 	require.NoError(t, err)
 	require.Len(t, again.ConcurrencyLeases, 1)
 }
@@ -363,4 +363,35 @@ func TestPreConsumeSubscriptionTokensUnlimitedConcurrency(t *testing.T) {
 		require.EqualValues(t, 10, res.ReservedTokens)
 		assert.Empty(t, res.ConcurrencyLeases)
 	}
+}
+
+func TestSameRequestTokenPackageAndQuotaShareConcurrencySlot(t *testing.T) {
+	truncateTables(t)
+
+	now := GetDBTimestamp()
+	plan := &SubscriptionPlan{Id: 9418, Title: "PkgQuota", TokenAmount: 10_000, TotalAmount: 50_000, MaxConcurrency: 1}
+	seedTokenPlan(t, plan)
+	seedTokenSub(t, &UserSubscription{Id: 9531, UserId: 315, PlanId: plan.Id,
+		AmountTotal: 50_000, StartTime: now - 100, EndTime: now + 30*24*3600, Status: "active"})
+
+	// 同一请求先经 Token 包路径预占（已持有并发槽），额度路径不得自我争抢。
+	tokenRes, err := PreConsumeSubscriptionTokens("tok-share-1", 315, "default", "gpt-4o", 400)
+	require.NoError(t, err)
+	require.EqualValues(t, 400, tokenRes.ReservedTokens)
+	require.Len(t, tokenRes.ConcurrencyLeases, 1)
+
+	owned := map[int]struct{}{}
+	for _, d := range tokenRes.Details {
+		owned[d.UserSubscriptionId] = struct{}{}
+	}
+	quotaRes, err := PreConsumeUserSubscription("tok-share-1", 315, "gpt-4o", 0, 100, owned)
+	require.NoError(t, err)
+	assert.Equal(t, 9531, quotaRes.UserSubscriptionId)
+	assert.Empty(t, quotaRes.ConcurrencyLeases)
+	assert.EqualValues(t, 100, getTokenSub(t, 9531).AmountUsed)
+	assert.EqualValues(t, 400, getTokenSub(t, 9531).TokenUsed)
+
+	// 未持有槽的其他请求仍会被并发限制拒绝（限流=1，槽被第一个请求占用）。
+	_, err = PreConsumeUserSubscription("tok-share-2", 315, "gpt-4o", 0, 100, nil)
+	require.ErrorIs(t, err, ErrSubscriptionConcurrencyFull)
 }

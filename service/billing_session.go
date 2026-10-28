@@ -492,13 +492,21 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		if subConsume <= 0 {
 			subConsume = 1
 		}
+		// Token 包路径已获取并发槽的订阅，额度预扣不再重复获取。
+		ownedConcurrencySubIds := map[int]struct{}{}
+		if tokenReserve != nil {
+			for _, d := range tokenReserve.Details {
+				ownedConcurrencySubIds[d.UserSubscriptionId] = struct{}{}
+			}
+		}
 		session := &BillingSession{
 			relayInfo: relayInfo,
 			funding: &SubscriptionFunding{
-				requestId: relayInfo.RequestId,
-				userId:    relayInfo.UserId,
-				modelName: relayInfo.GetBillingModelName(),
-				amount:    subConsume,
+				requestId:              relayInfo.RequestId,
+				userId:                 relayInfo.UserId,
+				modelName:              relayInfo.GetBillingModelName(),
+				amount:                 subConsume,
+				ownedConcurrencySubIds: ownedConcurrencySubIds,
 			},
 			tokenReserve: tokenReserve,
 		}

@@ -1366,7 +1366,10 @@ func maybeResetUserSubscriptionWithPlanTx(tx *gorm.DB, sub *UserSubscription, pl
 }
 
 // PreConsumeUserSubscription pre-consumes from any active subscription total quota.
-func PreConsumeUserSubscription(requestId string, userId int, modelName string, quotaType int, amount int64) (*SubscriptionPreConsumeResult, error) {
+// ownedConcurrencySubIds lists subscriptions whose concurrency slot the same request
+// already holds (e.g. via the token-package path); re-acquiring for them would make
+// a request contend with itself and, with limit=1, always fail.
+func PreConsumeUserSubscription(requestId string, userId int, modelName string, quotaType int, amount int64, ownedConcurrencySubIds map[int]struct{}) (*SubscriptionPreConsumeResult, error) {
 	if userId <= 0 {
 		return nil, errors.New("invalid userId")
 	}
@@ -1431,16 +1434,19 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 				}
 			}
 			// 套餐并发限制：满了就跳过该订阅，路由到下一个。
+			// 本请求已持有该订阅并发槽（Token 包路径）时不再重复获取。
 			if plan.MaxConcurrency > 0 {
-				lease, acquired, leaseErr := common.AcquireSubscriptionConcurrency(sub.Id, plan.MaxConcurrency)
-				if leaseErr != nil {
-					return leaseErr
+				if _, owned := ownedConcurrencySubIds[sub.Id]; !owned {
+					lease, acquired, leaseErr := common.AcquireSubscriptionConcurrency(sub.Id, plan.MaxConcurrency)
+					if leaseErr != nil {
+						return leaseErr
+					}
+					if !acquired {
+						skippedByConcurrency = true
+						continue
+					}
+					leases = append(leases, lease)
 				}
-				if !acquired {
-					skippedByConcurrency = true
-					continue
-				}
-				leases = append(leases, lease)
 			}
 			record := &SubscriptionPreConsumeRecord{
 				RequestId:          requestId,
