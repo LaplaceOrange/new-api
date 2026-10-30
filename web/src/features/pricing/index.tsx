@@ -22,16 +22,14 @@ import { useTranslation } from 'react-i18next'
 import { PublicLayout } from '@/components/layout'
 import { PageTransition } from '@/components/page-transition'
 
-import {
-  LoadingSkeleton,
-  EmptyState,
-  SearchBar,
-  PricingTable,
-  PricingSidebar,
-  PricingToolbar,
-  ModelCardGrid,
-  ModelDetailsDrawer,
-} from './components'
+import { EmptyState } from './components/empty-state'
+import { LoadingSkeleton } from './components/loading-skeleton'
+import { ModelCardGrid } from './components/model-card-grid'
+import { ModelDetailsDrawer } from './components/model-details-drawer'
+import { PricingSidebar } from './components/pricing-sidebar'
+import { PricingTable } from './components/pricing-table'
+import { PricingToolbar } from './components/pricing-toolbar'
+import { SearchBar } from './components/search-bar'
 import { EXCLUDED_GROUPS, VIEW_MODES } from './constants'
 import { useFilters } from './hooks/use-filters'
 import { usePricingData } from './hooks/use-pricing-data'

@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { CONTENT_SECTIONS, type ContentSectionId } from '../section-navigation'
 import type { ContentSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 import { AnnouncementsSection } from './announcements-section'
@@ -37,94 +38,69 @@ function validateDataExportDefaultTime(value: string): 'week' | 'hour' | 'day' {
   return 'hour'
 }
 
-const CONTENT_SECTIONS = [
-  {
-    id: 'dashboard',
-    titleKey: 'Data Dashboard',
-    build: (settings: ContentSettings) => (
-      <DashboardSection
-        defaultValues={{
-          DataExportEnabled: settings.DataExportEnabled,
-          DataExportInterval: settings.DataExportInterval,
-          DataExportDefaultTime: validateDataExportDefaultTime(
-            settings.DataExportDefaultTime
-          ),
-        }}
-      />
-    ),
-  },
-  {
-    id: 'announcements',
-    titleKey: 'Announcements',
-    build: (settings: ContentSettings) => (
-      <AnnouncementsSection
-        enabled={settings['console_setting.announcements_enabled']}
-        data={settings['console_setting.announcements']}
-      />
-    ),
-  },
-  {
-    id: 'api-info',
-    titleKey: 'API Addresses',
-    build: (settings: ContentSettings) => (
-      <ApiInfoSection
-        enabled={settings['console_setting.api_info_enabled']}
-        data={settings['console_setting.api_info']}
-      />
-    ),
-  },
-  {
-    id: 'faq',
-    titleKey: 'FAQ',
-    build: (settings: ContentSettings) => (
-      <FAQSection
-        enabled={settings['console_setting.faq_enabled']}
-        data={settings['console_setting.faq']}
-      />
-    ),
-  },
-  {
-    id: 'uptime-kuma',
-    titleKey: 'Uptime Kuma',
-    build: (settings: ContentSettings) => (
-      <UptimeKumaSection
-        enabled={settings['console_setting.uptime_kuma_enabled']}
-        data={settings['console_setting.uptime_kuma_groups']}
-      />
-    ),
-  },
-  {
-    id: 'chat',
-    titleKey: 'Chat Presets',
-    build: (settings: ContentSettings) => (
-      <ChatSettingsSection defaultValue={settings.Chats} />
-    ),
-  },
-  {
-    id: 'drawing',
-    titleKey: 'Drawing',
-    build: (settings: ContentSettings) => (
-      <DrawingSettingsSection
-        defaultValues={{
-          DrawingEnabled: settings.DrawingEnabled,
-          MjNotifyEnabled: settings.MjNotifyEnabled,
-          MjAccountFilterEnabled: settings.MjAccountFilterEnabled,
-          MjForwardUrlEnabled: settings.MjForwardUrlEnabled,
-          MjModeClearEnabled: settings.MjModeClearEnabled,
-          MjActionCheckSuccessEnabled: settings.MjActionCheckSuccessEnabled,
-        }}
-      />
-    ),
-  },
-] as const
+const CONTENT_SECTION_BUILDERS = {
+  dashboard: (settings: ContentSettings) => (
+    <DashboardSection
+      defaultValues={{
+        DataExportEnabled: settings.DataExportEnabled,
+        DataExportInterval: settings.DataExportInterval,
+        DataExportDefaultTime: validateDataExportDefaultTime(
+          settings.DataExportDefaultTime
+        ),
+      }}
+    />
+  ),
+  announcements: (settings: ContentSettings) => (
+    <AnnouncementsSection
+      enabled={settings['console_setting.announcements_enabled']}
+      data={settings['console_setting.announcements']}
+    />
+  ),
+  'api-info': (settings: ContentSettings) => (
+    <ApiInfoSection
+      enabled={settings['console_setting.api_info_enabled']}
+      data={settings['console_setting.api_info']}
+    />
+  ),
+  faq: (settings: ContentSettings) => (
+    <FAQSection
+      enabled={settings['console_setting.faq_enabled']}
+      data={settings['console_setting.faq']}
+    />
+  ),
+  'uptime-kuma': (settings: ContentSettings) => (
+    <UptimeKumaSection
+      enabled={settings['console_setting.uptime_kuma_enabled']}
+      data={settings['console_setting.uptime_kuma_groups']}
+    />
+  ),
+  chat: (settings: ContentSettings) => (
+    <ChatSettingsSection defaultValue={settings.Chats} />
+  ),
+  drawing: (settings: ContentSettings) => (
+    <DrawingSettingsSection
+      defaultValues={{
+        DrawingEnabled: settings.DrawingEnabled,
+        MjNotifyEnabled: settings.MjNotifyEnabled,
+        MjAccountFilterEnabled: settings.MjAccountFilterEnabled,
+        MjForwardUrlEnabled: settings.MjForwardUrlEnabled,
+        MjModeClearEnabled: settings.MjModeClearEnabled,
+        MjActionCheckSuccessEnabled: settings.MjActionCheckSuccessEnabled,
+      }}
+    />
+  ),
+}
 
-export type ContentSectionId = (typeof CONTENT_SECTIONS)[number]['id']
+export type { ContentSectionId } from '../section-navigation'
 
 const contentRegistry = createSectionRegistry<
   ContentSectionId,
   ContentSettings
 >({
-  sections: CONTENT_SECTIONS,
+  sections: CONTENT_SECTIONS.map((section) => ({
+    ...section,
+    build: CONTENT_SECTION_BUILDERS[section.id],
+  })),
   defaultSection: 'dashboard',
   basePath: '/system-settings/content',
   urlStyle: 'path',

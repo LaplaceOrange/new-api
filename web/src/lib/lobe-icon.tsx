@@ -25,12 +25,23 @@ For commercial licensing, please contact support@quantumnous.com
  * - Chained properties: "OpenAI.Avatar.type={'platform'}"
  * - Size parameter: getLobeIcon("OpenAI", 20)
  */
-import * as LobeIcons from '@lobehub/icons'
-import type React from 'react'
+import CherryStudioColor from '@lobehub/icons/es/CherryStudio/components/Color'
+import CodexColor from '@lobehub/icons/es/Codex/components/Color'
+import DeepSeekColor from '@lobehub/icons/es/DeepSeek/components/Color'
+import DifyColor from '@lobehub/icons/es/Dify/components/Color'
+import GeminiColor from '@lobehub/icons/es/Gemini/components/Color'
+import Grok from '@lobehub/icons/es/Grok/components/Mono'
+import OpenAI from '@lobehub/icons/es/OpenAI/components/Mono'
+import OpenWebUI from '@lobehub/icons/es/OpenWebUI/components/Mono'
+import QwenColor from '@lobehub/icons/es/Qwen/components/Color'
+import { toc } from '@lobehub/icons/es/toc'
+import XiaomiMiMo from '@lobehub/icons/es/XiaomiMiMo/components/Mono'
+import ZhipuColor from '@lobehub/icons/es/Zhipu/components/Color'
+import { lazy, Suspense, type ComponentType, type ReactNode } from 'react'
 
 import { IconSub2api } from '@/assets/custom/icon-sub2api'
 
-const CUSTOM_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
+const CUSTOM_ICONS: Record<string, ComponentType<{ size?: number }>> = {
   Sub2API: IconSub2api,
   WorkBuddy: (props) => (
     <img
@@ -43,6 +54,23 @@ const CUSTOM_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
     />
   ),
 }
+
+// Homepage icons use SVG leaves so Avatar/Combine dependencies stay asynchronous.
+const COMMON_ICONS = {
+  OpenAI,
+  'DeepSeek.Color': DeepSeekColor,
+  'Gemini.Color': GeminiColor,
+  Grok,
+  'Qwen.Color': QwenColor,
+  XiaomiMiMo,
+  'Zhipu.Color': ZhipuColor,
+  'CherryStudio.Color': CherryStudioColor,
+  'Codex.Color': CodexColor,
+  OpenWebUI,
+  'Dify.Color': DifyColor,
+}
+const iconCatalog = new Map(toc.map((icon) => [icon.id, icon]))
+const lazyIcons = new Map<string, ComponentType<Record<string, unknown>>>()
 
 /**
  * Parse a property value from string to appropriate type
@@ -92,7 +120,7 @@ function parseValue(raw: string | undefined | null): string | number | boolean {
 export function getLobeIcon(
   iconName: string | undefined | null,
   size: number = 20
-): React.ReactNode {
+): ReactNode {
   if (!iconName || typeof iconName !== 'string') {
     return (
       <div
@@ -123,39 +151,54 @@ export function getLobeIcon(
   if (CustomIcon) {
     return <CustomIcon size={size} />
   }
-  const BaseIcon = (LobeIcons as Record<string, unknown>)[baseKey] as
-    | Record<string, unknown>
+  const fallback = (
+    <div
+      className='bg-muted text-muted-foreground flex items-center justify-center rounded-full text-xs font-medium'
+      style={{ width: size, height: size }}
+    >
+      {trimmedName.charAt(0).toUpperCase()}
+    </div>
+  )
+  const catalogEntry = iconCatalog.get(baseKey)
+  if (!catalogEntry) return fallback
+
+  const hasVariant = segments.length > 1 && /^[A-Z]/.test(segments[1])
+  const variant = hasVariant ? segments[1] : ''
+  const propStartIndex = hasVariant ? 2 : 1
+  const leafVariant =
+    variant === 'Color' && catalogEntry.param.hasColor ? 'Color' : 'Mono'
+  const isLeaf = !variant || variant === 'Color'
+  const iconKey = isLeaf
+    ? `${baseKey}${leafVariant === 'Color' ? '.Color' : ''}`
+    : `${baseKey}.${variant}`
+  let IconComponent = COMMON_ICONS[iconKey as keyof typeof COMMON_ICONS] as
+    | ComponentType<Record<string, unknown>>
     | undefined
 
-  let IconComponent: React.ComponentType<Record<string, unknown>> | undefined
-  let propStartIndex: number
-
-  if (BaseIcon && segments.length > 1 && BaseIcon[segments[1]]) {
-    IconComponent = BaseIcon[segments[1]] as React.ComponentType<
-      Record<string, unknown>
-    >
-    propStartIndex = 2
-  } else {
-    IconComponent = (LobeIcons as Record<string, unknown>)[baseKey] as
-      | React.ComponentType<Record<string, unknown>>
-      | undefined
-    propStartIndex = segments.length > 1 && /^[A-Z]/.test(segments[1]) ? 2 : 1
-  }
-
-  // Fallback if icon not found
-  if (
-    !IconComponent ||
-    (typeof IconComponent !== 'function' && typeof IconComponent !== 'object')
-  ) {
-    const firstLetter = trimmedName.charAt(0).toUpperCase()
-    return (
-      <div
-        className='bg-muted text-muted-foreground flex items-center justify-center rounded-full text-xs font-medium'
-        style={{ width: size, height: size }}
-      >
-        {firstLetter}
-      </div>
-    )
+  if (!IconComponent) {
+    IconComponent = lazyIcons.get(iconKey)
+    if (!IconComponent) {
+      IconComponent = lazy(async () => {
+        try {
+          if (isLeaf) {
+            return await import(
+              /* webpackInclude: /[\\/]es[\\/][^\\/]+[\\/]components[\\/](Mono|Color)\.js$/ */
+              `@lobehub/icons/es/${baseKey}/components/${leafVariant}.js`
+            )
+          }
+          const module = await import(
+            /* webpackInclude: /[\\/]es[\\/][^\\/]+[\\/]index\.js$/ */
+            `@lobehub/icons/es/${baseKey}/index.js`
+          )
+          const icon = module.default as Record<string, unknown>
+          const component = icon[variant] ?? module.default
+          return { default: component }
+        } catch {
+          return { default: () => fallback }
+        }
+      })
+      lazyIcons.set(iconKey, IconComponent)
+    }
   }
 
   // Parse chained properties (e.g., "type={'platform'}", "shape='square'")
@@ -181,12 +224,16 @@ export function getLobeIcon(
     props.size = size
   }
 
-  return <IconComponent {...props} />
+  return (
+    <Suspense fallback={fallback}>
+      <IconComponent {...props} />
+    </Suspense>
+  )
 }
 
 // The selector uses the same installed icon registry as the renderer.
 export function getLobeIconNames(): string[] {
-  const names = LobeIcons.toc.flatMap((icon) =>
+  const names = toc.flatMap((icon) =>
     icon.param.hasColor ? [icon.id, `${icon.id}.Color`] : [icon.id]
   )
   return [...new Set([...names, ...Object.keys(CUSTOM_ICONS)])].sort()

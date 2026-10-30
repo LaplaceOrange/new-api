@@ -421,11 +421,11 @@ describe('model cards', () => {
     )
     await waitFor(() =>
       expect(
-        queryClient.getQueryState(['perf-metrics-summary', 24])?.status
+        queryClient.getQueryState(['perf-metrics-summary', 24, 'all'])?.status
       ).toBe('error')
     )
     expect(request).toHaveBeenCalledWith('/api/perf-metrics/summary', {
-      params: { hours: 24 },
+      params: { hours: 24, group: undefined },
     })
     expect(
       within(

@@ -16,8 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { TFunction } from 'i18next'
 import type { ReactNode } from 'react'
+
+import { createSectionNavigation } from './section-navigation'
 
 /**
  * Section definition for settings pages
@@ -36,7 +37,9 @@ export type SectionRegistryConfig<
   TSettings,
   TExtraArgs extends unknown[] = [],
 > = {
-  sections: readonly SectionDefinition<TSettings, TExtraArgs>[]
+  sections: readonly (SectionDefinition<TSettings, TExtraArgs> & {
+    id: TSectionId
+  })[]
   defaultSection: TSectionId
   basePath: string
   /** 'query' = `${basePath}?section=${id}`, 'path' = `${basePath}/${id}` */
@@ -51,27 +54,9 @@ export function createSectionRegistry<
   TSettings,
   TExtraArgs extends unknown[] = [],
 >(config: SectionRegistryConfig<TSectionId, TSettings, TExtraArgs>) {
-  const { sections, defaultSection, basePath, urlStyle = 'query' } = config
+  const { sections } = config
 
   type SectionId = TSectionId
-
-  const sectionIds = sections.map((section) => section.id) as [
-    SectionId,
-    ...SectionId[],
-  ]
-
-  /**
-   * Get navigation items for sidebar
-   */
-  function getSectionNavItems(t: TFunction) {
-    return sections.map((section) => ({
-      title: t(section.titleKey),
-      url:
-        urlStyle === 'path'
-          ? `${basePath}/${section.id}`
-          : `${basePath}?section=${section.id}`,
-    }))
-  }
 
   /**
    * Get section content by section ID
@@ -91,9 +76,7 @@ export function createSectionRegistry<
   }
 
   return {
-    sectionIds,
-    defaultSection,
-    getSectionNavItems,
+    ...createSectionNavigation<TSectionId>(config),
     getSectionContent,
     getSectionMeta,
   }

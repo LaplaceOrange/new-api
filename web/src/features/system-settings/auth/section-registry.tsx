@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { AUTH_SECTIONS, type AuthSectionId } from '../section-navigation'
 import type { AuthSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 import { BasicAuthSection } from './basic-auth-section'
@@ -24,110 +25,92 @@ import { CustomOAuthSection } from './custom-oauth/custom-oauth-section'
 import { OAuthSection } from './oauth-section'
 import { PasskeySection } from './passkey-section'
 
-const AUTH_SECTIONS = [
-  {
-    id: 'basic-auth',
-    titleKey: 'Basic Authentication',
-    build: (settings: AuthSettings) => (
-      <BasicAuthSection
-        defaultValues={{
-          PasswordLoginEnabled: settings.PasswordLoginEnabled,
-          PasswordRegisterEnabled: settings.PasswordRegisterEnabled,
-          EmailVerificationEnabled: settings.EmailVerificationEnabled,
-          RegisterEnabled: settings.RegisterEnabled,
-          EmailDomainRestrictionEnabled: settings.EmailDomainRestrictionEnabled,
-          EmailAliasRestrictionEnabled: settings.EmailAliasRestrictionEnabled,
-          EmailDomainWhitelist: settings.EmailDomainWhitelist,
-        }}
-      />
-    ),
-  },
-  {
-    id: 'oauth',
-    titleKey: 'OAuth Integrations',
-    build: (settings: AuthSettings) => (
-      <OAuthSection
-        serverAddress={settings.ServerAddress}
-        defaultValues={{
-          GitHubOAuthEnabled: settings.GitHubOAuthEnabled,
-          GitHubClientId: settings.GitHubClientId,
-          GitHubClientSecret: settings.GitHubClientSecret,
-          'discord.enabled': settings['discord.enabled'],
-          'discord.client_id': settings['discord.client_id'],
-          'discord.client_secret': settings['discord.client_secret'],
-          'oidc.enabled': settings['oidc.enabled'],
-          'oidc.display_name': settings['oidc.display_name'],
-          'oidc.client_id': settings['oidc.client_id'],
-          'oidc.client_secret': settings['oidc.client_secret'],
-          'oidc.well_known': settings['oidc.well_known'],
-          'oidc.authorization_endpoint':
-            settings['oidc.authorization_endpoint'],
-          'oidc.token_endpoint': settings['oidc.token_endpoint'],
-          'oidc.user_info_endpoint': settings['oidc.user_info_endpoint'],
-          TelegramOAuthEnabled: settings.TelegramOAuthEnabled,
-          'telegram.client_id': settings['telegram.client_id'],
-          'telegram.client_secret': settings['telegram.client_secret'],
-          LinuxDOOAuthEnabled: settings.LinuxDOOAuthEnabled,
-          LinuxDOClientId: settings.LinuxDOClientId,
-          LinuxDOClientSecret: settings.LinuxDOClientSecret,
-          LinuxDOMinimumTrustLevel: settings.LinuxDOMinimumTrustLevel,
-          WeChatAuthEnabled: settings.WeChatAuthEnabled,
-          WeChatServerAddress: settings.WeChatServerAddress,
-          WeChatServerToken: settings.WeChatServerToken,
-          WeChatAccountQRCodeImageURL: settings.WeChatAccountQRCodeImageURL,
-        }}
-      />
-    ),
-  },
-  {
-    id: 'passkey',
-    titleKey: 'Passkey Authentication',
-    build: (settings: AuthSettings) => (
-      <PasskeySection
-        defaultValues={{
-          'passkey.enabled': settings['passkey.enabled'],
-          'passkey.rp_display_name': settings['passkey.rp_display_name'],
-          'passkey.rp_id': settings['passkey.rp_id'],
-          'passkey.legacy_rp_ids': settings['passkey.legacy_rp_ids'],
-          'passkey.origins': settings['passkey.origins'],
-          'passkey.allow_insecure_origin':
-            settings['passkey.allow_insecure_origin'],
-          'passkey.user_verification': settings['passkey.user_verification'] as
-            | 'required'
-            | 'preferred'
-            | 'discouraged',
-          'passkey.attachment_preference':
-            settings['passkey.attachment_preference'],
-        }}
-      />
-    ),
-  },
-  {
-    id: 'bot-protection',
-    titleKey: 'Bot Protection',
-    build: (settings: AuthSettings) => (
-      <BotProtectionSection
-        defaultValues={{
-          TurnstileCheckEnabled: settings.TurnstileCheckEnabled,
-          TurnstileSiteKey: settings.TurnstileSiteKey,
-          TurnstileSecretKey: settings.TurnstileSecretKey,
-        }}
-      />
-    ),
-  },
-  {
-    id: 'custom-oauth',
-    titleKey: 'Custom OAuth',
-    build: (settings: AuthSettings) => (
-      <CustomOAuthSection serverAddress={settings.ServerAddress} />
-    ),
-  },
-] as const
+const AUTH_SECTION_BUILDERS = {
+  'basic-auth': (settings: AuthSettings) => (
+    <BasicAuthSection
+      defaultValues={{
+        PasswordLoginEnabled: settings.PasswordLoginEnabled,
+        PasswordRegisterEnabled: settings.PasswordRegisterEnabled,
+        EmailVerificationEnabled: settings.EmailVerificationEnabled,
+        RegisterEnabled: settings.RegisterEnabled,
+        EmailDomainRestrictionEnabled: settings.EmailDomainRestrictionEnabled,
+        EmailAliasRestrictionEnabled: settings.EmailAliasRestrictionEnabled,
+        EmailDomainWhitelist: settings.EmailDomainWhitelist,
+      }}
+    />
+  ),
+  oauth: (settings: AuthSettings) => (
+    <OAuthSection
+      serverAddress={settings.ServerAddress}
+      defaultValues={{
+        GitHubOAuthEnabled: settings.GitHubOAuthEnabled,
+        GitHubClientId: settings.GitHubClientId,
+        GitHubClientSecret: settings.GitHubClientSecret,
+        'discord.enabled': settings['discord.enabled'],
+        'discord.client_id': settings['discord.client_id'],
+        'discord.client_secret': settings['discord.client_secret'],
+        'oidc.enabled': settings['oidc.enabled'],
+        'oidc.display_name': settings['oidc.display_name'],
+        'oidc.client_id': settings['oidc.client_id'],
+        'oidc.client_secret': settings['oidc.client_secret'],
+        'oidc.well_known': settings['oidc.well_known'],
+        'oidc.authorization_endpoint': settings['oidc.authorization_endpoint'],
+        'oidc.token_endpoint': settings['oidc.token_endpoint'],
+        'oidc.user_info_endpoint': settings['oidc.user_info_endpoint'],
+        TelegramOAuthEnabled: settings.TelegramOAuthEnabled,
+        'telegram.client_id': settings['telegram.client_id'],
+        'telegram.client_secret': settings['telegram.client_secret'],
+        LinuxDOOAuthEnabled: settings.LinuxDOOAuthEnabled,
+        LinuxDOClientId: settings.LinuxDOClientId,
+        LinuxDOClientSecret: settings.LinuxDOClientSecret,
+        LinuxDOMinimumTrustLevel: settings.LinuxDOMinimumTrustLevel,
+        WeChatAuthEnabled: settings.WeChatAuthEnabled,
+        WeChatServerAddress: settings.WeChatServerAddress,
+        WeChatServerToken: settings.WeChatServerToken,
+        WeChatAccountQRCodeImageURL: settings.WeChatAccountQRCodeImageURL,
+      }}
+    />
+  ),
+  passkey: (settings: AuthSettings) => (
+    <PasskeySection
+      defaultValues={{
+        'passkey.enabled': settings['passkey.enabled'],
+        'passkey.rp_display_name': settings['passkey.rp_display_name'],
+        'passkey.rp_id': settings['passkey.rp_id'],
+        'passkey.legacy_rp_ids': settings['passkey.legacy_rp_ids'],
+        'passkey.origins': settings['passkey.origins'],
+        'passkey.allow_insecure_origin':
+          settings['passkey.allow_insecure_origin'],
+        'passkey.user_verification': settings['passkey.user_verification'] as
+          | 'required'
+          | 'preferred'
+          | 'discouraged',
+        'passkey.attachment_preference':
+          settings['passkey.attachment_preference'],
+      }}
+    />
+  ),
+  'bot-protection': (settings: AuthSettings) => (
+    <BotProtectionSection
+      defaultValues={{
+        TurnstileCheckEnabled: settings.TurnstileCheckEnabled,
+        TurnstileSiteKey: settings.TurnstileSiteKey,
+        TurnstileSecretKey: settings.TurnstileSecretKey,
+      }}
+    />
+  ),
+  'custom-oauth': (settings: AuthSettings) => (
+    <CustomOAuthSection serverAddress={settings.ServerAddress} />
+  ),
+}
 
-export type AuthSectionId = (typeof AUTH_SECTIONS)[number]['id']
+export type { AuthSectionId } from '../section-navigation'
 
 const authRegistry = createSectionRegistry<AuthSectionId, AuthSettings>({
-  sections: AUTH_SECTIONS,
+  sections: AUTH_SECTIONS.map((section) => ({
+    ...section,
+    build: AUTH_SECTION_BUILDERS[section.id],
+  })),
   defaultSection: 'basic-auth',
   basePath: '/system-settings/auth',
   urlStyle: 'path',

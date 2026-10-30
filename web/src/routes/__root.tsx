@@ -31,7 +31,7 @@ import { ThemeCustomizationProvider } from '@/context/theme-customization-provid
 import { saveAffiliateCode } from '@/features/auth/lib/storage'
 import { GeneralError } from '@/features/errors/general-error'
 import { NotFoundError } from '@/features/errors/not-found-error'
-import { getSetupStatus } from '@/features/setup/api'
+import { getSetupComplete } from '@/features/setup/api'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import {
   bootstrapAuthentication,
@@ -106,7 +106,7 @@ export const Route = createRootRouteWithContext<{
   queryClient: QueryClient
 }>()({
   // 应用初始化与路由解析前统一校验会话
-  beforeLoad: async ({ location }) => {
+  beforeLoad: async ({ location, context }) => {
     const legacyTarget = resolveLegacyRoute(location.href)
     if (legacyTarget) {
       throw redirect({ href: legacyTarget, replace: true })
@@ -119,8 +119,8 @@ export const Route = createRootRouteWithContext<{
 
     // 只检查 setup 状态（如果需要）
     if (needsSetupCheck) {
-      const [status] = await Promise.all([
-        getSetupStatus().catch((error) => {
+      const [setupComplete] = await Promise.all([
+        getSetupComplete(context.queryClient).catch((error) => {
           if (import.meta.env.DEV) {
             // eslint-disable-next-line no-console
             console.warn('[root.beforeLoad] setup status check failed', error)
@@ -130,8 +130,8 @@ export const Route = createRootRouteWithContext<{
         authBootstrap,
       ])
 
-      if (status?.success && status.data) {
-        if (!status.data.status) {
+      if (setupComplete !== null) {
+        if (!setupComplete) {
           throw redirect({ to: '/setup' })
         }
         setupStatusChecked = true

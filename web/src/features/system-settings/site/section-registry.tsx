@@ -26,77 +26,63 @@ import {
 import { HeaderNavigationSection } from '../maintenance/header-navigation-section'
 import { NoticeSection } from '../maintenance/notice-section'
 import { SidebarModulesSection } from '../maintenance/sidebar-modules-section'
+import { SITE_SECTIONS, type SiteSectionId } from '../section-navigation'
 import type { SiteSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 
-const SITE_SECTIONS = [
-  {
-    id: 'system-info',
-    titleKey: 'System Information',
-    build: (settings: SiteSettings) => (
-      <SystemInfoSection
-        defaultValues={{
-          SystemName: settings.SystemName,
-          Logo: settings.Logo,
-          Footer: settings.Footer,
-          About: settings.About,
-          HomePageContent: settings.HomePageContent,
-          ServerAddress: settings.ServerAddress,
-          TaskPublicAddress: settings.TaskPublicAddress,
-          legal: {
-            user_agreement: settings['legal.user_agreement'],
-            privacy_policy: settings['legal.privacy_policy'],
-          },
-        }}
+const SITE_SECTION_BUILDERS = {
+  'system-info': (settings: SiteSettings) => (
+    <SystemInfoSection
+      defaultValues={{
+        SystemName: settings.SystemName,
+        Logo: settings.Logo,
+        Footer: settings.Footer,
+        About: settings.About,
+        HomePageContent: settings.HomePageContent,
+        ServerAddress: settings.ServerAddress,
+        TaskPublicAddress: settings.TaskPublicAddress,
+        legal: {
+          user_agreement: settings['legal.user_agreement'],
+          privacy_policy: settings['legal.privacy_policy'],
+        },
+      }}
+    />
+  ),
+  notice: (settings: SiteSettings) => (
+    <NoticeSection
+      defaultNotice={settings.Notice ?? ''}
+      defaultGroupChatLink={settings.GroupChatLink ?? ''}
+    />
+  ),
+  'header-navigation': (settings: SiteSettings) => {
+    const headerNavConfig = parseHeaderNavModules(settings.HeaderNavModules)
+    const headerNavSerialized = serializeHeaderNavModules(headerNavConfig)
+    return (
+      <HeaderNavigationSection
+        config={headerNavConfig}
+        initialSerialized={headerNavSerialized}
       />
-    ),
+    )
   },
-  {
-    id: 'notice',
-    titleKey: 'System Notice',
-    build: (settings: SiteSettings) => (
-      <NoticeSection
-        defaultNotice={settings.Notice ?? ''}
-        defaultGroupChatLink={settings.GroupChatLink ?? ''}
+  'sidebar-modules': (settings: SiteSettings) => {
+    const sidebarConfig = parseSidebarModulesAdmin(settings.SidebarModulesAdmin)
+    const sidebarSerialized = serializeSidebarModulesAdmin(sidebarConfig)
+    return (
+      <SidebarModulesSection
+        config={sidebarConfig}
+        initialSerialized={sidebarSerialized}
       />
-    ),
+    )
   },
-  {
-    id: 'header-navigation',
-    titleKey: 'Header navigation',
-    build: (settings: SiteSettings) => {
-      const headerNavConfig = parseHeaderNavModules(settings.HeaderNavModules)
-      const headerNavSerialized = serializeHeaderNavModules(headerNavConfig)
-      return (
-        <HeaderNavigationSection
-          config={headerNavConfig}
-          initialSerialized={headerNavSerialized}
-        />
-      )
-    },
-  },
-  {
-    id: 'sidebar-modules',
-    titleKey: 'Sidebar modules',
-    build: (settings: SiteSettings) => {
-      const sidebarConfig = parseSidebarModulesAdmin(
-        settings.SidebarModulesAdmin
-      )
-      const sidebarSerialized = serializeSidebarModulesAdmin(sidebarConfig)
-      return (
-        <SidebarModulesSection
-          config={sidebarConfig}
-          initialSerialized={sidebarSerialized}
-        />
-      )
-    },
-  },
-] as const
+}
 
-export type SiteSectionId = (typeof SITE_SECTIONS)[number]['id']
+export type { SiteSectionId } from '../section-navigation'
 
 const siteRegistry = createSectionRegistry<SiteSectionId, SiteSettings>({
-  sections: SITE_SECTIONS,
+  sections: SITE_SECTIONS.map((section) => ({
+    ...section,
+    build: SITE_SECTION_BUILDERS[section.id],
+  })),
   defaultSection: 'system-info',
   basePath: '/system-settings/site',
   urlStyle: 'path',

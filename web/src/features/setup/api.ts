@@ -16,7 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { QueryClient } from '@tanstack/react-query'
+
 import { api } from '@/lib/api'
+import { statusQueryOptions } from '@/lib/status-query'
 
 import type { SetupFormValues, SetupResponse } from './types'
 
@@ -28,6 +31,19 @@ export async function getSetupStatus(): Promise<SetupResponse> {
     },
   })
   return res.data
+}
+
+export async function getSetupComplete(
+  queryClient: QueryClient
+): Promise<boolean | null> {
+  const status = await queryClient
+    .fetchQuery({ ...statusQueryOptions, retry: false })
+    .catch(() => null)
+  if (typeof status?.setup === 'boolean') return status.setup
+
+  // Older servers may omit setup from /api/status.
+  const response = await getSetupStatus()
+  return response.success && response.data ? response.data.status : null
 }
 
 export async function submitSetup(
